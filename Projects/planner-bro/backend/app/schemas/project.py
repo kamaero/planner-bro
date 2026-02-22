@@ -1,0 +1,68 @@
+from pydantic import BaseModel
+from datetime import datetime, date
+from typing import Optional, List
+from app.schemas.user import UserOut
+
+
+class ProjectBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    color: str = "#6366f1"
+    status: str = "planning"
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+
+class ProjectCreate(ProjectBase):
+    pass
+
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    color: Optional[str] = None
+    status: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+
+class ProjectOut(ProjectBase):
+    id: str
+    owner_id: str
+    owner: UserOut
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ProjectMemberOut(BaseModel):
+    user: UserOut
+    role: str
+
+    model_config = {"from_attributes": True}
+
+
+class AddMemberRequest(BaseModel):
+    user_id: str
+    role: str = "member"
+
+
+# Gantt format for gantt-task-react
+class GanttTask(BaseModel):
+    id: str
+    name: str
+    start: str  # ISO date string
+    end: str
+    progress: float
+    dependencies: List[str] = []
+    type: str = "task"
+    project: str
+    assignee: Optional[str] = None
+    color: Optional[str] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+
+
+class GanttData(BaseModel):
+    tasks: List[GanttTask]
