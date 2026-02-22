@@ -93,6 +93,8 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     restart: unless-stopped
     ports:
       - "3000:80"
