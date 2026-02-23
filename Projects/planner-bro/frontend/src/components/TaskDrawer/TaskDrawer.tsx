@@ -1,8 +1,8 @@
-import { useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { useUpdateTaskStatus, useDeleteTask } from '@/hooks/useProjects'
+import { useUpdateTaskStatus, useDeleteTask, useUpdateTask } from '@/hooks/useProjects'
+import { useMembers } from '@/hooks/useMembers'
 import type { Task } from '@/types'
 import { CalendarDays, Clock, User, Trash2 } from 'lucide-react'
 
@@ -19,16 +19,26 @@ interface TaskDrawerProps {
   task: Task | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  projectId: string
 }
 
-export function TaskDrawer({ task, open, onOpenChange }: TaskDrawerProps) {
+export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerProps) {
   const updateStatus = useUpdateTaskStatus()
   const deleteTask = useDeleteTask()
+  const updateTask = useUpdateTask()
+  const { data: members = [] } = useMembers(projectId)
 
   if (!task) return null
 
   const handleStatusChange = (status: string) => {
     updateStatus.mutate({ taskId: task.id, status })
+  }
+
+  const handleAssigneeChange = (assignedToId: string) => {
+    updateTask.mutate({
+      taskId: task.id,
+      data: { assigned_to_id: assignedToId || null },
+    })
   }
 
   const handleDelete = async () => {
@@ -71,12 +81,22 @@ export function TaskDrawer({ task, open, onOpenChange }: TaskDrawerProps) {
 
           {/* Meta */}
           <div className="space-y-2 text-sm">
-            {task.assignee && (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <User className="w-4 h-4" />
-                <span>Assigned to {task.assignee.name}</span>
-              </div>
-            )}
+            {/* Assignee selector */}
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 text-muted-foreground shrink-0" />
+              <select
+                value={task.assigned_to_id ?? ''}
+                onChange={(e) => handleAssigneeChange(e.target.value)}
+                className="text-sm border rounded px-2 py-1 bg-background flex-1"
+              >
+                <option value="">Unassigned</option>
+                {members.map((m) => (
+                  <option key={m.user.id} value={m.user.id}>
+                    {m.user.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             {(task.start_date || task.end_date) && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <CalendarDays className="w-4 h-4" />

@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -26,6 +26,20 @@ async def update_me(
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+
+@router.get("/search", response_model=list[UserOut])
+async def search_users(
+    q: str = Query(default="", min_length=0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(User)
+        .where(or_(User.email.ilike(f"%{q}%"), User.name.ilike(f"%{q}%")))
+        .limit(10)
+    )
+    return result.scalars().all()
 
 
 @router.get("/", response_model=list[UserOut])

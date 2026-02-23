@@ -1,14 +1,30 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
+import { useThemeStore } from '@/store/themeStore'
 import { Login } from '@/pages/Login'
 import { Dashboard } from '@/pages/Dashboard'
 import { ProjectDetail } from '@/pages/ProjectDetail'
 import { Settings } from '@/pages/Settings'
+import { Analytics } from '@/pages/Analytics'
 import { GoogleCallback } from '@/pages/GoogleCallback'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { Link, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Settings as SettingsIcon } from 'lucide-react'
+import { LayoutDashboard, Settings as SettingsIcon, BarChart2, Moon, Sun } from 'lucide-react'
+
+function ThemeToggle() {
+  const { theme, toggleTheme } = useThemeStore()
+  return (
+    <button
+      onClick={toggleTheme}
+      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+      aria-label="Toggle theme"
+    >
+      {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+    </button>
+  )
+}
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const accessToken = useAuthStore((s) => s.accessToken)
@@ -43,6 +59,13 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               Projects
             </Link>
             <Link
+              to="/analytics"
+              className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <BarChart2 className="w-4 h-4" />
+              Analytics
+            </Link>
+            <Link
               to="/settings"
               className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -52,6 +75,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          <ThemeToggle />
           <NotificationBell />
           <span className="text-sm text-muted-foreground">{user?.name}</span>
         </div>
@@ -62,6 +86,16 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
+  const { theme } = useThemeStore()
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }, [theme])
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -82,6 +116,16 @@ export function App() {
           <AuthGuard>
             <AppLayout>
               <ProjectDetail />
+            </AppLayout>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/analytics"
+        element={
+          <AuthGuard>
+            <AppLayout>
+              <Analytics />
             </AppLayout>
           </AuthGuard>
         }

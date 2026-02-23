@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useProject, useGantt, useTasks, useCreateTask, useUpdateProject } from '@/hooks/useProjects'
+import { useProject, useGantt, useTasks, useCreateTask } from '@/hooks/useProjects'
+import { useMembers } from '@/hooks/useMembers'
 import { GanttChart } from '@/components/GanttChart/GanttChart'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
+import { MembersPanel } from '@/components/MembersPanel/MembersPanel'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import type { Task, GanttTask } from '@/types'
-import { ArrowLeft, Plus, BarChart2, List } from 'lucide-react'
+import { ArrowLeft, Plus, BarChart2, List, Users } from 'lucide-react'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -30,9 +32,10 @@ export function ProjectDetail() {
   const { data: project } = useProject(id!)
   const { data: ganttData } = useGantt(id!)
   const { data: tasks = [] } = useTasks(id!)
+  const { data: members = [] } = useMembers(id!)
   const createTask = useCreateTask()
 
-  const [view, setView] = useState<'gantt' | 'list'>('gantt')
+  const [view, setView] = useState<'gantt' | 'list' | 'members'>('gantt')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
@@ -43,6 +46,7 @@ export function ProjectDetail() {
     start_date: '',
     end_date: '',
     estimated_hours: '',
+    assigned_to_id: '',
   })
 
   const handleGanttTaskClick = (ganttTask: GanttTask) => {
@@ -67,10 +71,11 @@ export function ProjectDetail() {
         estimated_hours: taskForm.estimated_hours ? parseInt(taskForm.estimated_hours) : undefined,
         start_date: taskForm.start_date || undefined,
         end_date: taskForm.end_date || undefined,
+        assigned_to_id: taskForm.assigned_to_id || undefined,
       },
     })
     setTaskDialogOpen(false)
-    setTaskForm({ title: '', description: '', priority: 'medium', start_date: '', end_date: '', estimated_hours: '' })
+    setTaskForm({ title: '', description: '', priority: 'medium', start_date: '', end_date: '', estimated_hours: '', assigned_to_id: '' })
   }
 
   if (!project) {
@@ -106,6 +111,14 @@ export function ProjectDetail() {
           >
             <List className="w-4 h-4 mr-1" />
             List
+          </Button>
+          <Button
+            variant={view === 'members' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setView('members')}
+          >
+            <Users className="w-4 h-4 mr-1" />
+            Members
           </Button>
         </div>
 
@@ -149,6 +162,21 @@ export function ProjectDetail() {
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
                   <option value="critical">Critical</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label>Assignee</Label>
+                <select
+                  value={taskForm.assigned_to_id}
+                  onChange={(e) => setTaskForm((f) => ({ ...f, assigned_to_id: e.target.value }))}
+                  className="w-full border rounded px-3 py-2 text-sm bg-background"
+                >
+                  <option value="">Unassigned</option>
+                  {members.map((m) => (
+                    <option key={m.user.id} value={m.user.id}>
+                      {m.user.name}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -199,7 +227,7 @@ export function ProjectDetail() {
             onTaskClick={handleGanttTaskClick}
           />
         </div>
-      ) : (
+      ) : view === 'list' ? (
         <div className="space-y-2">
           {tasks.length === 0 && (
             <div className="text-center py-10 text-muted-foreground text-sm">
@@ -238,9 +266,16 @@ export function ProjectDetail() {
             </button>
           ))}
         </div>
+      ) : (
+        <MembersPanel projectId={id!} />
       )}
 
-      <TaskDrawer task={selectedTask} open={drawerOpen} onOpenChange={setDrawerOpen} />
+      <TaskDrawer
+        task={selectedTask}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        projectId={id!}
+      />
     </div>
   )
 }

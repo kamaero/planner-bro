@@ -82,6 +82,7 @@ export const api = {
   updateMe: (data: Partial<{ name: string; avatar_url: string }>) =>
     apiClient.put('/users/me', data).then((r) => r.data),
   listUsers: () => apiClient.get('/users').then((r) => r.data),
+  searchUsers: (q: string) => apiClient.get('/users/search', { params: { q } }).then((r) => r.data),
 
   // Projects
   listProjects: () => apiClient.get('/projects/').then((r) => r.data),

@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, useQueries } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import type { Project, Task, GanttData, Notification } from '@/types'
 
@@ -91,6 +91,20 @@ export function useUpdateTaskStatus() {
       api.updateTaskStatus(taskId, status),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
   })
+}
+
+export function useAllTasks() {
+  const { data: projects = [] } = useProjects()
+  const results = useQueries({
+    queries: projects.map((p) => ({
+      queryKey: ['tasks', p.id],
+      queryFn: () => api.listTasks(p.id),
+      enabled: !!p.id,
+    })),
+  })
+  const tasks: Task[] = results.flatMap((r) => (r.data as Task[] | undefined) ?? [])
+  const isLoading = results.some((r) => r.isLoading)
+  return { tasks, projects, isLoading }
 }
 
 export function useDeleteTask() {
