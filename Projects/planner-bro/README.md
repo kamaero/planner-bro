@@ -79,13 +79,14 @@ cp /etc/letsencrypt/live/yourdomain.com/privkey.pem nginx/ssl/
 
 # 3. Copy .env.example → .env.prod, fill in production values
 
-# 4. Start production stack
+# 4. Start production stack (backend/infra)
 docker compose -f docker-compose.prod.yml up -d --build
 
-# Frontend production build is optimized for stability/speed:
-# it runs `vite build` in Docker (without blocking `tsc -b`).
-# Run type checks separately when needed:
-docker compose -f docker-compose.prod.yml run --rm frontend npm run typecheck
+# 5. Deploy frontend from prebuilt local dist (no server build)
+./scripts/deploy-frontend-dist.sh
+
+# Optional: type check frontend locally
+cd frontend && npm run typecheck
 ```
 
 ## Architecture

@@ -80,11 +80,11 @@ services:
     command: celery -A app.tasks.celery_app beat --loglevel=warning
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+    image: nginx:alpine
     restart: always
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./frontend/nginx-spa.conf:/etc/nginx/conf.d/default.conf:ro
 
   nginx:
     image: nginx:alpine
