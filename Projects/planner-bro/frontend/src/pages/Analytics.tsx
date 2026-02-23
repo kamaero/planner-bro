@@ -84,20 +84,27 @@ export function Analytics() {
   const [reportTo, setReportTo] = useState('')
   const [reportProject, setReportProject] = useState('all')
 
-  if (isLoading) {
-    return <div className="p-6 text-muted-foreground">Загрузка аналитики...</div>
+  const today = new Date().toISOString().slice(0, 10)
+
+  const getTaskReportDate = (task: Task) => {
+    if (task.end_date) return task.end_date
+    if (task.created_at) return task.created_at.slice(0, 10)
+    return ''
   }
 
-  const today = new Date().toISOString().slice(0, 10)
   const reportTasks = useMemo(() => {
     return tasks.filter((t) => {
       if (reportProject !== 'all' && t.project_id !== reportProject) return false
-      const taskDate = t.end_date || t.created_at.slice(0, 10)
+      const taskDate = getTaskReportDate(t)
       if (reportFrom && taskDate < reportFrom) return false
       if (reportTo && taskDate > reportTo) return false
       return true
     })
   }, [tasks, reportFrom, reportTo, reportProject])
+
+  if (isLoading) {
+    return <div className="p-6 text-muted-foreground">Загрузка аналитики...</div>
+  }
 
   const totalProjects = projects.length
   const totalTasks = tasks.length
