@@ -67,9 +67,9 @@ Client (browser / Flutter)
 Layered FastAPI with async SQLAlchemy:
 
 - **`core/`** — cross-cutting: `config.py` (Pydantic Settings from `.env`), `database.py` (async engine + `get_db` dependency), `security.py` (`get_current_user` Bearer dependency, JWT helpers), `firebase.py` (FCM admin SDK, gracefully no-ops if credentials file absent)
-- **`models/`** — SQLAlchemy ORM. All PKs are `str` UUIDs. `ProjectMember` is a composite-PK join table (project_id + user_id). `Task.parent_task_id` is a self-referential FK for subtasks.
+- **`models/`** — SQLAlchemy ORM. All PKs are `str` UUIDs. `ProjectMember` is a composite-PK join table (project_id + user_id). `Task.parent_task_id` is a self-referential FK for subtasks. `ProjectFile` stores uploaded files per project.
 - **`schemas/`** — Pydantic request/response models, one file per domain. `GanttTask`/`GanttData` in `project.py` map directly to the `gantt-task-react` Task interface.
-- **`api/v1/`** — thin route handlers. Authorization helpers (`_require_project_access`, `_require_project_member`) are local to each router file. `tasks.py` router has **no prefix** — task routes are split across `/projects/{id}/tasks` and `/tasks/{id}`.
+- **`api/v1/`** — thin route handlers. Authorization helpers (`_require_project_access`, `_require_project_member`) are local to each router file. `tasks.py` router has **no prefix** — task routes are split across `/projects/{id}/tasks` and `/tasks/{id}`. Project files live under `/projects/{id}/files` with upload/list/download/delete endpoints.
 - **`services/`** — business logic. `notification_service.py` is the central fan-out point: every mutation calls a `notify_*` function which (1) writes DB records, (2) sends FCM via `firebase.py`, (3) broadcasts a WebSocket event via `ws_manager`.
 - **`tasks/`** — Celery. `celery_app.py` defines the Beat schedule. `deadline_checker.py` uses `asyncio.run()` to call async DB code from a sync Celery task.
 
@@ -81,9 +81,11 @@ Layered FastAPI with async SQLAlchemy:
 ### Frontend (`frontend/src/`)
 - **`store/authStore.ts`** — Zustand store. Only `refreshToken` is persisted (localStorage via `persist`). `accessToken` lives in memory only.
 - **`api/client.ts`** — Axios instance with two interceptors: (1) attaches access token to every request, (2) on 401, calls `/auth/refresh`, saves new tokens, replays queued requests. All API functions are exported from `api` object here.
-- **`hooks/useProjects.ts`** — all TanStack Query hooks for projects/tasks. On mutations, invalidates both `tasks` and `gantt` query keys since both derive from the same data.
+- **`hooks/useProjects.ts`** — all TanStack Query hooks for projects/tasks/files. On mutations, invalidates both `tasks` and `gantt` query keys since both derive from the same data.
 - **`hooks/useWebSocket.ts`** — opens `ws://host/ws?token=...` on mount, dispatches `queryClient.invalidateQueries` on received events. No explicit reconnect logic.
 - **`components/GanttChart/`** — wraps `gantt-task-react`. Converts `GanttTask[]` (from the `/gantt` endpoint) to the library's `Task[]` type via `toGanttTasks()`.
+- **`pages/Dashboard.tsx`** — clickable KPI cards filter a project list (active/in-progress/overdue/completed) and add fast navigation via `ProjectCard` links.
+- **`pages/ProjectDetail.tsx`** — project editing (name/status/dates/owner) and a Files tab for uploading and managing attachments.
 
 ### Flutter mobile (`mobile/lib/`)
 - **`core/api_client.dart`** — singleton `apiClient` (Dio). Token stored in `flutter_secure_storage`. On 401, attempts refresh then replays; on failure calls `logout()` (clears storage).
@@ -108,11 +110,12 @@ Required before features work:
 - **Google OAuth**: `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` + `VITE_GOOGLE_CLIENT_ID`
 - **Push notifications**: `firebase-credentials.json` at `FIREBASE_CREDENTIALS_PATH` (Firebase gracefully skips if file is absent)
 - **Email**: `SMTP_USER` + `SMTP_PASSWORD` (only deadline_missed events send email)
+- **Project files storage**: `PROJECT_FILES_DIR` points to a writable directory. In production, mount this directory as a persistent volume.
 
 ## Database
 
 PostgreSQL 16. Async driver: `asyncpg`. Sync driver (Alembic only): `psycopg2`.
 
-Migration file: `backend/alembic/versions/0001_initial.py` — creates all tables and 6 enums (`user_role`, `project_status`, `member_role`, `task_status`, `task_priority`, `notification_type`). Alembic runs automatically on container start via the `command:` in `docker-compose.yml`.
+Migration files: `backend/alembic/versions/0001_initial.py` (core tables/enums) and `0002_project_files.py` (project file storage). Alembic runs automatically on container start via the `command:` in `docker-compose.yml`.
 
 Redis uses 3 databases: `/0` = general cache, `/1` = Celery broker, `/2` = Celery result backend.

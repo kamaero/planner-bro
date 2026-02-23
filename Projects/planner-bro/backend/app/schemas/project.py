@@ -24,6 +24,7 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    owner_id: Optional[str] = None
 
 
 class ProjectOut(ProjectBase):
@@ -46,6 +47,19 @@ class ProjectMemberOut(BaseModel):
 class AddMemberRequest(BaseModel):
     user_id: str
     role: str = "member"
+
+
+class ProjectFileOut(BaseModel):
+    id: str
+    project_id: str
+    filename: str
+    content_type: Optional[str] = None
+    size: int
+    uploaded_by_id: Optional[str] = None
+    uploaded_by: Optional[UserOut] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 # Gantt format for gantt-task-react

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, useQueries } from '@tanstack/react-query'
 import { api } from '@/api/client'
-import type { Project, Task, GanttData, Notification } from '@/types'
+import type { Project, Task, GanttData, Notification, ProjectFile } from '@/types'
 
 export function useProjects() {
   return useQuery<Project[]>({
@@ -44,10 +44,11 @@ export function useCreateProject() {
 export function useUpdateProject() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: object }) => api.updateProject(id, data),
-    onSuccess: (_, { id }) => {
+    mutationFn: ({ projectId, data }: { projectId: string; data: object }) =>
+      api.updateProject(projectId, data),
+    onSuccess: (_, { projectId }) => {
       qc.invalidateQueries({ queryKey: ['projects'] })
-      qc.invalidateQueries({ queryKey: ['projects', id] })
+      qc.invalidateQueries({ queryKey: ['projects', projectId] })
     },
   })
 }
@@ -90,6 +91,34 @@ export function useUpdateTaskStatus() {
     mutationFn: ({ taskId, status }: { taskId: string; status: string }) =>
       api.updateTaskStatus(taskId, status),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+}
+
+export function useProjectFiles(projectId: string) {
+  return useQuery<ProjectFile[]>({
+    queryKey: ['project-files', projectId],
+    queryFn: () => api.listProjectFiles(projectId),
+    enabled: !!projectId,
+  })
+}
+
+export function useUploadProjectFile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, file }: { projectId: string; file: File }) =>
+      api.uploadProjectFile(projectId, file),
+    onSuccess: (_, { projectId }) =>
+      qc.invalidateQueries({ queryKey: ['project-files', projectId] }),
+  })
+}
+
+export function useDeleteProjectFile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, fileId }: { projectId: string; fileId: string }) =>
+      api.deleteProjectFile(projectId, fileId),
+    onSuccess: (_, { projectId }) =>
+      qc.invalidateQueries({ queryKey: ['project-files', projectId] }),
   })
 }
 

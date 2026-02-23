@@ -80,3 +80,14 @@ export interface ProjectMember {
   user: User
   role: 'owner' | 'manager' | 'member'
 }
+
+export interface ProjectFile {
+  id: string
+  project_id: string
+  filename: string
+  content_type?: string
+  size: number
+  uploaded_by_id?: string
+  uploaded_by?: User
+  created_at: string
+}

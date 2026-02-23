@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useProjects, useCreateProject, useAllTasks } from '@/hooks/useProjects'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { ProjectCard } from '@/components/ProjectCard/ProjectCard'
 import { Plus, FolderOpen, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import type { Task, Project } from '@/types'
 
@@ -61,15 +62,26 @@ function MetricCard({
   icon,
   iconColor,
   bgColor,
+  onClick,
+  active,
 }: {
   label: string
   value: number
   icon: React.ReactNode
   iconColor: string
   bgColor: string
+  onClick?: () => void
+  active?: boolean
 }) {
   return (
-    <div className="rounded-xl border bg-card p-5">
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-xl border bg-card p-5 text-left transition-shadow hover:shadow-md',
+        active ? 'ring-2 ring-primary/40' : undefined
+      )}
+    >
       <div className="flex items-center justify-between mb-3">
         <p className="text-sm text-muted-foreground">{label}</p>
         <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center', bgColor)}>
@@ -77,7 +89,7 @@ function MetricCard({
         </div>
       </div>
       <p className="text-3xl font-bold tabular-nums">{value}</p>
-    </div>
+    </button>
   )
 }
 
@@ -290,14 +302,59 @@ export function Dashboard() {
     start_date: '',
     end_date: '',
   })
+  const [focus, setFocus] = useState<'active' | 'in_progress' | 'overdue' | 'done'>('active')
+  const [search, setSearch] = useState('')
+  const listRef = useRef<HTMLDivElement | null>(null)
 
   const today = new Date().toISOString().slice(0, 10)
 
-  // ── metrics ──
-  const activeProjects  = projects.filter((p) => p.status === 'active').length
-  const inProgressTasks = tasks.filter((t) => t.status === 'in_progress').length
-  const overdueTasks    = tasks.filter((t) => t.end_date && t.end_date < today && t.status !== 'done').length
-  const doneTasks       = tasks.filter((t) => t.status === 'done').length
+  const handleFocus = (key: 'active' | 'in_progress' | 'overdue' | 'done') => {
+    setFocus(key)
+    listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const tasksByProject = useMemo(() => {
+    const map: Record<string, Task[]> = {}
+    tasks.forEach((task) => {
+      if (!map[task.project_id]) {
+        map[task.project_id] = []
+      }
+      map[task.project_id].push(task)
+    })
+    return map
+  }, [tasks])
+
+  const activeProjectsList = useMemo(
+    () =>
+      projects.filter(
+        (p) => p.status === 'active' && (!p.end_date || p.end_date >= today)
+      ),
+    [projects, today]
+  )
+  const overdueProjectsList = useMemo(
+    () =>
+      projects.filter(
+        (p) => p.status !== 'completed' && p.end_date && p.end_date < today
+      ),
+    [projects, today]
+  )
+  const doneProjectsList = useMemo(
+    () => projects.filter((p) => p.status === 'completed'),
+    [projects]
+  )
+  const inProgressProjectsList = useMemo(
+    () =>
+      projects.filter((p) => {
+        const pt = tasksByProject[p.id] ?? []
+        return pt.some((t) => t.status === 'in_progress' || t.status === 'review')
+      }),
+    [projects, tasksByProject]
+  )
+
+  const activeProjects = activeProjectsList.length
+  const inProgressProjects = inProgressProjectsList.length
+  const overdueProjects = overdueProjectsList.length
+  const doneProjects = doneProjectsList.length
 
   // ── activity chart ──
   const activityData = useMemo(() => {
@@ -333,8 +390,13 @@ export function Dashboard() {
 
   // ── project progress ──
   const projectProgress = useMemo(() => {
-    return projects
-      .filter((p) => p.status === 'active')
+    return [...activeProjectsList]
+      .sort((a, b) => {
+        if (!a.end_date && !b.end_date) return b.updated_at.localeCompare(a.updated_at)
+        if (!a.end_date) return 1
+        if (!b.end_date) return -1
+        return a.end_date.localeCompare(b.end_date)
+      })
       .slice(0, 5)
       .map((p) => {
         const pt = tasks.filter((t) => t.project_id === p.id)
@@ -342,7 +404,7 @@ export function Dashboard() {
         const pct = pt.length > 0 ? Math.round((done / pt.length) * 100) : 0
         return { project: p, total: pt.length, done, pct }
       })
-  }, [projects, tasks])
+  }, [activeProjectsList, tasks])
 
   // ── recent tasks ──
   const recentTasks = useMemo(
@@ -369,10 +431,49 @@ export function Dashboard() {
     [projects]
   )
 
+  const focusTitles: Record<typeof focus, string> = {
+    active: 'Активные проекты',
+    in_progress: 'В работе',
+    overdue: 'Просрочено',
+    done: 'Выполнено',
+  }
+
+  const focusProjects = useMemo(() => {
+    switch (focus) {
+      case 'active':
+        return activeProjectsList
+      case 'in_progress':
+        return inProgressProjectsList
+      case 'overdue':
+        return overdueProjectsList
+      case 'done':
+        return doneProjectsList
+      default:
+        return activeProjectsList
+    }
+  }, [
+    focus,
+    activeProjectsList,
+    inProgressProjectsList,
+    overdueProjectsList,
+    doneProjectsList,
+  ])
+
+  const filteredProjects = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return focusProjects
+    return focusProjects.filter((p) => {
+      const name = p.name.toLowerCase()
+      const desc = (p.description ?? '').toLowerCase()
+      return name.includes(q) || desc.includes(q)
+    })
+  }, [focusProjects, search])
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     await createProject.mutateAsync({
       ...form,
+      status: 'active',
       start_date: form.start_date || undefined,
       end_date: form.end_date || undefined,
     })
@@ -475,29 +576,64 @@ export function Dashboard() {
           icon={<FolderOpen className="w-4 h-4" />}
           iconColor="text-blue-500"
           bgColor="bg-blue-50 dark:bg-blue-950/30"
+          onClick={() => handleFocus('active')}
+          active={focus === 'active'}
         />
         <MetricCard
           label="В работе"
-          value={inProgressTasks}
+          value={inProgressProjects}
           icon={<Clock className="w-4 h-4" />}
           iconColor="text-purple-500"
           bgColor="bg-purple-50 dark:bg-purple-950/30"
+          onClick={() => handleFocus('in_progress')}
+          active={focus === 'in_progress'}
         />
         <MetricCard
           label="Просрочено"
-          value={overdueTasks}
+          value={overdueProjects}
           icon={<AlertTriangle className="w-4 h-4" />}
           iconColor="text-red-500"
           bgColor="bg-red-50 dark:bg-red-950/30"
+          onClick={() => handleFocus('overdue')}
+          active={focus === 'overdue'}
         />
         <MetricCard
           label="Выполнено"
-          value={doneTasks}
+          value={doneProjects}
           icon={<CheckCircle2 className="w-4 h-4" />}
           iconColor="text-green-500"
           bgColor="bg-green-50 dark:bg-green-950/30"
+          onClick={() => handleFocus('done')}
+          active={focus === 'done'}
         />
       </div>
+
+      <SectionCard
+        title={focusTitles[focus]}
+        action={
+          <div className="flex items-center gap-2">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск по проектам"
+              className="h-8 text-xs"
+            />
+          </div>
+        }
+      >
+        <div ref={listRef} />
+        {filteredProjects.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-3">
+            Нет проектов для выбранного фильтра.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredProjects.map((project) => (
+              <ProjectCard key={project.id} project={project} />
+            ))}
+          </div>
+        )}
+      </SectionCard>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="space-y-6 xl:col-span-2">

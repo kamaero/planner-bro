@@ -99,6 +99,21 @@ export const api = {
     apiClient.post(`/projects/${projectId}/members`, { user_id: userId, role }).then((r) => r.data),
   removeMember: (projectId: string, userId: string) =>
     apiClient.delete(`/projects/${projectId}/members/${userId}`),
+  listProjectFiles: (projectId: string) =>
+    apiClient.get(`/projects/${projectId}/files`).then((r) => r.data),
+  uploadProjectFile: (projectId: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return apiClient
+      .post(`/projects/${projectId}/files`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  },
+  deleteProjectFile: (projectId: string, fileId: string) =>
+    apiClient.delete(`/projects/${projectId}/files/${fileId}`),
+  downloadProjectFile: (projectId: string, fileId: string) =>
+    apiClient.get(`/projects/${projectId}/files/${fileId}/download`, { responseType: 'blob' }),
 
   // Tasks
   listTasks: (projectId: string) =>

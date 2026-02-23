@@ -39,5 +39,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     EMAILS_FROM: str = "noreply@planner-bro.com"
 
+    PROJECT_FILES_DIR: str = "uploads/projects"
+
 
 settings = Settings()

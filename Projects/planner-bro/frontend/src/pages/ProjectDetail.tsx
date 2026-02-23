@@ -1,7 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useProject, useGantt, useTasks, useCreateTask } from '@/hooks/useProjects'
+import {
+  useProject,
+  useGantt,
+  useTasks,
+  useCreateTask,
+  useUpdateProject,
+  useProjectFiles,
+  useUploadProjectFile,
+  useDeleteProjectFile,
+} from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
+import { api } from '@/api/client'
 import { GanttChart } from '@/components/GanttChart/GanttChart'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
 import { MembersPanel } from '@/components/MembersPanel/MembersPanel'
@@ -10,8 +20,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import type { Task, GanttTask } from '@/types'
-import { ArrowLeft, Plus, BarChart2, List, Users } from 'lucide-react'
+import type { Task, GanttTask, ProjectFile } from '@/types'
+import { useAuthStore } from '@/store/authStore'
+import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2 } from 'lucide-react'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -27,18 +38,39 @@ const STATUS_LABELS: Record<string, string> = {
   done: 'Done',
 }
 
+const PROJECT_STATUS_OPTIONS = [
+  { value: 'planning', label: 'Планирование' },
+  { value: 'active', label: 'Активный' },
+  { value: 'on_hold', label: 'Пауза' },
+  { value: 'completed', label: 'Завершён' },
+]
+
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
 export function ProjectDetail() {
   const { id } = useParams<{ id: string }>()
   const { data: project } = useProject(id!)
   const { data: ganttData } = useGantt(id!)
   const { data: tasks = [] } = useTasks(id!)
   const { data: members = [] } = useMembers(id!)
+  const { data: files = [] } = useProjectFiles(id!)
   const createTask = useCreateTask()
+  const updateProject = useUpdateProject()
+  const uploadProjectFile = useUploadProjectFile()
+  const deleteProjectFile = useDeleteProjectFile()
+  const currentUser = useAuthStore((s) => s.user)
 
-  const [view, setView] = useState<'gantt' | 'list' | 'members'>('gantt')
+  const [view, setView] = useState<'gantt' | 'list' | 'members' | 'files'>('gantt')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [fileToUpload, setFileToUpload] = useState<File | null>(null)
   const [taskForm, setTaskForm] = useState({
     title: '',
     description: '',
@@ -48,6 +80,30 @@ export function ProjectDetail() {
     estimated_hours: '',
     assigned_to_id: '',
   })
+  const [editForm, setEditForm] = useState({
+    name: '',
+    description: '',
+    status: 'planning',
+    start_date: '',
+    end_date: '',
+    owner_id: '',
+  })
+
+  const memberRole = members.find((m) => m.user.id === currentUser?.id)?.role
+  const canManage = currentUser?.role === 'admin' || memberRole === 'owner' || memberRole === 'manager'
+
+  useEffect(() => {
+    if (project && editOpen) {
+      setEditForm({
+        name: project.name,
+        description: project.description ?? '',
+        status: project.status,
+        start_date: project.start_date ?? '',
+        end_date: project.end_date ?? '',
+        owner_id: project.owner_id,
+      })
+    }
+  }, [project, editOpen])
 
   const handleGanttTaskClick = (ganttTask: GanttTask) => {
     const task = tasks.find((t) => t.id === ganttTask.id)
@@ -76,6 +132,41 @@ export function ProjectDetail() {
     })
     setTaskDialogOpen(false)
     setTaskForm({ title: '', description: '', priority: 'medium', start_date: '', end_date: '', estimated_hours: '', assigned_to_id: '' })
+  }
+
+  const handleUpdateProject = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await updateProject.mutateAsync({
+      projectId: id!,
+      data: {
+        name: editForm.name,
+        description: editForm.description,
+        status: editForm.status,
+        start_date: editForm.start_date || null,
+        end_date: editForm.end_date || null,
+        owner_id: editForm.owner_id || null,
+      },
+    })
+    setEditOpen(false)
+  }
+
+  const handleUploadFile = async () => {
+    if (!fileToUpload) return
+    await uploadProjectFile.mutateAsync({ projectId: id!, file: fileToUpload })
+    setFileToUpload(null)
+  }
+
+  const handleDownload = async (file: ProjectFile) => {
+    const res = await api.downloadProjectFile(id!, file.id)
+    const blob = new Blob([res.data], { type: file.content_type || 'application/octet-stream' })
+    const url = window.URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = file.filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.URL.revokeObjectURL(url)
   }
 
   if (!project) {
@@ -120,7 +211,97 @@ export function ProjectDetail() {
             <Users className="w-4 h-4 mr-1" />
             Members
           </Button>
+          <Button
+            variant={view === 'files' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setView('files')}
+          >
+            <Paperclip className="w-4 h-4 mr-1" />
+            Files
+          </Button>
         </div>
+
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm" disabled={!canManage}>
+              <Pencil className="w-4 h-4 mr-1" />
+              Редактировать
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Редактировать проект</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleUpdateProject} className="space-y-4">
+              <div className="space-y-1">
+                <Label>Название</Label>
+                <Input
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Описание</Label>
+                <Input
+                  value={editForm.description}
+                  onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>Статус</Label>
+                  <select
+                    value={editForm.status}
+                    onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))}
+                    className="w-full border rounded px-2 py-2 bg-background text-sm"
+                  >
+                    {PROJECT_STATUS_OPTIONS.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Ответственный</Label>
+                  <select
+                    value={editForm.owner_id}
+                    onChange={(e) => setEditForm((f) => ({ ...f, owner_id: e.target.value }))}
+                    className="w-full border rounded px-2 py-2 bg-background text-sm"
+                  >
+                    {members.map((m) => (
+                      <option key={m.user.id} value={m.user.id}>
+                        {m.user.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>Дата начала</Label>
+                  <Input
+                    type="date"
+                    value={editForm.start_date}
+                    onChange={(e) => setEditForm((f) => ({ ...f, start_date: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Дата окончания</Label>
+                  <Input
+                    type="date"
+                    value={editForm.end_date}
+                    onChange={(e) => setEditForm((f) => ({ ...f, end_date: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <Button type="submit" className="w-full" disabled={updateProject.isPending}>
+                {updateProject.isPending ? 'Сохранение...' : 'Сохранить изменения'}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
           <DialogTrigger asChild>
@@ -266,8 +447,68 @@ export function ProjectDetail() {
             </button>
           ))}
         </div>
-      ) : (
+      ) : view === 'members' ? (
         <MembersPanel projectId={id!} />
+      ) : (
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2">
+              <Input
+                type="file"
+                onChange={(e) => setFileToUpload(e.target.files?.[0] ?? null)}
+              />
+              <Button
+                variant="outline"
+                onClick={handleUploadFile}
+                disabled={!fileToUpload || uploadProjectFile.isPending}
+              >
+                {uploadProjectFile.isPending ? 'Загрузка...' : 'Загрузить файл'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Добавляйте материалы проекта: pdf, docx, ppt и другие файлы
+            </p>
+          </div>
+
+          {files.length === 0 ? (
+            <div className="text-sm text-muted-foreground">Файлов пока нет.</div>
+          ) : (
+            <div className="space-y-2">
+              {files.map((file) => (
+                <div
+                  key={file.id}
+                  className="flex items-center justify-between rounded-lg border bg-card px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{file.filename}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatFileSize(file.size)} ·{' '}
+                      {new Date(file.created_at).toLocaleDateString()} ·{' '}
+                      {file.uploaded_by?.name ?? 'Неизвестно'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleDownload(file)}>
+                      <Download className="w-4 h-4 mr-1" />
+                      Скачать
+                    </Button>
+                    {canManage && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          deleteProjectFile.mutate({ projectId: id!, fileId: file.id })
+                        }
+                      >
+                        <Trash2 className="w-4 h-4 text-red-500" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       <TaskDrawer

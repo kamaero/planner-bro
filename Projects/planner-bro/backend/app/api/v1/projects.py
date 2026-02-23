@@ -1,15 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+from pathlib import Path
+import shutil
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.config import settings
 from app.models.user import User
-from app.models.project import Project, ProjectMember
+from app.models.project import Project, ProjectMember, ProjectFile
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
-    AddMemberRequest, GanttData
+    AddMemberRequest, GanttData, ProjectFileOut
 )
 from app.services.project_service import get_projects_for_user, get_gantt_data
 from app.services.notification_service import notify_project_updated
@@ -97,10 +102,33 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _require_project_access(project_id, current_user, db, require_manager=True)
-    for field, value in data.model_dump(exclude_none=True).items():
+    payload = data.model_dump(exclude_none=True)
+    owner_id = payload.pop("owner_id", None)
+    for field, value in payload.items():
         setattr(project, field, value)
+    if owner_id and owner_id != project.owner_id:
+        owner_result = await db.execute(select(User).where(User.id == owner_id))
+        new_owner = owner_result.scalar_one_or_none()
+        if not new_owner:
+            raise HTTPException(status_code=404, detail="Owner not found")
+        project.owner_id = owner_id
+        members_result = await db.execute(
+            select(ProjectMember).where(ProjectMember.project_id == project_id)
+        )
+        members = members_result.scalars().all()
+        for member in members:
+            if member.role == "owner" and member.user_id != owner_id:
+                member.role = "manager"
+        target_member = next((m for m in members if m.user_id == owner_id), None)
+        if target_member:
+            target_member.role = "owner"
+        else:
+            db.add(ProjectMember(project_id=project_id, user_id=owner_id, role="owner"))
     await db.commit()
-    await db.refresh(project)
+    result = await db.execute(
+        select(Project).where(Project.id == project_id).options(selectinload(Project.owner))
+    )
+    project = result.scalar_one()
     await notify_project_updated(db, project)
     return project
 
@@ -139,6 +167,115 @@ async def list_members(
         .options(selectinload(ProjectMember.user))
     )
     return result.scalars().all()
+
+
+@router.get("/{project_id}/files", response_model=list[ProjectFileOut])
+async def list_project_files(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_access(project_id, current_user, db)
+    result = await db.execute(
+        select(ProjectFile)
+        .where(ProjectFile.project_id == project_id)
+        .options(selectinload(ProjectFile.uploaded_by))
+    )
+    return result.scalars().all()
+
+
+@router.post("/{project_id}/files", response_model=ProjectFileOut, status_code=201)
+async def upload_project_file(
+    project_id: str,
+    upload: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_access(project_id, current_user, db)
+    if not upload.filename:
+        raise HTTPException(status_code=400, detail="Filename required")
+
+    files_root = Path(settings.PROJECT_FILES_DIR)
+    project_dir = files_root / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    file_id = str(uuid.uuid4())
+    suffix = Path(upload.filename).suffix
+    stored_name = f"{file_id}{suffix}"
+    storage_path = project_dir / stored_name
+
+    with storage_path.open("wb") as buffer:
+        shutil.copyfileobj(upload.file, buffer)
+
+    size = storage_path.stat().st_size
+    record = ProjectFile(
+        id=file_id,
+        project_id=project_id,
+        filename=upload.filename,
+        content_type=upload.content_type,
+        size=size,
+        storage_path=str(storage_path),
+        uploaded_by_id=current_user.id,
+    )
+    db.add(record)
+    await db.commit()
+    result = await db.execute(
+        select(ProjectFile)
+        .where(ProjectFile.id == file_id)
+        .options(selectinload(ProjectFile.uploaded_by))
+    )
+    return result.scalar_one()
+
+
+@router.get("/{project_id}/files/{file_id}/download")
+async def download_project_file(
+    project_id: str,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_access(project_id, current_user, db)
+    result = await db.execute(
+        select(ProjectFile).where(
+            ProjectFile.id == file_id,
+            ProjectFile.project_id == project_id,
+        )
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = Path(record.storage_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File missing on disk")
+    return FileResponse(
+        path=str(path),
+        media_type=record.content_type or "application/octet-stream",
+        filename=record.filename,
+    )
+
+
+@router.delete("/{project_id}/files/{file_id}", status_code=204)
+async def delete_project_file(
+    project_id: str,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_access(project_id, current_user, db, require_manager=True)
+    result = await db.execute(
+        select(ProjectFile).where(
+            ProjectFile.id == file_id,
+            ProjectFile.project_id == project_id,
+        )
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = Path(record.storage_path)
+    if path.exists():
+        path.unlink()
+    await db.delete(record)
+    await db.commit()
 
 
 @router.post("/{project_id}/members", status_code=201)
