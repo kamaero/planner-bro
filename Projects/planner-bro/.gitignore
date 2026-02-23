@@ -20,6 +20,7 @@ venv/
 node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/tsconfig.tsbuildinfo
 
 # Flutter
 mobile/.dart_tool/

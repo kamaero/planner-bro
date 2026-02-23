@@ -59,11 +59,14 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
   }
 
   const handleAdd = async () => {
-    if (!selectedUser) return
-    await addMember.mutateAsync({ projectId, userId: selectedUser.id, role })
+    const user = selectedUser ?? (searchResults.length === 1 ? searchResults[0] : null)
+    if (!user) return
+    await addMember.mutateAsync({ projectId, userId: user.id, role })
     setSelectedUser(null)
     setQuery('')
+    setDebouncedQuery('')
     setRole('member')
+    setDropdownOpen(false)
   }
 
   const handleRemove = async (userId: string) => {
@@ -150,7 +153,7 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
             <Button
               size="sm"
               onClick={handleAdd}
-              disabled={!selectedUser || addMember.isPending}
+              disabled={(!selectedUser && searchResults.length === 0) || addMember.isPending}
             >
               <UserPlus className="w-4 h-4 mr-1" />
               Add

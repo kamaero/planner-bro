@@ -9,9 +9,18 @@ import { Settings } from '@/pages/Settings'
 import { Analytics } from '@/pages/Analytics'
 import { GoogleCallback } from '@/pages/GoogleCallback'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { Link, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Settings as SettingsIcon, BarChart2, Moon, Sun } from 'lucide-react'
+import {
+  LayoutDashboard,
+  Settings as SettingsIcon,
+  BarChart2,
+  Moon,
+  Sun,
+  LogOut,
+} from 'lucide-react'
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useThemeStore()
@@ -36,6 +45,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
+  const location = useLocation()
   useWebSocket()
 
   const handleLogout = () => {
@@ -43,44 +53,71 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     navigate('/login')
   }
 
+  const navItems = [
+    { to: '/', label: 'Проекты', icon: LayoutDashboard },
+    { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
+    { to: '/settings', label: 'Настройки', icon: SettingsIcon },
+  ]
+
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <Link to="/" className="font-bold text-lg tracking-tight">
-            planner-bro
-          </Link>
-          <nav className="flex gap-4 text-sm">
-            <Link
-              to="/"
-              className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              Projects
-            </Link>
-            <Link
-              to="/analytics"
-              className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <BarChart2 className="w-4 h-4" />
-              Analytics
-            </Link>
-            <Link
-              to="/settings"
-              className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <SettingsIcon className="w-4 h-4" />
-              Settings
-            </Link>
-          </nav>
+    <div className="min-h-screen bg-background flex">
+      <aside className="w-64 border-r bg-card/60">
+        <div className="px-6 py-5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold">
+            PB
+          </div>
+          <div>
+            <div className="text-sm font-semibold leading-none">Planner Bro</div>
+            <div className="text-xs text-muted-foreground mt-1">ИТ отдел</div>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <ThemeToggle />
-          <NotificationBell />
-          <span className="text-sm text-muted-foreground">{user?.name}</span>
+        <nav className="px-3 space-y-1">
+          {navItems.map((item) => {
+            const active =
+              item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)
+            const Icon = item.icon
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  active
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {item.label}
+              </Link>
+            )
+          })}
+        </nav>
+        <div className="mt-auto px-4 py-4 border-t flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{user?.name}</p>
+            <p className="text-xs text-muted-foreground truncate">Участник команды</p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={handleLogout} aria-label="Выйти">
+            <LogOut className="w-4 h-4" />
+          </Button>
         </div>
-      </header>
-      <main>{children}</main>
+      </aside>
+      <div className="flex-1 min-w-0 flex flex-col">
+        <header className="border-b bg-card px-6 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">ИТ проекты</p>
+            <h1 className="text-lg font-semibold">Панель управления</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="hidden lg:block w-72">
+              <Input placeholder="Поиск по проектам и задачам" />
+            </div>
+            <ThemeToggle />
+            <NotificationBell />
+          </div>
+        </header>
+        <main className="flex-1 bg-muted/30">{children}</main>
+      </div>
     </div>
   )
 }
