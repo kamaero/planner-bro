@@ -17,6 +17,7 @@ export interface Project {
   status: 'planning' | 'active' | 'on_hold' | 'completed'
   start_date?: string
   end_date?: string
+  completion_checklist?: Array<{ id: string; label: string; done: boolean }>
   owner_id: string
   owner: User
   created_at: string
@@ -37,6 +38,10 @@ export interface Task {
   assignee?: User
   is_escalation?: boolean
   escalation_for?: string
+  escalation_sla_hours?: number
+  escalation_due_at?: string
+  escalation_first_response_at?: string
+  escalation_overdue_at?: string
   repeat_every_days?: number
   created_by_id: string
   estimated_hours?: number

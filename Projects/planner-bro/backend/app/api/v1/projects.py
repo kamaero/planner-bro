@@ -11,7 +11,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.config import settings
 from app.models.user import User
-from app.models.project import Project, ProjectMember, ProjectFile
+from app.models.project import Project, ProjectMember, ProjectFile, default_completion_checklist
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
     AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut
@@ -20,6 +20,30 @@ from app.services.project_service import get_projects_for_user, get_gantt_data
 from app.services.notification_service import notify_project_updated
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+def _normalize_checklist(items: list[dict] | None) -> list[dict]:
+    normalized: list[dict] = []
+    for item in items or []:
+        item_id = str(item.get("id", "")).strip()
+        label = str(item.get("label", "")).strip()
+        if not item_id or not label:
+            continue
+        normalized.append({"id": item_id, "label": label, "done": bool(item.get("done", False))})
+    return normalized
+
+
+def _ensure_project_completion_allowed(checklist: list[dict]) -> None:
+    if not checklist:
+        raise HTTPException(
+            status_code=400,
+            detail="Нельзя завершить проект: заполните checklist definition of done.",
+        )
+    if any(not bool(item.get("done", False)) for item in checklist):
+        raise HTTPException(
+            status_code=400,
+            detail="Нельзя завершить проект: все пункты definition of done должны быть отмечены.",
+        )
 
 
 async def _require_project_access(
@@ -79,7 +103,10 @@ async def create_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = Project(**data.model_dump(), owner_id=current_user.id)
+    payload = data.model_dump()
+    incoming_checklist = _normalize_checklist(payload.get("completion_checklist"))
+    payload["completion_checklist"] = incoming_checklist or default_completion_checklist()
+    project = Project(**payload, owner_id=current_user.id)
     db.add(project)
     await db.flush()
 
@@ -115,6 +142,12 @@ async def update_project(
     requester_member = await _get_member(project_id, current_user.id, db)
     payload = data.model_dump(exclude_none=True)
     owner_id = payload.pop("owner_id", None)
+    checklist_payload = payload.pop("completion_checklist", None)
+    if checklist_payload is not None:
+        project.completion_checklist = _normalize_checklist(checklist_payload)
+    target_status = payload.get("status", project.status)
+    if target_status == "completed":
+        _ensure_project_completion_allowed(project.completion_checklist)
     for field, value in payload.items():
         setattr(project, field, value)
     if owner_id and owner_id != project.owner_id:

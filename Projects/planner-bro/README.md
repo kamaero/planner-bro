@@ -158,5 +158,11 @@ Copy `.env.example` to `.env` and set:
   global header search and analytics CSV export with date/project filters.
 - Dependencies:
   task dependency selection + critical path block in project view.
+- Escalation SLA:
+  escalation tasks now support reaction SLA (hours), first-response tracking, and auto-overdue marking.
+- Bottlenecks dashboard:
+  dashboard highlights blocked tasks (dependency blockers) and overdue escalations.
+- Definition of Done:
+  project completion is now guarded by a mandatory completion checklist.
 - Notifications:
   less noise for assignees and deduplication for repeated deadline checks.

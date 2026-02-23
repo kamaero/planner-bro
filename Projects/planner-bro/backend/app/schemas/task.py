@@ -16,6 +16,10 @@ class TaskBase(BaseModel):
     estimated_hours: Optional[int] = None
     is_escalation: bool = False
     escalation_for: Optional[str] = None
+    escalation_sla_hours: int = 24
+    escalation_due_at: Optional[datetime] = None
+    escalation_first_response_at: Optional[datetime] = None
+    escalation_overdue_at: Optional[datetime] = None
     repeat_every_days: Optional[int] = None
 
 
@@ -35,6 +39,10 @@ class TaskUpdate(BaseModel):
     parent_task_id: Optional[str] = None
     is_escalation: Optional[bool] = None
     escalation_for: Optional[str] = None
+    escalation_sla_hours: Optional[int] = None
+    escalation_due_at: Optional[datetime] = None
+    escalation_first_response_at: Optional[datetime] = None
+    escalation_overdue_at: Optional[datetime] = None
     repeat_every_days: Optional[int] = None
 
 

@@ -21,6 +21,12 @@ const PRIORITY_COLORS: Record<string, string> = {
 }
 
 const STATUS_OPTIONS = ['todo', 'in_progress', 'review', 'done'] as const
+const STATUS_LABELS: Record<string, string> = {
+  todo: 'К выполнению',
+  in_progress: 'В работе',
+  review: 'На проверке',
+  done: 'Выполнено',
+}
 
 interface TaskDrawerProps {
   task: Task | null
@@ -40,6 +46,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [repeatDays, setRepeatDays] = useState('')
   const [isEscalation, setIsEscalation] = useState(false)
   const [escalationFor, setEscalationFor] = useState('')
+  const [escalationSlaHours, setEscalationSlaHours] = useState('24')
   const [commentBody, setCommentBody] = useState('')
 
   const { data: comments = [] } = useTaskComments(task?.id)
@@ -53,6 +60,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     setRepeatDays(task.repeat_every_days ? String(task.repeat_every_days) : '')
     setIsEscalation(!!task.is_escalation)
     setEscalationFor(task.escalation_for ?? '')
+    setEscalationSlaHours(String(task.escalation_sla_hours ?? 24))
   }, [task])
 
   const handleStatusChange = (status: string) => {
@@ -82,6 +90,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
         repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
         is_escalation: isEscalation,
         escalation_for: escalationFor || null,
+        escalation_sla_hours: escalationSlaHours ? parseInt(escalationSlaHours) : 24,
       },
     })
   }
@@ -112,7 +121,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
             >
               {STATUS_OPTIONS.map((s) => (
                 <option key={s} value={s}>
-                  {s.replace('_', ' ')}
+                  {STATUS_LABELS[s]}
                 </option>
               ))}
             </select>
@@ -133,7 +142,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 onChange={(e) => handleAssigneeChange(e.target.value)}
                 className="text-sm border rounded px-2 py-1 bg-background flex-1"
               >
-                <option value="">Unassigned</option>
+                <option value="">Не назначен</option>
                 {members.map((m) => (
                   <option key={m.user.id} value={m.user.id}>
                     {m.user.name}
@@ -185,12 +194,37 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 Эскалация на руководителя
               </label>
               {isEscalation && (
-                <input
-                  value={escalationFor}
-                  onChange={(e) => setEscalationFor(e.target.value)}
-                  className="w-full text-sm border rounded px-2 py-1 bg-background"
-                  placeholder="Описание проблемы для эскалации"
-                />
+                <div className="space-y-2">
+                  <input
+                    value={escalationFor}
+                    onChange={(e) => setEscalationFor(e.target.value)}
+                    className="w-full text-sm border rounded px-2 py-1 bg-background"
+                    placeholder="Описание проблемы для эскалации"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    value={escalationSlaHours}
+                    onChange={(e) => setEscalationSlaHours(e.target.value)}
+                    className="w-full text-sm border rounded px-2 py-1 bg-background"
+                    placeholder="SLA реакции (часы)"
+                  />
+                  {task.escalation_due_at && (
+                    <p className="text-xs text-muted-foreground">
+                      Срок реакции: {new Date(task.escalation_due_at).toLocaleString('ru')}
+                    </p>
+                  )}
+                  {task.escalation_first_response_at && (
+                    <p className="text-xs text-emerald-700">
+                      Первая реакция: {new Date(task.escalation_first_response_at).toLocaleString('ru')}
+                    </p>
+                  )}
+                  {task.escalation_overdue_at && (
+                    <p className="text-xs text-red-700">
+                      SLA просрочен: {new Date(task.escalation_overdue_at).toLocaleString('ru')}
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -240,7 +274,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
           <div className="flex justify-end pt-2">
             <Button variant="destructive" size="sm" onClick={handleDelete}>
               <Trash2 className="w-4 h-4 mr-1" />
-              Delete
+              Удалить
             </Button>
           </div>
         </div>

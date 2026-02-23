@@ -36,10 +36,10 @@ const PRIORITY_COLORS: Record<string, string> = {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  todo: 'To Do',
-  in_progress: 'In Progress',
-  review: 'Review',
-  done: 'Done',
+  todo: 'К выполнению',
+  in_progress: 'В работе',
+  review: 'На проверке',
+  done: 'Выполнено',
 }
 
 const PROJECT_STATUS_OPTIONS = [
@@ -47,6 +47,13 @@ const PROJECT_STATUS_OPTIONS = [
   { value: 'active', label: 'Активный' },
   { value: 'on_hold', label: 'Пауза' },
   { value: 'completed', label: 'Завершён' },
+]
+
+const DEFAULT_DOD_CHECKLIST = [
+  { id: 'scope_approved', label: 'Результаты проекта согласованы', done: false },
+  { id: 'docs_prepared', label: 'Документация и инструкции подготовлены', done: false },
+  { id: 'handover_done', label: 'Передача в сопровождение завершена', done: false },
+  { id: 'retrospective_done', label: 'Ретроспектива проведена', done: false },
 ]
 
 function formatFileSize(size: number) {
@@ -91,6 +98,7 @@ export function ProjectDetail() {
     parent_task_id: '',
     is_escalation: false,
     escalation_for: '',
+    escalation_sla_hours: '24',
     repeat_every_days: '',
   })
   const [editForm, setEditForm] = useState({
@@ -100,6 +108,7 @@ export function ProjectDetail() {
     start_date: '',
     end_date: '',
     owner_id: '',
+    completion_checklist: DEFAULT_DOD_CHECKLIST,
   })
   const [taskSearch, setTaskSearch] = useState('')
   const [taskStatusFilter, setTaskStatusFilter] = useState('all')
@@ -141,6 +150,10 @@ export function ProjectDetail() {
         start_date: project.start_date ?? '',
         end_date: project.end_date ?? '',
         owner_id: project.owner_id,
+        completion_checklist:
+          project.completion_checklist && project.completion_checklist.length > 0
+            ? project.completion_checklist
+            : DEFAULT_DOD_CHECKLIST,
       })
     }
   }, [project, editOpen])
@@ -217,6 +230,9 @@ export function ProjectDetail() {
         parent_task_id: taskForm.parent_task_id || undefined,
         is_escalation: taskForm.is_escalation,
         escalation_for: taskForm.escalation_for || undefined,
+        escalation_sla_hours: taskForm.escalation_sla_hours
+          ? parseInt(taskForm.escalation_sla_hours)
+          : undefined,
         repeat_every_days: taskForm.repeat_every_days ? parseInt(taskForm.repeat_every_days) : undefined,
       },
     })
@@ -232,6 +248,7 @@ export function ProjectDetail() {
       parent_task_id: '',
       is_escalation: false,
       escalation_for: '',
+      escalation_sla_hours: '24',
       repeat_every_days: '',
     })
   }
@@ -247,6 +264,7 @@ export function ProjectDetail() {
         start_date: editForm.start_date || null,
         end_date: editForm.end_date || null,
         owner_id: canTransferOwnership ? editForm.owner_id || null : project?.owner_id ?? editForm.owner_id,
+        completion_checklist: editForm.completion_checklist,
       },
     })
     setEditOpen(false)
@@ -411,6 +429,34 @@ export function ProjectDetail() {
                   />
                 </div>
               </div>
+              <div className="space-y-2 rounded-lg border p-3">
+                <Label className="text-sm font-semibold">Definition of Done (обязательный чеклист)</Label>
+                <div className="space-y-2">
+                  {editForm.completion_checklist.map((item) => (
+                    <label key={item.id} className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={item.done}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            completion_checklist: prev.completion_checklist.map((current) =>
+                              current.id === item.id ? { ...current, done: e.target.checked } : current
+                            ),
+                          }))
+                        }
+                      />
+                      <span>{item.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {editForm.status === 'completed' &&
+                  editForm.completion_checklist.some((i) => !i.done) && (
+                    <p className="text-xs text-red-600">
+                      Чтобы завершить проект, отметьте все пункты чеклиста.
+                    </p>
+                  )}
+              </div>
               <Button type="submit" className="w-full" disabled={updateProject.isPending}>
                 {updateProject.isPending ? 'Сохранение...' : 'Сохранить изменения'}
               </Button>
@@ -434,52 +480,52 @@ export function ProjectDetail() {
           <DialogTrigger asChild>
             <Button size="sm">
               <Plus className="w-4 h-4 mr-1" />
-              Add Task
+              Добавить задачу
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create Task</DialogTitle>
+              <DialogTitle>Создать задачу</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreateTask} className="space-y-4">
               <div className="space-y-1">
-                <Label>Title</Label>
+                <Label>Название</Label>
                 <Input
                   value={taskForm.title}
                   onChange={(e) => setTaskForm((f) => ({ ...f, title: e.target.value }))}
                   required
-                  placeholder="Task title"
+                  placeholder="Название задачи"
                 />
               </div>
               <div className="space-y-1">
-                <Label>Description</Label>
+                <Label>Описание</Label>
                 <Input
                   value={taskForm.description}
                   onChange={(e) => setTaskForm((f) => ({ ...f, description: e.target.value }))}
-                  placeholder="Optional description"
+                  placeholder="Необязательно"
                 />
               </div>
               <div className="space-y-1">
-                <Label>Priority</Label>
+                <Label>Приоритет</Label>
                 <select
                   value={taskForm.priority}
                   onChange={(e) => setTaskForm((f) => ({ ...f, priority: e.target.value }))}
                   className="w-full border rounded px-3 py-2 text-sm bg-background"
                 >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="critical">Critical</option>
+                  <option value="low">Низкий</option>
+                  <option value="medium">Средний</option>
+                  <option value="high">Высокий</option>
+                  <option value="critical">Критический</option>
                 </select>
               </div>
               <div className="space-y-1">
-                <Label>Assignee</Label>
+                <Label>Исполнитель</Label>
                 <select
                   value={taskForm.assigned_to_id}
                   onChange={(e) => setTaskForm((f) => ({ ...f, assigned_to_id: e.target.value }))}
                   className="w-full border rounded px-3 py-2 text-sm bg-background"
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">Не назначен</option>
                   {members.map((m) => (
                     <option key={m.user.id} value={m.user.id}>
                       {m.user.name}
@@ -488,13 +534,13 @@ export function ProjectDetail() {
                 </select>
               </div>
               <div className="space-y-1">
-                <Label>Depends On</Label>
+                <Label>Зависит от</Label>
                 <select
                   value={taskForm.parent_task_id}
                   onChange={(e) => setTaskForm((f) => ({ ...f, parent_task_id: e.target.value }))}
                   className="w-full border rounded px-3 py-2 text-sm bg-background"
                 >
-                  <option value="">No dependency</option>
+                  <option value="">Без зависимости</option>
                   {tasks.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.title}
@@ -504,7 +550,7 @@ export function ProjectDetail() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label>Start Date</Label>
+                  <Label>Дата начала</Label>
                   <Input
                     type="date"
                     value={taskForm.start_date}
@@ -512,7 +558,7 @@ export function ProjectDetail() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>End Date</Label>
+                  <Label>Дедлайн</Label>
                   <Input
                     type="date"
                     value={taskForm.end_date}
@@ -521,21 +567,21 @@ export function ProjectDetail() {
                 </div>
               </div>
               <div className="space-y-1">
-                <Label>Estimated Hours</Label>
+                <Label>Оценка часов</Label>
                 <Input
                   type="number"
                   value={taskForm.estimated_hours}
                   onChange={(e) => setTaskForm((f) => ({ ...f, estimated_hours: e.target.value }))}
-                  placeholder="e.g. 8"
+                  placeholder="например, 8"
                 />
               </div>
               <div className="space-y-1">
-                <Label>Repeat Every (days)</Label>
+                <Label>Повторять каждые (дней)</Label>
                 <Input
                   type="number"
                   value={taskForm.repeat_every_days}
                   onChange={(e) => setTaskForm((f) => ({ ...f, repeat_every_days: e.target.value }))}
-                  placeholder="e.g. 7"
+                  placeholder="например, 7"
                 />
               </div>
               <label className="flex items-center gap-2 text-sm">
@@ -548,16 +594,29 @@ export function ProjectDetail() {
               </label>
               {taskForm.is_escalation && (
                 <div className="space-y-1">
-                  <Label>Escalation Reason</Label>
+                  <Label>Причина эскалации</Label>
                   <Input
                     value={taskForm.escalation_for}
                     onChange={(e) => setTaskForm((f) => ({ ...f, escalation_for: e.target.value }))}
                     placeholder="Что заблокировано и какое решение нужно"
                   />
+                  <Label className="pt-2">SLA реакции (часы)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={taskForm.escalation_sla_hours}
+                    onChange={(e) =>
+                      setTaskForm((f) => ({
+                        ...f,
+                        escalation_sla_hours: e.target.value,
+                      }))
+                    }
+                    placeholder="24"
+                  />
                 </div>
               )}
               <Button type="submit" className="w-full" disabled={createTask.isPending}>
-                {createTask.isPending ? 'Creating...' : 'Create Task'}
+                {createTask.isPending ? 'Создание...' : 'Создать задачу'}
               </Button>
             </form>
           </DialogContent>
@@ -608,10 +667,10 @@ export function ProjectDetail() {
                 className="border rounded px-2 py-2 text-sm bg-background"
               >
                 <option value="all">Все статусы</option>
-                <option value="todo">To Do</option>
-                <option value="in_progress">In Progress</option>
-                <option value="review">Review</option>
-                <option value="done">Done</option>
+                <option value="todo">К выполнению</option>
+                <option value="in_progress">В работе</option>
+                <option value="review">На проверке</option>
+                <option value="done">Выполнено</option>
               </select>
               <select
                 value={taskAssigneeFilter}
@@ -708,7 +767,7 @@ export function ProjectDetail() {
                   </span>
                   {task.is_escalation && (
                     <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-800">
-                      escalation
+                      эскалация
                     </span>
                   )}
                 </div>
@@ -723,7 +782,7 @@ export function ProjectDetail() {
               </div>
               {task.end_date && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  Due: {new Date(task.end_date).toLocaleDateString()}
+                  Дедлайн: {new Date(task.end_date).toLocaleDateString()}
                 </p>
               )}
             </div>

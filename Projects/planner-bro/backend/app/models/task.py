@@ -34,6 +34,14 @@ class Task(Base):
     )
     is_escalation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     escalation_for: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    escalation_sla_hours: Mapped[int] = mapped_column(Integer, default=24, nullable=False)
+    escalation_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    escalation_first_response_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    escalation_overdue_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     repeat_every_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False

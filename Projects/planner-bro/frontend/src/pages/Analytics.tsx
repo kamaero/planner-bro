@@ -10,17 +10,23 @@ import {
   Pie,
   Cell,
   ResponsiveContainer,
-  Legend,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Download } from 'lucide-react'
 import type { Task, Project } from '@/types'
 
 const STATUS_LABELS: Record<string, string> = {
-  todo: 'To Do',
-  in_progress: 'In Progress',
-  review: 'Review',
-  done: 'Done',
+  todo: 'К выполнению',
+  in_progress: 'В работе',
+  review: 'На проверке',
+  done: 'Выполнено',
+}
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: 'Низкий',
+  medium: 'Средний',
+  high: 'Высокий',
+  critical: 'Критический',
 }
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -50,12 +56,12 @@ function MetricCard({ label, value, sub }: { label: string; value: number; sub?:
 function exportCSV(tasks: Task[], projects: Project[]) {
   const projectMap = Object.fromEntries(projects.map((p) => [p.id, p.name]))
   const rows = [
-    ['Project', 'Task', 'Status', 'Priority', 'Assignee', 'Start Date', 'End Date', 'Estimated Hours'],
+    ['Проект', 'Задача', 'Статус', 'Приоритет', 'Исполнитель', 'Дата начала', 'Дедлайн', 'Оценка (ч)'],
     ...tasks.map((t) => [
       projectMap[t.project_id] ?? t.project_id,
       t.title,
-      t.status,
-      t.priority,
+      STATUS_LABELS[t.status] ?? t.status,
+      PRIORITY_LABELS[t.priority] ?? t.priority,
       t.assignee?.name ?? '',
       t.start_date ?? '',
       t.end_date ?? '',
@@ -67,7 +73,7 @@ function exportCSV(tasks: Task[], projects: Project[]) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'planner-bro-tasks.csv'
+  a.download = 'planner-bro-otchet-zadachi.csv'
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -79,7 +85,7 @@ export function Analytics() {
   const [reportProject, setReportProject] = useState('all')
 
   if (isLoading) {
-    return <div className="p-6 text-muted-foreground">Loading analytics...</div>
+    return <div className="p-6 text-muted-foreground">Загрузка аналитики...</div>
   }
 
   const today = new Date().toISOString().slice(0, 10)
@@ -93,28 +99,24 @@ export function Analytics() {
     })
   }, [tasks, reportFrom, reportTo, reportProject])
 
-  // Metrics
   const totalProjects = projects.length
   const totalTasks = tasks.length
   const overdue = tasks.filter((t) => t.end_date && t.end_date < today && t.status !== 'done').length
   const unassigned = tasks.filter((t) => !t.assigned_to_id).length
 
-  // By status
   const statusCounts = ['todo', 'in_progress', 'review', 'done'].map((s) => ({
     name: STATUS_LABELS[s],
     count: tasks.filter((t) => t.status === s).length,
     fill: STATUS_COLORS[s],
   }))
 
-  // By priority
   const priorityCounts = ['low', 'medium', 'high', 'critical'].map((p) => ({
-    name: p.charAt(0).toUpperCase() + p.slice(1),
+    name: PRIORITY_LABELS[p],
     value: tasks.filter((t) => t.priority === p).length,
     fill: PRIORITY_COLORS[p],
   }))
   const priorityChartData = priorityCounts.filter((item) => item.value > 0)
 
-  // Project progress
   const projectProgress = projects.map((p) => {
     const projectTasks = tasks.filter((t) => t.project_id === p.id)
     const done = projectTasks.filter((t) => t.status === 'done').length
@@ -122,7 +124,6 @@ export function Analytics() {
     return { project: p, total: projectTasks.length, done, pct }
   })
 
-  // Team workload
   const assigneeCounts: Record<string, { name: string; count: number }> = {}
   tasks.forEach((t) => {
     if (t.assignee) {
@@ -137,10 +138,10 @@ export function Analytics() {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Analytics</h1>
+        <h1 className="text-2xl font-bold">Аналитика</h1>
         <Button variant="outline" size="sm" onClick={() => exportCSV(reportTasks, projects)}>
           <Download className="w-4 h-4 mr-2" />
-          Export CSV (filtered)
+          Экспорт CSV (по фильтру)
         </Button>
       </div>
 
@@ -162,7 +163,7 @@ export function Analytics() {
           onChange={(e) => setReportProject(e.target.value)}
           className="text-sm border rounded px-2 py-1 bg-background"
         >
-          <option value="all">All projects</option>
+          <option value="all">Все проекты</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -170,22 +171,20 @@ export function Analytics() {
           ))}
         </select>
         <div className="text-xs text-muted-foreground flex items-center justify-end">
-          Tasks in report: {reportTasks.length}
+          Задач в отчёте: {reportTasks.length}
         </div>
       </div>
 
-      {/* Metric cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <MetricCard label="Projects" value={totalProjects} />
-        <MetricCard label="Total Tasks" value={totalTasks} />
-        <MetricCard label="Overdue" value={overdue} sub="not yet done, past due date" />
-        <MetricCard label="Unassigned" value={unassigned} sub="tasks without assignee" />
+        <MetricCard label="Проекты" value={totalProjects} />
+        <MetricCard label="Всего задач" value={totalTasks} />
+        <MetricCard label="Просрочено" value={overdue} sub="не завершены и срок уже прошёл" />
+        <MetricCard label="Без исполнителя" value={unassigned} sub="задачи без назначенного ответственного" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Tasks by status */}
         <div className="rounded-xl border bg-card p-5">
-          <h2 className="text-sm font-semibold mb-4">Tasks by Status</h2>
+          <h2 className="text-sm font-semibold mb-4">Статусы задач</h2>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={statusCounts} margin={{ top: 0, right: 10, bottom: 0, left: -10 }}>
               <XAxis dataKey="name" tick={{ fontSize: 12 }} />
@@ -200,9 +199,8 @@ export function Analytics() {
           </ResponsiveContainer>
         </div>
 
-        {/* Tasks by priority */}
         <div className="rounded-xl border bg-card p-5">
-          <h2 className="text-sm font-semibold mb-4">Tasks by Priority</h2>
+          <h2 className="text-sm font-semibold mb-4">Приоритеты задач</h2>
           {priorityChartData.length === 0 ? (
             <p className="text-sm text-muted-foreground">Нет задач для отображения приоритетов.</p>
           ) : (
@@ -242,11 +240,10 @@ export function Analytics() {
         </div>
       </div>
 
-      {/* Project progress */}
       <div className="rounded-xl border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">Project Progress</h2>
+        <h2 className="text-sm font-semibold mb-4">Прогресс по проектам</h2>
         {projectProgress.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No projects yet.</p>
+          <p className="text-sm text-muted-foreground">Проектов пока нет.</p>
         ) : (
           <div className="space-y-3">
             {projectProgress.map(({ project, total, done, pct }) => (
@@ -254,7 +251,7 @@ export function Analytics() {
                 <div className="flex items-center justify-between text-sm mb-1">
                   <span className="font-medium">{project.name}</span>
                   <span className="text-muted-foreground">
-                    {done}/{total} tasks · {pct}%
+                    {done}/{total} задач · {pct}%
                   </span>
                 </div>
                 <progress
@@ -268,10 +265,9 @@ export function Analytics() {
         )}
       </div>
 
-      {/* Team workload */}
       {workloadData.length > 0 && (
         <div className="rounded-xl border bg-card p-5">
-          <h2 className="text-sm font-semibold mb-4">Team Workload</h2>
+          <h2 className="text-sm font-semibold mb-4">Нагрузка по команде</h2>
           <ResponsiveContainer width="100%" height={Math.max(180, workloadData.length * 40)}>
             <BarChart
               data={workloadData}

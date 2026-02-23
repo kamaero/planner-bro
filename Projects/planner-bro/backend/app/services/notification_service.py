@@ -179,6 +179,31 @@ async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
     await ws_manager.broadcast_to_project(task.project_id, "deadline_warning", data)
 
 
+async def notify_escalation_sla_breached(db: AsyncSession, task: Task, breached_at):
+    owner_id = (
+        await db.execute(select(Project.owner_id).where(Project.id == task.project_id))
+    ).scalar_one_or_none()
+    recipients = [uid for uid in [task.assigned_to_id, owner_id] if uid]
+    recipients = list(dict.fromkeys(recipients))
+    if not recipients:
+        return
+    title = "SLA эскалации просрочен"
+    body = f"По задаче '{task.title}' превышен срок реакции."
+    data = {
+        "task_id": task.id,
+        "project_id": task.project_id,
+        "breached_at": breached_at.isoformat(),
+    }
+    for uid in recipients:
+        await _create_notification(db, uid, "task_updated", title, body, data)
+    await db.commit()
+    tokens = await _get_fcm_tokens(db, recipients)
+    if tokens:
+        send_push_to_multiple(tokens, title, body, data)
+    for uid in recipients:
+        await ws_manager.send_to_user(uid, "escalation_sla_breached", data)
+
+
 async def _send_email_to_members(db: AsyncSession, user_ids: list[str], subject: str, body: str):
     if not settings.SMTP_USER:
         return

@@ -1,7 +1,13 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, date
 from typing import Optional, List
 from app.schemas.user import UserOut
+
+
+class ProjectChecklistItem(BaseModel):
+    id: str
+    label: str
+    done: bool = False
 
 
 class ProjectBase(BaseModel):
@@ -11,6 +17,7 @@ class ProjectBase(BaseModel):
     status: str = "planning"
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    completion_checklist: List[ProjectChecklistItem] = Field(default_factory=list)
 
 
 class ProjectCreate(ProjectBase):
@@ -25,6 +32,7 @@ class ProjectUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     owner_id: Optional[str] = None
+    completion_checklist: Optional[List[ProjectChecklistItem]] = None
 
 
 class ProjectOut(ProjectBase):

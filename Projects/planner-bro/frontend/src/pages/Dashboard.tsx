@@ -450,6 +450,40 @@ export function Dashboard() {
     () => Object.fromEntries(projects.map((p) => [p.id, p])),
     [projects]
   )
+  const taskMap = useMemo(
+    () => Object.fromEntries(tasks.map((t) => [t.id, t])),
+    [tasks]
+  )
+  const blockedTasks = useMemo(
+    () =>
+      tasks
+        .filter((t) => t.parent_task_id && t.status !== 'done')
+        .filter((t) => {
+          const dependency = taskMap[t.parent_task_id!]
+          return dependency && dependency.status !== 'done'
+        }),
+    [tasks, taskMap]
+  )
+  const blockedByProject = useMemo<Array<{ project: Project; count: number }>>(() => {
+    const acc: Record<string, number> = {}
+    blockedTasks.forEach((task) => {
+      acc[task.project_id] = (acc[task.project_id] ?? 0) + 1
+    })
+    return Object.entries(acc)
+      .map(([projectId, count]) => ({ project: projectMap[projectId], count }))
+      .filter((item): item is { project: Project; count: number } => Boolean(item.project))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+  }, [blockedTasks, projectMap])
+  const escalationSlaOverdue = useMemo(() => {
+    const now = Date.now()
+    return escalations.filter((task) => {
+      if (task.escalation_first_response_at) return false
+      if (task.escalation_overdue_at) return true
+      if (!task.escalation_due_at) return false
+      return new Date(task.escalation_due_at).getTime() < now
+    })
+  }, [escalations])
 
   const focusTitles: Record<typeof focus, string> = {
     active: 'Активные проекты',
@@ -711,6 +745,13 @@ export function Dashboard() {
                     <p className="text-xs text-muted-foreground">
                       {task.escalation_for || 'Требуется решение руководителя'}
                     </p>
+                    {task.escalation_overdue_at ? (
+                      <p className="text-xs text-red-700 mt-1">SLA просрочен</p>
+                    ) : task.escalation_due_at ? (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        SLA до {new Date(task.escalation_due_at).toLocaleString('ru')}
+                      </p>
+                    ) : null}
                   </Link>
                 ))}
               </div>
@@ -718,6 +759,54 @@ export function Dashboard() {
           </SectionCard>
         </div>
         <div className="space-y-6">
+          <SectionCard title="Узкие места: зависимости и блокеры">
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Блокирующие зависимости</p>
+                  <p className="text-xl font-semibold">{blockedTasks.length}</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Эскалации с просроченным SLA</p>
+                  <p className="text-xl font-semibold text-red-700">{escalationSlaOverdue.length}</p>
+                </div>
+              </div>
+              {blockedTasks.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Критичных блокеров по зависимостям не найдено.</p>
+              ) : (
+                <div className="space-y-2">
+                  {blockedTasks.slice(0, 6).map((task) => {
+                    const dependency = taskMap[task.parent_task_id!]
+                    return (
+                      <Link
+                        key={task.id}
+                        to={`/projects/${task.project_id}`}
+                        className="block rounded-lg border p-3 hover:bg-accent transition-colors"
+                      >
+                        <p className="text-sm font-medium truncate">{task.title}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          Блокер: {dependency?.title ?? 'Зависимость не найдена'}
+                        </p>
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+              {blockedByProject.length > 0 && (
+                <div className="pt-1">
+                  <p className="text-xs text-muted-foreground mb-2">Проекты с наибольшим числом блокеров</p>
+                  <div className="space-y-1">
+                    {blockedByProject.map((item) => (
+                      <div key={item.project.id} className="flex items-center justify-between text-sm">
+                        <span className="truncate">{item.project.name}</span>
+                        <span className="font-semibold">{item.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </SectionCard>
           <SectionCard title="Статусы задач">
             <StatusList items={statusStats} total={tasks.length} />
           </SectionCard>

@@ -1,8 +1,18 @@
 import uuid
 from datetime import datetime, date, timezone
 from sqlalchemy import String, DateTime, Date, ForeignKey, Enum as SAEnum, Integer
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
+
+
+def default_completion_checklist() -> list[dict]:
+    return [
+        {"id": "scope_approved", "label": "Результаты проекта согласованы", "done": False},
+        {"id": "docs_prepared", "label": "Документация и инструкции подготовлены", "done": False},
+        {"id": "handover_done", "label": "Передача в сопровождение завершена", "done": False},
+        {"id": "retrospective_done", "label": "Ретроспектива проведена", "done": False},
+    ]
 
 
 class Project(Base):
@@ -19,6 +29,9 @@ class Project(Base):
     )
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    completion_checklist: Mapped[list[dict]] = mapped_column(
+        JSONB, nullable=False, default=default_completion_checklist
+    )
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

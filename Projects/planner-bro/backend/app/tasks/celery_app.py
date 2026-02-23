@@ -13,7 +13,15 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.deadline_checker.check_deadlines",
         "schedule": crontab(minute=0),  # every hour at :00
     },
+    "check-escalation-sla-every-10-min": {
+        "task": "app.tasks.escalation_sla_checker.check_escalation_sla",
+        "schedule": crontab(minute="*/10"),
+    },
 }
 
 celery_app.conf.timezone = "UTC"
+celery_app.conf.imports = (
+    "app.tasks.deadline_checker",
+    "app.tasks.escalation_sla_checker",
+)
 celery_app.autodiscover_tasks(["app.tasks"])

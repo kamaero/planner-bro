@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -48,6 +48,39 @@ async def _log_task_event(
     await db.flush()
 
 
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _prepare_escalation_fields(payload: dict, task_created_at: datetime | None = None) -> None:
+    is_escalation = bool(payload.get("is_escalation"))
+    if not is_escalation:
+        payload["escalation_due_at"] = None
+        payload["escalation_first_response_at"] = None
+        payload["escalation_overdue_at"] = None
+        payload["escalation_sla_hours"] = int(payload.get("escalation_sla_hours") or 24)
+        return
+
+    sla_hours = int(payload.get("escalation_sla_hours") or 24)
+    if sla_hours < 1:
+        sla_hours = 1
+    payload["escalation_sla_hours"] = sla_hours
+    if not payload.get("escalation_due_at"):
+        base_dt = task_created_at or _now_utc()
+        payload["escalation_due_at"] = base_dt + timedelta(hours=sla_hours)
+
+
+async def _mark_escalation_response(task: Task, actor_id: str, db: AsyncSession) -> None:
+    if (
+        task.is_escalation
+        and task.assigned_to_id
+        and task.assigned_to_id == actor_id
+        and task.escalation_first_response_at is None
+    ):
+        task.escalation_first_response_at = _now_utc()
+        await _log_task_event(db, task.id, actor_id, "escalation_first_response")
+
+
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskOut])
 async def list_tasks(
     project_id: str,
@@ -67,6 +100,7 @@ async def create_task(
 ):
     await _require_project_member(project_id, current_user, db)
     payload = data.model_dump()
+    _prepare_escalation_fields(payload)
     if payload.get("is_escalation") and not payload.get("assigned_to_id"):
         owner_id = (
             await db.execute(select(Project.owner_id).where(Project.id == project_id))
@@ -125,7 +159,28 @@ async def update_task(
 
     old_assignee = task.assigned_to_id
     old_status = task.status
-    for field, value in data.model_dump(exclude_none=True).items():
+    payload = data.model_dump(exclude_none=True)
+    if any(
+        key in payload
+        for key in (
+            "is_escalation",
+            "escalation_sla_hours",
+            "escalation_due_at",
+        )
+    ):
+        projected = {
+            "is_escalation": payload.get("is_escalation", task.is_escalation),
+            "escalation_sla_hours": payload.get("escalation_sla_hours", task.escalation_sla_hours),
+            "escalation_due_at": payload.get("escalation_due_at", task.escalation_due_at),
+            "escalation_first_response_at": payload.get(
+                "escalation_first_response_at", task.escalation_first_response_at
+            ),
+            "escalation_overdue_at": payload.get("escalation_overdue_at", task.escalation_overdue_at),
+        }
+        _prepare_escalation_fields(projected, task.created_at)
+        payload.update(projected)
+
+    for field, value in payload.items():
         setattr(task, field, value)
     await db.flush()
 
@@ -147,6 +202,7 @@ async def update_task(
             "status_changed",
             f"{old_status}->{task.status}",
         )
+    await _mark_escalation_response(task, current_user.id, db)
 
     await notify_task_updated(db, task, current_user.id)
     await db.commit()
@@ -333,6 +389,7 @@ async def add_task_comment(
     comment = TaskComment(task_id=task_id, author_id=current_user.id, body=data.body)
     db.add(comment)
     await db.flush()
+    await _mark_escalation_response(task, current_user.id, db)
     await _log_task_event(db, task_id, current_user.id, "comment_added")
     await db.commit()
     result = await db.execute(
