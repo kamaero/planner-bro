@@ -28,6 +28,15 @@ export function useRemoveMember() {
   })
 }
 
+export function useUpdateMemberRole() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, userId, role }: { projectId: string; userId: string; role: string }) =>
+      api.updateMemberRole(projectId, userId, role),
+    onSuccess: (_, { projectId }) => qc.invalidateQueries({ queryKey: ['members', projectId] }),
+  })
+}
+
 export function useSearchUsers(query: string) {
   return useQuery<User[]>({
     queryKey: ['users', 'search', query],

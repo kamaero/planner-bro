@@ -16,7 +16,6 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     avatar_url: Optional[str] = None
-    role: Optional[str] = None
 
 
 class UserOut(UserBase):
@@ -43,6 +42,10 @@ class LoginRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
     refresh_token: str
 
 

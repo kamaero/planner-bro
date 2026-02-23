@@ -74,6 +74,10 @@ export const api = {
     apiClient.post('/auth/register', data).then((r) => r.data),
   login: (email: string, password: string) =>
     apiClient.post('/auth/login', { email, password }).then((r) => r.data),
+  refresh: (refreshToken: string) =>
+    axios.post('/api/v1/auth/refresh', { refresh_token: refreshToken }).then((r) => r.data),
+  logout: (refreshToken: string) =>
+    apiClient.post('/auth/logout', { refresh_token: refreshToken }).then((r) => r.data),
   googleAuth: (code: string, redirectUri: string) =>
     apiClient.post('/auth/google', { code, redirect_uri: redirectUri }).then((r) => r.data),
 
@@ -97,6 +101,8 @@ export const api = {
     apiClient.get(`/projects/${projectId}/members`).then((r) => r.data),
   addMember: (projectId: string, userId: string, role: string) =>
     apiClient.post(`/projects/${projectId}/members`, { user_id: userId, role }).then((r) => r.data),
+  updateMemberRole: (projectId: string, userId: string, role: string) =>
+    apiClient.patch(`/projects/${projectId}/members/${userId}`, { role }).then((r) => r.data),
   removeMember: (projectId: string, userId: string) =>
     apiClient.delete(`/projects/${projectId}/members/${userId}`),
   listProjectFiles: (projectId: string) =>

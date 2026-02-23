@@ -21,10 +21,12 @@ export function useWebSocket() {
           case 'task_updated':
             qc.invalidateQueries({ queryKey: ['tasks', data.project_id as string] })
             qc.invalidateQueries({ queryKey: ['gantt', data.project_id as string] })
+            qc.invalidateQueries({ queryKey: ['notifications'] })
             break
           case 'project_updated':
             qc.invalidateQueries({ queryKey: ['projects'] })
             qc.invalidateQueries({ queryKey: ['projects', data.project_id as string] })
+            qc.invalidateQueries({ queryKey: ['notifications'] })
             break
           case 'task_assigned':
           case 'deadline_warning':

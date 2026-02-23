@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   useProject,
@@ -6,6 +6,8 @@ import {
   useTasks,
   useCreateTask,
   useUpdateProject,
+  useUpdateTaskStatus,
+  useDeleteTask,
   useProjectFiles,
   useUploadProjectFile,
   useDeleteProjectFile,
@@ -61,6 +63,8 @@ export function ProjectDetail() {
   const { data: files = [] } = useProjectFiles(id!)
   const createTask = useCreateTask()
   const updateProject = useUpdateProject()
+  const updateTaskStatus = useUpdateTaskStatus()
+  const deleteTask = useDeleteTask()
   const uploadProjectFile = useUploadProjectFile()
   const deleteProjectFile = useDeleteProjectFile()
   const currentUser = useAuthStore((s) => s.user)
@@ -88,9 +92,36 @@ export function ProjectDetail() {
     end_date: '',
     owner_id: '',
   })
+  const [taskSearch, setTaskSearch] = useState('')
+  const [taskStatusFilter, setTaskStatusFilter] = useState('all')
+  const [taskAssigneeFilter, setTaskAssigneeFilter] = useState('all')
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const memberRole = members.find((m) => m.user.id === currentUser?.id)?.role
   const canManage = currentUser?.role === 'admin' || memberRole === 'owner' || memberRole === 'manager'
+  const canTransferOwnership = currentUser?.role === 'admin' || memberRole === 'owner'
+
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      const searchOk =
+        !taskSearch.trim() ||
+        task.title.toLowerCase().includes(taskSearch.toLowerCase()) ||
+        (task.description ?? '').toLowerCase().includes(taskSearch.toLowerCase())
+
+      const statusOk = taskStatusFilter === 'all' || task.status === taskStatusFilter
+
+      const assigneeOk =
+        taskAssigneeFilter === 'all' ||
+        (taskAssigneeFilter === 'unassigned'
+          ? !task.assigned_to_id
+          : task.assigned_to_id === taskAssigneeFilter)
+
+      return searchOk && statusOk && assigneeOk
+    })
+  }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter])
+
+  const selectedVisibleCount = filteredTasks.filter((t) => selectedTaskIds.includes(t.id)).length
 
   useEffect(() => {
     if (project && editOpen) {
@@ -105,6 +136,11 @@ export function ProjectDetail() {
     }
   }, [project, editOpen])
 
+  useEffect(() => {
+    const ids = new Set(tasks.map((t) => t.id))
+    setSelectedTaskIds((prev) => prev.filter((id) => ids.has(id)))
+  }, [tasks])
+
   const handleGanttTaskClick = (ganttTask: GanttTask) => {
     const task = tasks.find((t) => t.id === ganttTask.id)
     if (task) {
@@ -116,6 +152,47 @@ export function ProjectDetail() {
   const handleTaskClick = (task: Task) => {
     setSelectedTask(task)
     setDrawerOpen(true)
+  }
+
+  const handleToggleTaskSelection = (taskId: string) => {
+    setSelectedTaskIds((prev) =>
+      prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]
+    )
+  }
+
+  const handleToggleSelectAllVisible = () => {
+    const visibleIds = filteredTasks.map((t) => t.id)
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedTaskIds.includes(id))
+    if (allVisibleSelected) {
+      setSelectedTaskIds((prev) => prev.filter((id) => !visibleIds.includes(id)))
+      return
+    }
+    setSelectedTaskIds((prev) => Array.from(new Set([...prev, ...visibleIds])))
+  }
+
+  const handleBulkStatusUpdate = async (status: string) => {
+    if (!canManage || selectedTaskIds.length === 0) return
+    setBulkBusy(true)
+    try {
+      await Promise.all(
+        selectedTaskIds.map((taskId) => updateTaskStatus.mutateAsync({ taskId, status }))
+      )
+      setSelectedTaskIds([])
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (!canManage || selectedTaskIds.length === 0) return
+    if (!window.confirm(`Удалить выбранные задачи (${selectedTaskIds.length})?`)) return
+    setBulkBusy(true)
+    try {
+      await Promise.all(selectedTaskIds.map((taskId) => deleteTask.mutateAsync(taskId)))
+      setSelectedTaskIds([])
+    } finally {
+      setBulkBusy(false)
+    }
   }
 
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -144,7 +221,7 @@ export function ProjectDetail() {
         status: editForm.status,
         start_date: editForm.start_date || null,
         end_date: editForm.end_date || null,
-        owner_id: editForm.owner_id || null,
+        owner_id: canTransferOwnership ? editForm.owner_id || null : project?.owner_id ?? editForm.owner_id,
       },
     })
     setEditOpen(false)
@@ -269,6 +346,7 @@ export function ProjectDetail() {
                     value={editForm.owner_id}
                     onChange={(e) => setEditForm((f) => ({ ...f, owner_id: e.target.value }))}
                     className="w-full border rounded px-2 py-2 bg-background text-sm"
+                    disabled={!canTransferOwnership}
                   >
                     {members.map((m) => (
                       <option key={m.user.id} value={m.user.id}>
@@ -276,6 +354,11 @@ export function ProjectDetail() {
                       </option>
                     ))}
                   </select>
+                  {!canTransferOwnership && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Только владелец проекта или администратор может менять ответственного.
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -409,26 +492,118 @@ export function ProjectDetail() {
           />
         </div>
       ) : view === 'list' ? (
-        <div className="space-y-2">
-          {tasks.length === 0 && (
+        <div className="space-y-3">
+          <div className="rounded-lg border bg-card p-3 space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <Input
+                placeholder="Поиск по задачам..."
+                value={taskSearch}
+                onChange={(e) => setTaskSearch(e.target.value)}
+              />
+              <select
+                value={taskStatusFilter}
+                onChange={(e) => setTaskStatusFilter(e.target.value)}
+                className="border rounded px-2 py-2 text-sm bg-background"
+              >
+                <option value="all">Все статусы</option>
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="review">Review</option>
+                <option value="done">Done</option>
+              </select>
+              <select
+                value={taskAssigneeFilter}
+                onChange={(e) => setTaskAssigneeFilter(e.target.value)}
+                className="border rounded px-2 py-2 text-sm bg-background"
+              >
+                <option value="all">Все исполнители</option>
+                <option value="unassigned">Без исполнителя</option>
+                {members.map((m) => (
+                  <option key={m.user.id} value={m.user.id}>
+                    {m.user.name}
+                  </option>
+                ))}
+              </select>
+              <Button variant="outline" onClick={handleToggleSelectAllVisible}>
+                {selectedVisibleCount === filteredTasks.length && filteredTasks.length > 0
+                  ? 'Снять выделение'
+                  : 'Выделить видимые'}
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                Выбрано: {selectedTaskIds.length} / Видимых: {filteredTasks.length}
+              </span>
+              {canManage && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBulkStatusUpdate('in_progress')}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                  >
+                    В работу
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBulkStatusUpdate('review')}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                  >
+                    На проверку
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBulkStatusUpdate('done')}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                  >
+                    Завершить
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleBulkDelete}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                  >
+                    Удалить выбранные
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {filteredTasks.length === 0 && (
             <div className="text-center py-10 text-muted-foreground text-sm">
-              No tasks yet. Add a task to get started.
+              Задачи по выбранным фильтрам не найдены.
             </div>
           )}
-          {tasks.map((task) => (
-            <button
+          {filteredTasks.map((task) => (
+            <div
               key={task.id}
-              onClick={() => handleTaskClick(task)}
-              className="w-full text-left rounded-lg border bg-card p-4 hover:shadow-sm transition-shadow"
+              className="w-full rounded-lg border bg-card p-4 hover:shadow-sm transition-shadow"
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedTaskIds.includes(task.id)}
+                    onChange={() => handleToggleTaskSelection(task.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-4 w-4"
+                  />
+                  <button
+                    onClick={() => handleTaskClick(task)}
+                    className="text-left hover:text-primary transition-colors"
+                  >
+                    <span className="font-medium text-sm">{task.title}</span>
+                  </button>
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[task.priority]}`}
                   >
                     {task.priority}
                   </span>
-                  <span className="font-medium text-sm">{task.title}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   {task.assignee && (
@@ -444,7 +619,7 @@ export function ProjectDetail() {
                   Due: {new Date(task.end_date).toLocaleDateString()}
                 </p>
               )}
-            </button>
+            </div>
           ))}
         </div>
       ) : view === 'members' ? (

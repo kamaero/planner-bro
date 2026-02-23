@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from typing import List
 
 
@@ -40,6 +41,12 @@ class Settings(BaseSettings):
     EMAILS_FROM: str = "noreply@planner-bro.com"
 
     PROJECT_FILES_DIR: str = "uploads/projects"
+
+    @model_validator(mode="after")
+    def validate_secret_key(self):
+        if not self.DEBUG and self.SECRET_KEY.startswith("change-me"):
+            raise ValueError("SECRET_KEY must be set to a strong value when DEBUG=false")
+        return self
 
 
 settings = Settings()

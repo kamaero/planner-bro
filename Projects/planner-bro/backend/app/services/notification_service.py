@@ -34,6 +34,11 @@ async def _get_project_member_ids(db: AsyncSession, project_id: str) -> list[str
     return [row[0] for row in result.all()]
 
 
+def _exclude_ids(user_ids: list[str], exclude_user_ids: list[str] | None = None) -> list[str]:
+    excluded = set(exclude_user_ids or [])
+    return [uid for uid in user_ids if uid not in excluded]
+
+
 async def _get_fcm_tokens(db: AsyncSession, user_ids: list[str]) -> list[str]:
     result = await db.execute(
         select(User.fcm_token).where(User.id.in_(user_ids), User.fcm_token.isnot(None))
@@ -42,6 +47,8 @@ async def _get_fcm_tokens(db: AsyncSession, user_ids: list[str]) -> list[str]:
 
 
 async def notify_task_assigned(db: AsyncSession, task: Task, assignee_id: str):
+    if not assignee_id:
+        return
     title = "Task Assigned"
     body = f"You have been assigned to: {task.title}"
     data = {"task_id": task.id, "project_id": task.project_id}
@@ -58,21 +65,20 @@ async def notify_task_assigned(db: AsyncSession, task: Task, assignee_id: str):
 
 
 async def notify_task_updated(db: AsyncSession, task: Task, actor_id: str):
-    project_result = await db.execute(
-        select(Project).where(Project.id == task.project_id)
-    )
-    project = project_result.scalar_one_or_none()
     member_ids = await _get_project_member_ids(db, task.project_id)
+    recipients = _exclude_ids(member_ids, [actor_id])
+    if not recipients:
+        return
 
     title = "Task Updated"
     body = f"Task '{task.title}' has been updated"
     data = {"task_id": task.id, "project_id": task.project_id}
 
-    for uid in member_ids:
+    for uid in recipients:
         await _create_notification(db, uid, "task_updated", title, body, data)
     await db.commit()
 
-    tokens = await _get_fcm_tokens(db, member_ids)
+    tokens = await _get_fcm_tokens(db, recipients)
     if tokens:
         send_push_to_multiple(tokens, title, body, data)
 
@@ -83,15 +89,18 @@ async def notify_task_updated(db: AsyncSession, task: Task, actor_id: str):
 
 async def notify_new_task(db: AsyncSession, task: Task):
     member_ids = await _get_project_member_ids(db, task.project_id)
+    recipients = _exclude_ids(member_ids, [task.created_by_id, task.assigned_to_id] if task.assigned_to_id else [task.created_by_id])
+    if not recipients:
+        return
     title = "New Task Added"
     body = f"New task: {task.title}"
     data = {"task_id": task.id, "project_id": task.project_id}
 
-    for uid in member_ids:
+    for uid in recipients:
         await _create_notification(db, uid, "new_task", title, body, data)
     await db.commit()
 
-    tokens = await _get_fcm_tokens(db, member_ids)
+    tokens = await _get_fcm_tokens(db, recipients)
     if tokens:
         send_push_to_multiple(tokens, title, body, data)
 
@@ -126,9 +135,19 @@ async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
         if days_until > 0
         else f"Task '{task.title}' deadline has passed"
     )
-    data = {"task_id": task.id, "project_id": task.project_id}
+    deadline_key = f"{task.id}:{days_until}:{task.end_date.isoformat() if task.end_date else 'none'}"
+    data = {"task_id": task.id, "project_id": task.project_id, "deadline_key": deadline_key}
 
     for uid in member_ids:
+        existing = await db.execute(
+            select(Notification.id).where(
+                Notification.user_id == uid,
+                Notification.type == type_,
+                Notification.data.contains({"deadline_key": deadline_key}),
+            )
+        )
+        if existing.scalar_one_or_none():
+            continue
         await _create_notification(db, uid, type_, title, body, data)
     await db.commit()
 

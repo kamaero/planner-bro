@@ -14,7 +14,7 @@ from app.models.user import User
 from app.models.project import Project, ProjectMember, ProjectFile
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
-    AddMemberRequest, GanttData, ProjectFileOut
+    AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut
 )
 from app.services.project_service import get_projects_for_user, get_gantt_data
 from app.services.notification_service import notify_project_updated
@@ -48,6 +48,16 @@ async def _require_project_access(
         raise HTTPException(status_code=403, detail="Manager access required")
 
     return project
+
+
+async def _get_member(project_id: str, user_id: str, db: AsyncSession) -> ProjectMember | None:
+    result = await db.execute(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user_id,
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 @router.get("/", response_model=list[ProjectOut])
@@ -102,11 +112,14 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _require_project_access(project_id, current_user, db, require_manager=True)
+    requester_member = await _get_member(project_id, current_user.id, db)
     payload = data.model_dump(exclude_none=True)
     owner_id = payload.pop("owner_id", None)
     for field, value in payload.items():
         setattr(project, field, value)
     if owner_id and owner_id != project.owner_id:
+        if current_user.role != "admin" and (not requester_member or requester_member.role != "owner"):
+            raise HTTPException(status_code=403, detail="Only owner or admin can transfer ownership")
         owner_result = await db.execute(select(User).where(User.id == owner_id))
         new_owner = owner_result.scalar_one_or_none()
         if not new_owner:
@@ -286,6 +299,12 @@ async def add_member(
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_access(project_id, current_user, db, require_manager=True)
+    requester_member = await _get_member(project_id, current_user.id, db)
+    if data.role == "owner":
+        raise HTTPException(status_code=400, detail="Use project owner transfer instead")
+    if data.role == "manager" and current_user.role != "admin":
+        if not requester_member or requester_member.role != "owner":
+            raise HTTPException(status_code=403, detail="Only owner or admin can assign manager role")
     existing = await db.execute(
         select(ProjectMember).where(
             ProjectMember.project_id == project_id,
@@ -298,6 +317,32 @@ async def add_member(
     db.add(member)
     await db.commit()
     return {"message": "Member added"}
+
+
+@router.patch("/{project_id}/members/{user_id}", status_code=200)
+async def update_member_role(
+    project_id: str,
+    user_id: str,
+    data: UpdateMemberRoleRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_access(project_id, current_user, db, require_manager=True)
+    requester_member = await _get_member(project_id, current_user.id, db)
+    member = await _get_member(project_id, user_id, db)
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    if member.role == "owner":
+        raise HTTPException(status_code=400, detail="Owner role is managed via ownership transfer")
+    if data.role not in ("member", "manager"):
+        raise HTTPException(status_code=400, detail="Role must be one of: member, manager")
+    if data.role == "manager" and current_user.role != "admin":
+        if not requester_member or requester_member.role != "owner":
+            raise HTTPException(status_code=403, detail="Only owner or admin can assign manager role")
+
+    member.role = data.role
+    await db.commit()
+    return {"message": "Member role updated"}
 
 
 @router.delete("/{project_id}/members/{user_id}", status_code=204)
@@ -317,5 +362,10 @@ async def remove_member(
     member = result.scalar_one_or_none()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
+    if member.role == "owner":
+        raise HTTPException(
+            status_code=400,
+            detail="Project owner cannot be removed. Transfer ownership first.",
+        )
     await db.delete(member)
     await db.commit()

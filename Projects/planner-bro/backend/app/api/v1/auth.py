@@ -13,8 +13,16 @@ from app.core.security import (
     get_current_user,
 )
 from app.core.config import settings
+from app.core.token_store import is_refresh_token_revoked, revoke_refresh_token
 from app.models.user import User
-from app.schemas.user import UserCreate, UserOut, TokenPair, LoginRequest, RefreshRequest, GoogleOAuthRequest
+from app.schemas.user import (
+    UserCreate,
+    TokenPair,
+    LoginRequest,
+    RefreshRequest,
+    LogoutRequest,
+    GoogleOAuthRequest,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -59,12 +67,22 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
     payload = decode_token(data.refresh_token)
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="Invalid token type")
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if not jti or not exp:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    if await is_refresh_token_revoked(jti):
+        raise HTTPException(status_code=401, detail="Refresh token has been revoked")
 
     user_id = payload.get("sub")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
+    # Refresh token rotation: old token becomes unusable after first refresh.
+    await revoke_refresh_token(jti, exp)
 
     return TokenPair(
         access_token=create_access_token(user.id),
@@ -73,8 +91,22 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/logout")
-async def logout(current_user: User = Depends(get_current_user)):
-    # Token blacklisting would be done via Redis in production
+async def logout(
+    data: LogoutRequest,
+    current_user: User = Depends(get_current_user),
+):
+    payload = decode_token(data.refresh_token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+    if payload.get("sub") != current_user.id:
+        raise HTTPException(status_code=401, detail="Refresh token does not belong to current user")
+
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if not jti or not exp:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    await revoke_refresh_token(jti, exp)
     return {"message": "Logged out"}
 
 

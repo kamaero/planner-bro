@@ -49,6 +49,10 @@ class AddMemberRequest(BaseModel):
     role: str = "member"
 
 
+class UpdateMemberRoleRequest(BaseModel):
+    role: str
+
+
 class ProjectFileOut(BaseModel):
     id: str
     project_id: str

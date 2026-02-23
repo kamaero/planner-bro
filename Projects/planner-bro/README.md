@@ -111,7 +111,10 @@ See full interactive docs at `http://localhost:8000/docs` after starting the bac
 Key endpoints:
 - `POST /api/v1/auth/register` — create account
 - `POST /api/v1/auth/login` — get JWT tokens
+- `POST /api/v1/auth/refresh` — rotate refresh token pair
+- `POST /api/v1/auth/logout` — revoke current refresh token
 - `GET  /api/v1/projects/` — list user's projects
+- `PATCH /api/v1/projects/{id}/members/{user_id}` — update member role (`member`/`manager`)
 - `GET  /api/v1/projects/{id}/gantt` — Gantt-compatible task data
 - `WS   /ws?token={access_token}` — real-time events
 
@@ -126,3 +129,18 @@ Copy `.env.example` to `.env` and set:
 | `FIREBASE_CREDENTIALS_PATH` | Path to Firebase service account JSON |
 | `SMTP_*` | SMTP settings for deadline email notifications |
 | `VITE_GOOGLE_CLIENT_ID` | Used by frontend for Google OAuth button |
+
+## Recent Improvements
+
+- Session bootstrap on web app reload:
+  if only `refreshToken` is present, frontend restores `accessToken` and user profile automatically.
+- Secure refresh flow:
+  refresh token rotation + revoke on logout (Redis-based).
+- Project control model:
+  only owner/admin can transfer ownership or grant manager role.
+- Members management:
+  role update directly in UI + backend guard rails.
+- Task workflow UX:
+  task list now supports search, status/assignee filters, multi-select, and bulk actions.
+- Notifications:
+  less noise for assignees and deduplication for repeated deadline checks.

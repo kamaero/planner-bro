@@ -1,5 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { useMembers, useAddMember, useRemoveMember, useSearchUsers } from '@/hooks/useMembers'
+import {
+  useMembers,
+  useAddMember,
+  useRemoveMember,
+  useUpdateMemberRole,
+  useSearchUsers,
+} from '@/hooks/useMembers'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,6 +28,7 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
   const { data: members = [] } = useMembers(projectId)
   const addMember = useAddMember()
   const removeMember = useRemoveMember()
+  const updateMemberRole = useUpdateMemberRole()
 
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
@@ -50,7 +57,9 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
   }, [])
 
   const currentMember = members.find((m) => m.user.id === currentUser?.id)
-  const canManage = currentMember?.role === 'owner' || currentMember?.role === 'manager'
+  const canManage =
+    currentUser?.role === 'admin' || currentMember?.role === 'owner' || currentMember?.role === 'manager'
+  const canAssignManager = currentUser?.role === 'admin' || currentMember?.role === 'owner'
 
   const handleSelectUser = (user: User) => {
     setSelectedUser(user)
@@ -61,6 +70,7 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
   const handleAdd = async () => {
     const user = selectedUser ?? (searchResults.length === 1 ? searchResults[0] : null)
     if (!user) return
+    if (!canAssignManager && role === 'manager') return
     await addMember.mutateAsync({ projectId, userId: user.id, role })
     setSelectedUser(null)
     setQuery('')
@@ -73,6 +83,11 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
     if (window.confirm('Remove this member?')) {
       await removeMember.mutateAsync({ projectId, userId })
     }
+  }
+
+  const handleRoleChange = async (userId: string, nextRole: string) => {
+    if (!canAssignManager && nextRole === 'manager') return
+    await updateMemberRole.mutateAsync({ projectId, userId, role: nextRole })
   }
 
   return (
@@ -94,9 +109,23 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[m.role]}`}>
-                {m.role}
-              </span>
+              {canManage && m.role !== 'owner' && m.user.id !== currentUser?.id ? (
+                <select
+                  value={m.role}
+                  onChange={(e) => handleRoleChange(m.user.id, e.target.value)}
+                  className={`text-xs px-2 py-1 rounded-full font-medium border bg-background ${ROLE_COLORS[m.role]}`}
+                  disabled={updateMemberRole.isPending}
+                >
+                  <option value="member">member</option>
+                  <option value="manager" disabled={!canAssignManager}>
+                    manager
+                  </option>
+                </select>
+              ) : (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[m.role]}`}>
+                  {m.role}
+                </span>
+              )}
               {canManage && m.role !== 'owner' && m.user.id !== currentUser?.id && (
                 <button
                   onClick={() => handleRemove(m.user.id)}
@@ -148,7 +177,9 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
               className="border rounded px-2 py-2 text-sm bg-background"
             >
               <option value="member">Member</option>
-              <option value="manager">Manager</option>
+              <option value="manager" disabled={!canAssignManager}>
+                Manager
+              </option>
             </select>
             <Button
               size="sm"

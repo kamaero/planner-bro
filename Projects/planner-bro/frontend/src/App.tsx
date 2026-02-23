@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useThemeStore } from '@/store/themeStore'
+import { api } from '@/api/client'
 import { Login } from '@/pages/Login'
 import { Dashboard } from '@/pages/Dashboard'
 import { ProjectDetail } from '@/pages/ProjectDetail'
@@ -43,12 +44,19 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuthStore()
+  const { user, refreshToken, logout } = useAuthStore()
   const navigate = useNavigate()
   const location = useLocation()
   useWebSocket()
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (refreshToken) {
+      try {
+        await api.logout(refreshToken)
+      } catch {
+        // local logout still proceeds
+      }
+    }
     logout()
     navigate('/login')
   }
@@ -123,7 +131,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
+  const { accessToken, refreshToken, user, setTokens, setUser, logout } = useAuthStore()
   const { theme } = useThemeStore()
+  const [authBootstrapped, setAuthBootstrapped] = useState(false)
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -132,6 +142,47 @@ export function App() {
       document.documentElement.classList.remove('dark')
     }
   }, [theme])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const bootstrapAuth = async () => {
+      try {
+        if (accessToken) {
+          if (!user) {
+            const me = await api.getMe()
+            if (!cancelled) setUser(me)
+          }
+          return
+        }
+
+        if (!refreshToken) return
+
+        const tokens = await api.refresh(refreshToken)
+        if (cancelled) return
+        setTokens(tokens.access_token, tokens.refresh_token)
+        const me = await api.getMe()
+        if (!cancelled) setUser(me)
+      } catch {
+        if (!cancelled) logout()
+      } finally {
+        if (!cancelled) setAuthBootstrapped(true)
+      }
+    }
+
+    bootstrapAuth()
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken, refreshToken, user, setTokens, setUser, logout])
+
+  if (!authBootstrapped) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
+        Restoring session...
+      </div>
+    )
+  }
 
   return (
     <Routes>
