@@ -19,6 +19,7 @@ class User(Base):
         default="developer",
         nullable=False,
     )
+    reminder_days: Mapped[str] = mapped_column(String(64), default="1,3", nullable=False)
     fcm_token: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
@@ -38,4 +39,7 @@ class User(Base):
     )
     notifications: Mapped[list["Notification"]] = relationship(
         "Notification", back_populates="user"
+    )
+    task_comments: Mapped[list["TaskComment"]] = relationship(
+        "TaskComment", back_populates="author"
     )

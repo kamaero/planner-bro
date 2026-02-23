@@ -116,6 +116,12 @@ Key endpoints:
 - `GET  /api/v1/projects/` — list user's projects
 - `PATCH /api/v1/projects/{id}/members/{user_id}` — update member role (`member`/`manager`)
 - `GET  /api/v1/projects/{id}/gantt` — Gantt-compatible task data
+- `GET  /api/v1/projects/{id}/critical-path` — critical path based on task dependencies
+- `GET  /api/v1/tasks/escalations/inbox` — escalated tasks assigned to current user
+- `GET/POST /api/v1/tasks/{task_id}/comments` — task discussion thread
+- `GET /api/v1/tasks/{task_id}/events` — task activity log
+- `GET /api/v1/users/global/search?q=...` — global search (projects/tasks/users)
+- `PUT /api/v1/users/me/reminders` — per-user deadline reminder days (e.g. `1,3,7`)
 - `WS   /ws?token={access_token}` — real-time events
 
 ## Configuration
@@ -142,5 +148,15 @@ Copy `.env.example` to `.env` and set:
   role update directly in UI + backend guard rails.
 - Task workflow UX:
   task list now supports search, status/assignee filters, multi-select, and bulk actions.
+- Escalation workflow:
+  deputies can mark tasks as escalation and route blockers to manager inbox.
+- Templates and recurring work:
+  project creation supports templates; tasks support repeat interval in days.
+- Task collaboration:
+  comments + activity history are available directly in task drawer.
+- Search and reporting:
+  global header search and analytics CSV export with date/project filters.
+- Dependencies:
+  task dependency selection + critical path block in project view.
 - Notifications:
   less noise for assignees and deduplication for repeated deadline checks.

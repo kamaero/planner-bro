@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { useAllTasks } from '@/hooks/useProjects'
 import {
   BarChart,
@@ -73,12 +74,24 @@ function exportCSV(tasks: Task[], projects: Project[]) {
 
 export function Analytics() {
   const { tasks, projects, isLoading } = useAllTasks()
+  const [reportFrom, setReportFrom] = useState('')
+  const [reportTo, setReportTo] = useState('')
+  const [reportProject, setReportProject] = useState('all')
 
   if (isLoading) {
     return <div className="p-6 text-muted-foreground">Loading analytics...</div>
   }
 
   const today = new Date().toISOString().slice(0, 10)
+  const reportTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      if (reportProject !== 'all' && t.project_id !== reportProject) return false
+      const taskDate = t.end_date || t.created_at.slice(0, 10)
+      if (reportFrom && taskDate < reportFrom) return false
+      if (reportTo && taskDate > reportTo) return false
+      return true
+    })
+  }, [tasks, reportFrom, reportTo, reportProject])
 
   // Metrics
   const totalProjects = projects.length
@@ -99,6 +112,7 @@ export function Analytics() {
     value: tasks.filter((t) => t.priority === p).length,
     fill: PRIORITY_COLORS[p],
   }))
+  const priorityChartData = priorityCounts.filter((item) => item.value > 0)
 
   // Project progress
   const projectProgress = projects.map((p) => {
@@ -124,10 +138,40 @@ export function Analytics() {
     <div className="p-6 max-w-7xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Analytics</h1>
-        <Button variant="outline" size="sm" onClick={() => exportCSV(tasks, projects)}>
+        <Button variant="outline" size="sm" onClick={() => exportCSV(reportTasks, projects)}>
           <Download className="w-4 h-4 mr-2" />
-          Export CSV
+          Export CSV (filtered)
         </Button>
+      </div>
+
+      <div className="rounded-xl border bg-card p-4 grid grid-cols-1 md:grid-cols-4 gap-2">
+        <input
+          type="date"
+          value={reportFrom}
+          onChange={(e) => setReportFrom(e.target.value)}
+          className="text-sm border rounded px-2 py-1 bg-background"
+        />
+        <input
+          type="date"
+          value={reportTo}
+          onChange={(e) => setReportTo(e.target.value)}
+          className="text-sm border rounded px-2 py-1 bg-background"
+        />
+        <select
+          value={reportProject}
+          onChange={(e) => setReportProject(e.target.value)}
+          className="text-sm border rounded px-2 py-1 bg-background"
+        >
+          <option value="all">All projects</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <div className="text-xs text-muted-foreground flex items-center justify-end">
+          Tasks in report: {reportTasks.length}
+        </div>
       </div>
 
       {/* Metric cards */}
@@ -159,26 +203,42 @@ export function Analytics() {
         {/* Tasks by priority */}
         <div className="rounded-xl border bg-card p-5">
           <h2 className="text-sm font-semibold mb-4">Tasks by Priority</h2>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie
-                data={priorityCounts}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                outerRadius={80}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                labelLine={false}
-              >
-                {priorityCounts.map((entry) => (
-                  <Cell key={entry.name} fill={entry.fill} />
+          {priorityChartData.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Нет задач для отображения приоритетов.</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie
+                    data={priorityChartData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={78}
+                    labelLine
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {priorityChartData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                {priorityCounts.map((item) => (
+                  <div key={item.name} className="flex items-center justify-between text-xs">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: item.fill }} />
+                      {item.name}
+                    </span>
+                    <span className="font-semibold">{item.value}</span>
+                  </div>
                 ))}
-              </Pie>
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

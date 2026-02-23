@@ -1,3 +1,4 @@
+from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -6,9 +7,17 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.task import Task
-from app.models.project import ProjectMember
-from app.schemas.task import TaskCreate, TaskUpdate, TaskStatusUpdate, TaskOut
+from app.models.task import Task, TaskComment, TaskEvent
+from app.models.project import Project, ProjectMember
+from app.schemas.task import (
+    TaskCreate,
+    TaskUpdate,
+    TaskStatusUpdate,
+    TaskOut,
+    TaskCommentCreate,
+    TaskCommentOut,
+    TaskEventOut,
+)
 from app.services.task_service import get_tasks_for_project, get_task_by_id
 from app.services.notification_service import notify_task_assigned, notify_task_updated, notify_new_task
 
@@ -26,6 +35,17 @@ async def _require_project_member(project_id: str, user: User, db: AsyncSession)
     )
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Access denied")
+
+
+async def _log_task_event(
+    db: AsyncSession,
+    task_id: str,
+    actor_id: str | None,
+    event_type: str,
+    payload: str | None = None,
+):
+    db.add(TaskEvent(task_id=task_id, actor_id=actor_id, event_type=event_type, payload=payload))
+    await db.flush()
 
 
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskOut])
@@ -46,9 +66,23 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_member(project_id, current_user, db)
-    task = Task(**data.model_dump(), project_id=project_id, created_by_id=current_user.id)
+    payload = data.model_dump()
+    if payload.get("is_escalation") and not payload.get("assigned_to_id"):
+        owner_id = (
+            await db.execute(select(Project.owner_id).where(Project.id == project_id))
+        ).scalar_one_or_none()
+        if owner_id:
+            payload["assigned_to_id"] = owner_id
+    task = Task(**payload, project_id=project_id, created_by_id=current_user.id)
     db.add(task)
     await db.flush()
+    await _log_task_event(
+        db,
+        task.id,
+        current_user.id,
+        "task_created",
+        f"is_escalation={task.is_escalation};assignee={task.assigned_to_id or ''}",
+    )
 
     # Notify assignee
     if task.assigned_to_id:
@@ -90,6 +124,7 @@ async def update_task(
     await _require_project_member(task.project_id, current_user, db)
 
     old_assignee = task.assigned_to_id
+    old_status = task.status
     for field, value in data.model_dump(exclude_none=True).items():
         setattr(task, field, value)
     await db.flush()
@@ -97,6 +132,21 @@ async def update_task(
     # Notify new assignee
     if task.assigned_to_id and task.assigned_to_id != old_assignee:
         await notify_task_assigned(db, task, task.assigned_to_id)
+        await _log_task_event(
+            db,
+            task.id,
+            current_user.id,
+            "assignee_changed",
+            f"{old_assignee or ''}->{task.assigned_to_id}",
+        )
+    if task.status != old_status:
+        await _log_task_event(
+            db,
+            task.id,
+            current_user.id,
+            "status_changed",
+            f"{old_status}->{task.status}",
+        )
 
     await notify_task_updated(db, task, current_user.id)
     await db.commit()
@@ -118,6 +168,7 @@ async def delete_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await _require_project_member(task.project_id, current_user, db)
+    await _log_task_event(db, task.id, current_user.id, "task_deleted")
     await db.delete(task)
     await db.commit()
 
@@ -139,6 +190,36 @@ async def update_task_status(
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
 
     task.status = data.status
+    await _log_task_event(db, task.id, current_user.id, "status_changed", data.status)
+
+    if data.status == "done" and task.repeat_every_days and task.repeat_every_days > 0:
+        next_start = task.start_date + timedelta(days=task.repeat_every_days) if task.start_date else None
+        next_end = task.end_date + timedelta(days=task.repeat_every_days) if task.end_date else None
+        next_task = Task(
+            project_id=task.project_id,
+            parent_task_id=task.parent_task_id,
+            title=task.title,
+            description=task.description,
+            status="todo",
+            priority=task.priority,
+            start_date=next_start,
+            end_date=next_end,
+            assigned_to_id=task.assigned_to_id,
+            is_escalation=task.is_escalation,
+            escalation_for=task.escalation_for,
+            repeat_every_days=task.repeat_every_days,
+            created_by_id=current_user.id,
+            estimated_hours=task.estimated_hours,
+        )
+        db.add(next_task)
+        await db.flush()
+        await _log_task_event(
+            db,
+            next_task.id,
+            current_user.id,
+            "task_created_from_recurrence",
+            f"source={task.id}",
+        )
     await notify_task_updated(db, task, current_user.id)
     await db.commit()
     await db.refresh(task)
@@ -147,3 +228,133 @@ async def update_task_status(
         select(Task).where(Task.id == task.id).options(selectinload(Task.assignee))
     )
     return result.scalar_one()
+
+
+@router.get("/tasks/escalations/inbox", response_model=list[TaskOut])
+async def escalation_inbox(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Task)
+        .where(
+            Task.is_escalation == True,  # noqa: E712
+            Task.assigned_to_id == current_user.id,
+            Task.status != "done",
+        )
+        .options(selectinload(Task.assignee))
+        .order_by(Task.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.get("/projects/{project_id}/critical-path")
+async def critical_path(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_member(project_id, current_user, db)
+    tasks = (await db.execute(select(Task).where(Task.project_id == project_id))).scalars().all()
+    by_id = {t.id: t for t in tasks}
+    children: dict[str, list[str]] = {}
+    roots: list[str] = []
+    for t in tasks:
+        if t.parent_task_id and t.parent_task_id in by_id:
+            children.setdefault(t.parent_task_id, []).append(t.id)
+        else:
+            roots.append(t.id)
+
+    def score(task_id: str) -> tuple[int, list[str]]:
+        childs = children.get(task_id, [])
+        if not childs:
+            return 1, [task_id]
+        best = (0, [])
+        for c in childs:
+            s = score(c)
+            if s[0] > best[0]:
+                best = s
+        return best[0] + 1, [task_id] + best[1]
+
+    best_path: list[str] = []
+    best_len = 0
+    for r in roots:
+        l, p = score(r)
+        if l > best_len:
+            best_len = l
+            best_path = p
+
+    return {
+        "project_id": project_id,
+        "length": best_len,
+        "task_ids": best_path,
+        "tasks": [
+            {
+                "id": tid,
+                "title": by_id[tid].title,
+                "status": by_id[tid].status,
+                "end_date": by_id[tid].end_date.isoformat() if by_id[tid].end_date else None,
+            }
+            for tid in best_path
+        ],
+    }
+
+
+@router.get("/tasks/{task_id}/comments", response_model=list[TaskCommentOut])
+async def list_task_comments(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    task = await get_task_by_id(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await _require_project_member(task.project_id, current_user, db)
+    result = await db.execute(
+        select(TaskComment)
+        .where(TaskComment.task_id == task_id)
+        .options(selectinload(TaskComment.author))
+        .order_by(TaskComment.created_at.asc())
+    )
+    return result.scalars().all()
+
+
+@router.post("/tasks/{task_id}/comments", response_model=TaskCommentOut, status_code=201)
+async def add_task_comment(
+    task_id: str,
+    data: TaskCommentCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    task = await get_task_by_id(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await _require_project_member(task.project_id, current_user, db)
+    comment = TaskComment(task_id=task_id, author_id=current_user.id, body=data.body)
+    db.add(comment)
+    await db.flush()
+    await _log_task_event(db, task_id, current_user.id, "comment_added")
+    await db.commit()
+    result = await db.execute(
+        select(TaskComment).where(TaskComment.id == comment.id).options(selectinload(TaskComment.author))
+    )
+    return result.scalar_one()
+
+
+@router.get("/tasks/{task_id}/events", response_model=list[TaskEventOut])
+async def list_task_events(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    task = await get_task_by_id(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await _require_project_member(task.project_id, current_user, db)
+    result = await db.execute(
+        select(TaskEvent)
+        .where(TaskEvent.task_id == task_id)
+        .order_by(TaskEvent.created_at.desc())
+        .limit(100)
+    )
+    return result.scalars().all()

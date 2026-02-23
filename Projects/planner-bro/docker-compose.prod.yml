@@ -41,6 +41,7 @@ services:
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
     volumes:
       - ./backend/firebase-credentials.json:/app/firebase-credentials.json:ro
+      - ./uploads/projects:/app/uploads/projects
     depends_on:
       postgres:
         condition: service_healthy

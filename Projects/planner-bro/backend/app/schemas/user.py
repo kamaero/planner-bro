@@ -21,6 +21,7 @@ class UserUpdate(BaseModel):
 class UserOut(UserBase):
     id: str
     avatar_url: Optional[str] = None
+    reminder_days: str = "1,3"
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -52,3 +53,7 @@ class LogoutRequest(BaseModel):
 class GoogleOAuthRequest(BaseModel):
     code: str
     redirect_uri: str
+
+
+class ReminderSettingsUpdate(BaseModel):
+    reminder_days: str

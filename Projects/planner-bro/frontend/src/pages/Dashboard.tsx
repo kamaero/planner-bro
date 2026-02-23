@@ -1,12 +1,13 @@
 import { useState, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { useProjects, useCreateProject, useAllTasks } from '@/hooks/useProjects'
+import { useProjects, useCreateProject, useAllTasks, useEscalations } from '@/hooks/useProjects'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { ProjectCard } from '@/components/ProjectCard/ProjectCard'
+import { api } from '@/api/client'
 import { Plus, FolderOpen, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import type { Task, Project } from '@/types'
 
@@ -30,6 +31,20 @@ const TASK_BADGE: Record<string, string> = {
   in_progress: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
   review:      'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   done:        'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+}
+
+const PROJECT_TEMPLATES: Record<string, Array<{ title: string; priority: string; daysOffset: number }>> = {
+  blank: [],
+  launch: [
+    { title: 'Сбор требований', priority: 'high', daysOffset: 2 },
+    { title: 'План работ и оценка', priority: 'high', daysOffset: 5 },
+    { title: 'Риски и план коммуникаций', priority: 'medium', daysOffset: 7 },
+  ],
+  support: [
+    { title: 'Мониторинг SLA', priority: 'high', daysOffset: 1 },
+    { title: 'Обзор инцидентов', priority: 'medium', daysOffset: 3 },
+    { title: 'План улучшений', priority: 'medium', daysOffset: 7 },
+  ],
 }
 
 // ─── small components ─────────────────────────────────────────────────────────
@@ -77,8 +92,9 @@ function MetricCard({
     <button
       type="button"
       onClick={onClick}
+      aria-label={label}
       className={cn(
-        'rounded-xl border bg-card p-5 text-left transition-shadow hover:shadow-md',
+        'rounded-xl border bg-card p-5 text-left transition-shadow hover:shadow-md cursor-pointer',
         active ? 'ring-2 ring-primary/40' : undefined
       )}
     >
@@ -292,6 +308,7 @@ function DeadlineCards({
 export function Dashboard() {
   const { data: projects = [], isLoading: projectsLoading } = useProjects()
   const { tasks, isLoading: tasksLoading } = useAllTasks()
+  const { data: escalations = [] } = useEscalations()
   const createProject = useCreateProject()
 
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -299,18 +316,21 @@ export function Dashboard() {
     name: '',
     description: '',
     color: '#6366f1',
+    template: 'blank',
     start_date: '',
     end_date: '',
   })
   const [focus, setFocus] = useState<'active' | 'in_progress' | 'overdue' | 'done'>('active')
   const [search, setSearch] = useState('')
   const listRef = useRef<HTMLDivElement | null>(null)
+  const focusSectionRef = useRef<HTMLElement | null>(null)
 
   const today = new Date().toISOString().slice(0, 10)
 
   const handleFocus = (key: 'active' | 'in_progress' | 'overdue' | 'done') => {
     setFocus(key)
-    listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setSearch('')
+    focusSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const tasksByProject = useMemo(() => {
@@ -327,7 +347,7 @@ export function Dashboard() {
   const activeProjectsList = useMemo(
     () =>
       projects.filter(
-        (p) => p.status === 'active' && (!p.end_date || p.end_date >= today)
+        (p) => p.status !== 'completed' && (!p.end_date || p.end_date >= today)
       ),
     [projects, today]
   )
@@ -471,14 +491,26 @@ export function Dashboard() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    await createProject.mutateAsync({
+    const created = await createProject.mutateAsync({
       ...form,
       status: 'active',
       start_date: form.start_date || undefined,
       end_date: form.end_date || undefined,
     })
+    const templateTasks = PROJECT_TEMPLATES[form.template] ?? []
+    await Promise.all(
+      templateTasks.map((t) => {
+        const end = new Date()
+        end.setDate(end.getDate() + t.daysOffset)
+        return api.createTask(created.id, {
+          title: t.title,
+          priority: t.priority,
+          end_date: end.toISOString().slice(0, 10),
+        })
+      })
+    )
     setDialogOpen(false)
-    setForm({ name: '', description: '', color: '#6366f1', start_date: '', end_date: '' })
+    setForm({ name: '', description: '', color: '#6366f1', template: 'blank', start_date: '', end_date: '' })
   }
 
   if (projectsLoading || tasksLoading) {
@@ -542,6 +574,18 @@ export function Dashboard() {
                     />
                   ))}
                 </div>
+              </div>
+              <div className="space-y-1">
+                <Label>Шаблон</Label>
+                <select
+                  value={form.template}
+                  onChange={(e) => setForm((f) => ({ ...f, template: e.target.value }))}
+                  className="w-full border rounded px-2 py-2 bg-background text-sm"
+                >
+                  <option value="blank">Пустой проект</option>
+                  <option value="launch">Запуск проекта</option>
+                  <option value="support">Сопровождение</option>
+                </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -608,6 +652,7 @@ export function Dashboard() {
         />
       </div>
 
+      <section ref={focusSectionRef}>
       <SectionCard
         title={focusTitles[focus]}
         action={
@@ -634,6 +679,7 @@ export function Dashboard() {
           </div>
         )}
       </SectionCard>
+      </section>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="space-y-6 xl:col-span-2">
@@ -650,6 +696,26 @@ export function Dashboard() {
           >
             <RecentTasksList tasks={recentTasks} projectMap={projectMap} />
           </SectionCard>
+          <SectionCard title="Эскалации на меня">
+            {escalations.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Новых эскалаций нет.</p>
+            ) : (
+              <div className="space-y-2">
+                {escalations.slice(0, 8).map((task) => (
+                  <Link
+                    key={task.id}
+                    to={`/projects/${task.project_id}`}
+                    className="block rounded-lg border p-3 hover:bg-accent transition-colors"
+                  >
+                    <p className="text-sm font-medium">{task.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {task.escalation_for || 'Требуется решение руководителя'}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </SectionCard>
         </div>
         <div className="space-y-6">
           <SectionCard title="Статусы задач">
@@ -658,9 +724,13 @@ export function Dashboard() {
           <SectionCard
             title="Активные проекты"
             action={
-              <Link to="/" className="text-xs text-primary hover:underline">
-                Все проекты →
-              </Link>
+              <button
+                type="button"
+                onClick={() => handleFocus('active')}
+                className="text-xs text-primary hover:underline"
+              >
+                Открыть список →
+              </button>
             }
           >
             <ProjectProgressList items={projectProgress} />

@@ -46,6 +46,21 @@ async def _get_fcm_tokens(db: AsyncSession, user_ids: list[str]) -> list[str]:
     return [row[0] for row in result.all()]
 
 
+async def _filter_recipients_by_reminder_days(
+    db: AsyncSession, user_ids: list[str], days_until: int
+) -> list[str]:
+    if days_until <= 0:
+        return user_ids
+    result = await db.execute(select(User.id, User.reminder_days).where(User.id.in_(user_ids)))
+    allowed: list[str] = []
+    for user_id, reminder_days in result.all():
+        raw = reminder_days or "1,3"
+        values = {int(item.strip()) for item in raw.split(",") if item.strip().isdigit()}
+        if days_until in values:
+            allowed.append(user_id)
+    return allowed
+
+
 async def notify_task_assigned(db: AsyncSession, task: Task, assignee_id: str):
     if not assignee_id:
         return
@@ -128,6 +143,9 @@ async def notify_project_updated(db: AsyncSession, project: Project):
 
 async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
     member_ids = await _get_project_member_ids(db, task.project_id)
+    member_ids = await _filter_recipients_by_reminder_days(db, member_ids, days_until)
+    if not member_ids:
+        return
     type_ = "deadline_approaching" if days_until > 0 else "deadline_missed"
     title = f"Deadline {'Approaching' if days_until > 0 else 'Missed'}"
     body = (

@@ -10,6 +10,7 @@ export function Settings() {
   const { user, setUser, logout } = useAuthStore()
   const navigate = useNavigate()
   const [name, setName] = useState(user?.name ?? '')
+  const [reminderDays, setReminderDays] = useState(user?.reminder_days ?? '1,3')
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
 
@@ -22,6 +23,16 @@ export function Settings() {
     e.preventDefault()
     setSaving(true)
     const updated = await api.updateMe({ name })
+    setUser(updated)
+    setSaving(false)
+    setSuccess(true)
+    setTimeout(() => setSuccess(false), 2000)
+  }
+
+  const handleSaveReminders = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    const updated = await api.updateReminderSettings(reminderDays)
     setUser(updated)
     setSaving(false)
     setSuccess(true)
@@ -79,6 +90,23 @@ export function Settings() {
               {saving ? 'Saving...' : 'Save'}
             </Button>
             {success && <p className="text-sm text-green-600">Saved!</p>}
+          </form>
+        </div>
+
+        <div className="border-t pt-4">
+          <h2 className="font-semibold mb-2">Напоминания о дедлайнах</h2>
+          <p className="text-sm text-muted-foreground mb-3">
+            Укажите за сколько дней присылать уведомления, например: <code>1,3,7</code>
+          </p>
+          <form onSubmit={handleSaveReminders} className="space-y-3">
+            <Input
+              value={reminderDays}
+              onChange={(e) => setReminderDays(e.target.value)}
+              placeholder="1,3"
+            />
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving...' : 'Save reminders'}
+            </Button>
           </form>
         </div>
 

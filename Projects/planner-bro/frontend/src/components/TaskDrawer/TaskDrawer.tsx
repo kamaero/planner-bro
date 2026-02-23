@@ -1,7 +1,14 @@
+import { useEffect, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { useUpdateTaskStatus, useDeleteTask, useUpdateTask } from '@/hooks/useProjects'
+import {
+  useUpdateTaskStatus,
+  useDeleteTask,
+  useUpdateTask,
+  useTaskComments,
+  useAddTaskComment,
+  useTaskEvents,
+} from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
 import type { Task } from '@/types'
 import { CalendarDays, Clock, User, Trash2 } from 'lucide-react'
@@ -26,9 +33,27 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const updateStatus = useUpdateTaskStatus()
   const deleteTask = useDeleteTask()
   const updateTask = useUpdateTask()
+  const addComment = useAddTaskComment()
   const { data: members = [] } = useMembers(projectId)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [repeatDays, setRepeatDays] = useState('')
+  const [isEscalation, setIsEscalation] = useState(false)
+  const [escalationFor, setEscalationFor] = useState('')
+  const [commentBody, setCommentBody] = useState('')
+
+  const { data: comments = [] } = useTaskComments(task?.id)
+  const { data: events = [] } = useTaskEvents(task?.id)
 
   if (!task) return null
+
+  useEffect(() => {
+    setStartDate(task.start_date ?? '')
+    setEndDate(task.end_date ?? '')
+    setRepeatDays(task.repeat_every_days ? String(task.repeat_every_days) : '')
+    setIsEscalation(!!task.is_escalation)
+    setEscalationFor(task.escalation_for ?? '')
+  }, [task])
 
   const handleStatusChange = (status: string) => {
     updateStatus.mutate({ taskId: task.id, status })
@@ -46,6 +71,25 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       await deleteTask.mutateAsync(task.id)
       onOpenChange(false)
     }
+  }
+
+  const handleSaveDates = async () => {
+    await updateTask.mutateAsync({
+      taskId: task.id,
+      data: {
+        start_date: startDate || null,
+        end_date: endDate || null,
+        repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
+        is_escalation: isEscalation,
+        escalation_for: escalationFor || null,
+      },
+    })
+  }
+
+  const handleAddComment = async () => {
+    if (!commentBody.trim()) return
+    await addComment.mutateAsync({ taskId: task.id, body: commentBody.trim() })
+    setCommentBody('')
   }
 
   return (
@@ -97,20 +141,99 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 ))}
               </select>
             </div>
-            {(task.start_date || task.end_date) && (
+            <div className="space-y-2">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <CalendarDays className="w-4 h-4" />
-                <span>
-                  {task.start_date ?? '?'} — {task.end_date ?? '?'}
-                </span>
+                <span>Дедлайн и даты</span>
               </div>
-            )}
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-background"
+                />
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-background"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSaveDates}
+                disabled={updateTask.isPending}
+              >
+                {updateTask.isPending ? 'Сохранение...' : 'Сохранить даты'}
+              </Button>
+            </div>
             {task.estimated_hours && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Clock className="w-4 h-4" />
                 <span>{task.estimated_hours}h estimated</span>
               </div>
             )}
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={isEscalation}
+                  onChange={(e) => setIsEscalation(e.target.checked)}
+                />
+                Эскалация на руководителя
+              </label>
+              {isEscalation && (
+                <input
+                  value={escalationFor}
+                  onChange={(e) => setEscalationFor(e.target.value)}
+                  className="w-full text-sm border rounded px-2 py-1 bg-background"
+                  placeholder="Описание проблемы для эскалации"
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2 border-t pt-3">
+            <p className="text-sm font-medium">Комментарии</p>
+            <div className="space-y-2 max-h-32 overflow-auto">
+              {comments.length === 0 && (
+                <p className="text-xs text-muted-foreground">Комментариев пока нет.</p>
+              )}
+              {comments.map((c) => (
+                <div key={c.id} className="text-xs rounded border p-2">
+                  <p className="font-medium">{c.author?.name ?? 'Пользователь'}</p>
+                  <p className="text-muted-foreground">{c.body}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={commentBody}
+                onChange={(e) => setCommentBody(e.target.value)}
+                placeholder="Добавить комментарий..."
+                className="flex-1 text-sm border rounded px-2 py-1 bg-background"
+              />
+              <Button size="sm" variant="outline" onClick={handleAddComment}>
+                Добавить
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2 border-t pt-3">
+            <p className="text-sm font-medium">История</p>
+            <div className="space-y-1 max-h-28 overflow-auto">
+              {events.length === 0 && (
+                <p className="text-xs text-muted-foreground">Событий пока нет.</p>
+              )}
+              {events.map((e) => (
+                <p key={e.id} className="text-xs text-muted-foreground">
+                  {new Date(e.created_at).toLocaleString('ru')} · {e.event_type}
+                  {e.payload ? ` (${e.payload})` : ''}
+                </p>
+              ))}
+            </div>
           </div>
 
           {/* Actions */}

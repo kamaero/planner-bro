@@ -49,6 +49,8 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
 # Place Let's Encrypt certs in nginx/ssl/ (fullchain.pem, privkey.pem)
 # Edit nginx/nginx.conf server_name
 # Fill in .env.prod
+# Ensure uploads directory exists for project files
+mkdir -p uploads/projects
 docker-compose -f docker-compose.prod.yml up -d --build
 ```
 

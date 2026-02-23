@@ -1,6 +1,14 @@
 import { useQuery, useMutation, useQueryClient, useQueries } from '@tanstack/react-query'
 import { api } from '@/api/client'
-import type { Project, Task, GanttData, Notification, ProjectFile } from '@/types'
+import type {
+  Project,
+  Task,
+  GanttData,
+  Notification,
+  ProjectFile,
+  TaskComment,
+  TaskEvent,
+} from '@/types'
 
 export function useProjects() {
   return useQuery<Project[]>({
@@ -21,6 +29,19 @@ export function useGantt(projectId: string) {
   return useQuery<GanttData>({
     queryKey: ['gantt', projectId],
     queryFn: () => api.getGantt(projectId),
+    enabled: !!projectId,
+  })
+}
+
+export function useCriticalPath(projectId: string) {
+  return useQuery<{
+    project_id: string
+    length: number
+    task_ids: string[]
+    tasks: Array<{ id: string; title: string; status: string; end_date?: string | null }>
+  }>({
+    queryKey: ['critical-path', projectId],
+    queryFn: () => api.getCriticalPath(projectId),
     enabled: !!projectId,
   })
 }
@@ -69,6 +90,8 @@ export function useCreateTask() {
     onSuccess: (_, { projectId }) => {
       qc.invalidateQueries({ queryKey: ['tasks', projectId] })
       qc.invalidateQueries({ queryKey: ['gantt', projectId] })
+      qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
+      qc.invalidateQueries({ queryKey: ['escalations'] })
     },
   })
 }
@@ -78,9 +101,11 @@ export function useUpdateTask() {
   return useMutation({
     mutationFn: ({ taskId, data }: { taskId: string; data: object }) =>
       api.updateTask(taskId, data),
-    onSuccess: () => {
+    onSuccess: (updatedTask: Task) => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['gantt'] })
+      qc.invalidateQueries({ queryKey: ['critical-path', updatedTask.project_id] })
+      qc.invalidateQueries({ queryKey: ['escalations'] })
     },
   })
 }
@@ -90,7 +115,11 @@ export function useUpdateTaskStatus() {
   return useMutation({
     mutationFn: ({ taskId, status }: { taskId: string; status: string }) =>
       api.updateTaskStatus(taskId, status),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+    onSuccess: (updatedTask: Task) => {
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['critical-path', updatedTask.project_id] })
+      qc.invalidateQueries({ queryKey: ['escalations'] })
+    },
   })
 }
 
@@ -143,6 +172,42 @@ export function useDeleteTask() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['gantt'] })
+      qc.invalidateQueries({ queryKey: ['critical-path'] })
+      qc.invalidateQueries({ queryKey: ['escalations'] })
     },
+  })
+}
+
+export function useEscalations() {
+  return useQuery<Task[]>({
+    queryKey: ['escalations'],
+    queryFn: api.listEscalations,
+  })
+}
+
+export function useTaskComments(taskId?: string) {
+  return useQuery<TaskComment[]>({
+    queryKey: ['task-comments', taskId],
+    queryFn: () => api.listTaskComments(taskId!),
+    enabled: !!taskId,
+  })
+}
+
+export function useAddTaskComment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, body }: { taskId: string; body: string }) => api.addTaskComment(taskId, body),
+    onSuccess: (_, { taskId }) => {
+      qc.invalidateQueries({ queryKey: ['task-comments', taskId] })
+      qc.invalidateQueries({ queryKey: ['task-events', taskId] })
+    },
+  })
+}
+
+export function useTaskEvents(taskId?: string) {
+  return useQuery<TaskEvent[]>({
+    queryKey: ['task-events', taskId],
+    queryFn: () => api.listTaskEvents(taskId!),
+    enabled: !!taskId,
   })
 }

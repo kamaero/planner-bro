@@ -47,6 +47,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, refreshToken, logout } = useAuthStore()
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchData, setSearchData] = useState<{
+    projects: Array<{ id: string; name: string; status: string }>
+    tasks: Array<{ id: string; title: string; project_id: string; status: string }>
+    users: Array<{ id: string; name: string; email: string }>
+  } | null>(null)
   useWebSocket()
 
   const handleLogout = async () => {
@@ -66,6 +72,26 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
     { to: '/settings', label: 'Настройки', icon: SettingsIcon },
   ]
+
+  useEffect(() => {
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      if (!searchQuery.trim()) {
+        setSearchData(null)
+        return
+      }
+      try {
+        const res = await api.globalSearch(searchQuery.trim())
+        if (!cancelled) setSearchData(res)
+      } catch {
+        if (!cancelled) setSearchData(null)
+      }
+    }, 300)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [searchQuery])
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -117,8 +143,67 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             <h1 className="text-lg font-semibold">Панель управления</h1>
           </div>
           <div className="flex items-center gap-3">
-            <div className="hidden lg:block w-72">
-              <Input placeholder="Поиск по проектам и задачам" />
+            <div className="hidden lg:block w-96 relative">
+              <Input
+                placeholder="Глобальный поиск: проекты, задачи, люди"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchData && (
+                <div className="absolute z-20 mt-1 w-full rounded-lg border bg-card shadow-md p-2 space-y-2 max-h-80 overflow-auto">
+                  {searchData.projects.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase text-muted-foreground mb-1">Проекты</p>
+                      {searchData.projects.map((p) => (
+                        <Link
+                          key={p.id}
+                          to={`/projects/${p.id}`}
+                          className="block text-sm px-2 py-1 rounded hover:bg-accent"
+                          onClick={() => {
+                            setSearchQuery('')
+                            setSearchData(null)
+                          }}
+                        >
+                          {p.name}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                  {searchData.tasks.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase text-muted-foreground mb-1">Задачи</p>
+                      {searchData.tasks.map((t) => (
+                        <Link
+                          key={t.id}
+                          to={`/projects/${t.project_id}`}
+                          className="block text-sm px-2 py-1 rounded hover:bg-accent"
+                          onClick={() => {
+                            setSearchQuery('')
+                            setSearchData(null)
+                          }}
+                        >
+                          {t.title}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                  {searchData.users.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase text-muted-foreground mb-1">Люди</p>
+                      {searchData.users.map((u) => (
+                        <p key={u.id} className="text-sm px-2 py-1 text-muted-foreground">
+                          {u.name} · {u.email}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {searchData.projects.length === 0 &&
+                    searchData.tasks.length === 0 &&
+                    searchData.users.length === 0 && (
+                      <p className="text-sm text-muted-foreground px-2 py-1">Ничего не найдено.</p>
+                    )}
+                </div>
+              )}
             </div>
             <ThemeToggle />
             <NotificationBell />

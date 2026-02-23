@@ -4,6 +4,7 @@ export interface User {
   name: string
   role: 'admin' | 'manager' | 'developer'
   avatar_url?: string
+  reminder_days?: string
   created_at: string
   updated_at: string
 }
@@ -34,6 +35,9 @@ export interface Task {
   end_date?: string
   assigned_to_id?: string
   assignee?: User
+  is_escalation?: boolean
+  escalation_for?: string
+  repeat_every_days?: number
   created_by_id: string
   estimated_hours?: number
   created_at: string
@@ -90,4 +94,28 @@ export interface ProjectFile {
   uploaded_by_id?: string
   uploaded_by?: User
   created_at: string
+}
+
+export interface TaskComment {
+  id: string
+  task_id: string
+  author_id?: string
+  body: string
+  created_at: string
+  author?: User
+}
+
+export interface TaskEvent {
+  id: string
+  task_id: string
+  actor_id?: string
+  event_type: string
+  payload?: string
+  created_at: string
+}
+
+export interface GlobalSearchResult {
+  projects: Array<{ id: string; name: string; status: string }>
+  tasks: Array<{ id: string; title: string; project_id: string; status: string }>
+  users: Array<{ id: string; name: string; email: string }>
 }

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   useProject,
   useGantt,
+  useCriticalPath,
   useTasks,
   useCreateTask,
   useUpdateProject,
+  useDeleteProject,
   useUpdateTaskStatus,
   useDeleteTask,
   useProjectFiles,
@@ -55,14 +57,17 @@ function formatFileSize(size: number) {
 }
 
 export function ProjectDetail() {
+  const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const { data: project } = useProject(id!)
   const { data: ganttData } = useGantt(id!)
+  const { data: criticalPath } = useCriticalPath(id!)
   const { data: tasks = [] } = useTasks(id!)
   const { data: members = [] } = useMembers(id!)
   const { data: files = [] } = useProjectFiles(id!)
   const createTask = useCreateTask()
   const updateProject = useUpdateProject()
+  const deleteProject = useDeleteProject()
   const updateTaskStatus = useUpdateTaskStatus()
   const deleteTask = useDeleteTask()
   const uploadProjectFile = useUploadProjectFile()
@@ -83,6 +88,10 @@ export function ProjectDetail() {
     end_date: '',
     estimated_hours: '',
     assigned_to_id: '',
+    parent_task_id: '',
+    is_escalation: false,
+    escalation_for: '',
+    repeat_every_days: '',
   })
   const [editForm, setEditForm] = useState({
     name: '',
@@ -205,10 +214,26 @@ export function ProjectDetail() {
         start_date: taskForm.start_date || undefined,
         end_date: taskForm.end_date || undefined,
         assigned_to_id: taskForm.assigned_to_id || undefined,
+        parent_task_id: taskForm.parent_task_id || undefined,
+        is_escalation: taskForm.is_escalation,
+        escalation_for: taskForm.escalation_for || undefined,
+        repeat_every_days: taskForm.repeat_every_days ? parseInt(taskForm.repeat_every_days) : undefined,
       },
     })
     setTaskDialogOpen(false)
-    setTaskForm({ title: '', description: '', priority: 'medium', start_date: '', end_date: '', estimated_hours: '', assigned_to_id: '' })
+    setTaskForm({
+      title: '',
+      description: '',
+      priority: 'medium',
+      start_date: '',
+      end_date: '',
+      estimated_hours: '',
+      assigned_to_id: '',
+      parent_task_id: '',
+      is_escalation: false,
+      escalation_for: '',
+      repeat_every_days: '',
+    })
   }
 
   const handleUpdateProject = async (e: React.FormEvent) => {
@@ -231,6 +256,13 @@ export function ProjectDetail() {
     if (!fileToUpload) return
     await uploadProjectFile.mutateAsync({ projectId: id!, file: fileToUpload })
     setFileToUpload(null)
+  }
+
+  const handleDeleteProject = async () => {
+    if (!id || !canManage) return
+    if (!window.confirm('Удалить проект? Это действие нельзя отменить.')) return
+    await deleteProject.mutateAsync(id)
+    navigate('/')
   }
 
   const handleDownload = async (file: ProjectFile) => {
@@ -386,6 +418,18 @@ export function ProjectDetail() {
           </DialogContent>
         </Dialog>
 
+        {canManage && (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleDeleteProject}
+            disabled={deleteProject.isPending}
+          >
+            <Trash2 className="w-4 h-4 mr-1" />
+            {deleteProject.isPending ? 'Удаление...' : 'Удалить проект'}
+          </Button>
+        )}
+
         <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm">
@@ -443,6 +487,21 @@ export function ProjectDetail() {
                   ))}
                 </select>
               </div>
+              <div className="space-y-1">
+                <Label>Depends On</Label>
+                <select
+                  value={taskForm.parent_task_id}
+                  onChange={(e) => setTaskForm((f) => ({ ...f, parent_task_id: e.target.value }))}
+                  className="w-full border rounded px-3 py-2 text-sm bg-background"
+                >
+                  <option value="">No dependency</option>
+                  {tasks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label>Start Date</Label>
@@ -470,6 +529,33 @@ export function ProjectDetail() {
                   placeholder="e.g. 8"
                 />
               </div>
+              <div className="space-y-1">
+                <Label>Repeat Every (days)</Label>
+                <Input
+                  type="number"
+                  value={taskForm.repeat_every_days}
+                  onChange={(e) => setTaskForm((f) => ({ ...f, repeat_every_days: e.target.value }))}
+                  placeholder="e.g. 7"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={taskForm.is_escalation}
+                  onChange={(e) => setTaskForm((f) => ({ ...f, is_escalation: e.target.checked }))}
+                />
+                Эскалация на руководителя
+              </label>
+              {taskForm.is_escalation && (
+                <div className="space-y-1">
+                  <Label>Escalation Reason</Label>
+                  <Input
+                    value={taskForm.escalation_for}
+                    onChange={(e) => setTaskForm((f) => ({ ...f, escalation_for: e.target.value }))}
+                    placeholder="Что заблокировано и какое решение нужно"
+                  />
+                </div>
+              )}
               <Button type="submit" className="w-full" disabled={createTask.isPending}>
                 {createTask.isPending ? 'Creating...' : 'Create Task'}
               </Button>
@@ -485,11 +571,27 @@ export function ProjectDetail() {
 
       {/* Content */}
       {view === 'gantt' ? (
-        <div className="rounded-xl border bg-card p-4 overflow-x-auto">
-          <GanttChart
-            tasks={ganttData?.tasks ?? []}
-            onTaskClick={handleGanttTaskClick}
-          />
+        <div className="space-y-3">
+          <div className="rounded-xl border bg-card p-4 overflow-x-auto">
+            <GanttChart
+              tasks={ganttData?.tasks ?? []}
+              onTaskClick={handleGanttTaskClick}
+            />
+          </div>
+          <div className="rounded-xl border bg-card p-4">
+            <p className="text-sm font-semibold mb-2">Critical Path</p>
+            {!criticalPath || criticalPath.task_ids.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Нет зависимостей для расчёта.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {criticalPath.tasks.map((t) => (
+                  <span key={t.id} className="text-xs px-2 py-1 rounded border bg-background">
+                    {t.title}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       ) : view === 'list' ? (
         <div className="space-y-3">
@@ -604,6 +706,11 @@ export function ProjectDetail() {
                   >
                     {task.priority}
                   </span>
+                  {task.is_escalation && (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-800">
+                      escalation
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {task.assignee && (

@@ -85,8 +85,12 @@ export const api = {
   getMe: () => apiClient.get('/users/me').then((r) => r.data),
   updateMe: (data: Partial<{ name: string; avatar_url: string }>) =>
     apiClient.put('/users/me', data).then((r) => r.data),
+  updateReminderSettings: (reminderDays: string) =>
+    apiClient.put('/users/me/reminders', { reminder_days: reminderDays }).then((r) => r.data),
   listUsers: () => apiClient.get('/users').then((r) => r.data),
   searchUsers: (q: string) => apiClient.get('/users/search', { params: { q } }).then((r) => r.data),
+  globalSearch: (q: string) =>
+    apiClient.get('/users/global/search', { params: { q } }).then((r) => r.data),
 
   // Projects
   listProjects: () => apiClient.get('/projects/').then((r) => r.data),
@@ -124,6 +128,7 @@ export const api = {
   // Tasks
   listTasks: (projectId: string) =>
     apiClient.get(`/projects/${projectId}/tasks`).then((r) => r.data),
+  listEscalations: () => apiClient.get('/tasks/escalations/inbox').then((r) => r.data),
   createTask: (projectId: string, data: object) =>
     apiClient.post(`/projects/${projectId}/tasks`, data).then((r) => r.data),
   getTask: (taskId: string) => apiClient.get(`/tasks/${taskId}`).then((r) => r.data),
@@ -132,6 +137,12 @@ export const api = {
   deleteTask: (taskId: string) => apiClient.delete(`/tasks/${taskId}`),
   updateTaskStatus: (taskId: string, status: string) =>
     apiClient.patch(`/tasks/${taskId}/status`, { status }).then((r) => r.data),
+  listTaskComments: (taskId: string) => apiClient.get(`/tasks/${taskId}/comments`).then((r) => r.data),
+  addTaskComment: (taskId: string, body: string) =>
+    apiClient.post(`/tasks/${taskId}/comments`, { body }).then((r) => r.data),
+  listTaskEvents: (taskId: string) => apiClient.get(`/tasks/${taskId}/events`).then((r) => r.data),
+  getCriticalPath: (projectId: string) =>
+    apiClient.get(`/projects/${projectId}/critical-path`).then((r) => r.data),
 
   // Notifications
   listNotifications: () => apiClient.get('/notifications').then((r) => r.data),

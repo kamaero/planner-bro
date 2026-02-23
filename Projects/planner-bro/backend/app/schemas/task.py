@@ -14,6 +14,9 @@ class TaskBase(BaseModel):
     assigned_to_id: Optional[str] = None
     parent_task_id: Optional[str] = None
     estimated_hours: Optional[int] = None
+    is_escalation: bool = False
+    escalation_for: Optional[str] = None
+    repeat_every_days: Optional[int] = None
 
 
 class TaskCreate(TaskBase):
@@ -29,6 +32,10 @@ class TaskUpdate(BaseModel):
     end_date: Optional[date] = None
     assigned_to_id: Optional[str] = None
     estimated_hours: Optional[int] = None
+    parent_task_id: Optional[str] = None
+    is_escalation: Optional[bool] = None
+    escalation_for: Optional[str] = None
+    repeat_every_days: Optional[int] = None
 
 
 class TaskStatusUpdate(BaseModel):
@@ -42,5 +49,31 @@ class TaskOut(TaskBase):
     assignee: Optional[UserOut] = None
     created_at: datetime
     updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TaskCommentCreate(BaseModel):
+    body: str
+
+
+class TaskCommentOut(BaseModel):
+    id: str
+    task_id: str
+    author_id: Optional[str] = None
+    body: str
+    created_at: datetime
+    author: Optional[UserOut] = None
+
+    model_config = {"from_attributes": True}
+
+
+class TaskEventOut(BaseModel):
+    id: str
+    task_id: str
+    actor_id: Optional[str] = None
+    event_type: str
+    payload: Optional[str] = None
+    created_at: datetime
 
     model_config = {"from_attributes": True}
