@@ -10,6 +10,7 @@ import type {
   TaskEvent,
   AIIngestionJob,
   AITaskDraft,
+  MSProjectImportResult,
 } from '@/types'
 
 export function useProjects() {
@@ -160,6 +161,19 @@ export function useDeleteProjectFile() {
       api.deleteProjectFile(projectId, fileId),
     onSuccess: (_, { projectId }) =>
       qc.invalidateQueries({ queryKey: ['project-files', projectId] }),
+  })
+}
+
+export function useImportMSProjectTasks() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, file }: { projectId: string; file: File }) =>
+      api.importMSProjectTasks(projectId, file) as Promise<MSProjectImportResult>,
+    onSuccess: (_, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['tasks', projectId] })
+      qc.invalidateQueries({ queryKey: ['gantt', projectId] })
+      qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
+    },
   })
 }
 

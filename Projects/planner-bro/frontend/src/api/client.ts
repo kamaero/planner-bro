@@ -113,9 +113,18 @@ export const api = {
     apiClient.get(`/projects/${projectId}/files`).then((r) => r.data),
   uploadProjectFile: (projectId: string, file: File) => {
     const form = new FormData()
-    form.append('file', file)
+    form.append('upload', file)
     return apiClient
       .post(`/projects/${projectId}/files`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  },
+  importMSProjectTasks: (projectId: string, file: File) => {
+    const form = new FormData()
+    form.append('upload', file)
+    return apiClient
+      .post(`/projects/${projectId}/tasks/import/ms-project`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       .then((r) => r.data)

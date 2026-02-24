@@ -16,11 +16,12 @@ from app.models.task import Task, TaskEvent
 from app.models.ai import AIIngestionJob, AITaskDraft
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
-    AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut
+    AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut, MSProjectImportResult
 )
 from app.schemas.ai import AIIngestionJobOut, AITaskDraftOut, AITaskDraftBulkApproveRequest
 from app.services.project_service import get_projects_for_user, get_gantt_data
 from app.services.notification_service import notify_project_updated, notify_new_task, notify_task_assigned
+from app.services.ms_project_import_service import parse_ms_project_xml
 from app.tasks.ai_ingestion import process_file_for_ai
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -287,6 +288,81 @@ async def upload_project_file(
     await db.commit()
     process_file_for_ai.delay(job.id)
     return file_out
+
+
+@router.post("/{project_id}/tasks/import/ms-project", response_model=MSProjectImportResult)
+async def import_tasks_from_ms_project(
+    project_id: str,
+    upload: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_access(project_id, current_user, db)
+    if not upload.filename:
+        raise HTTPException(status_code=400, detail="Filename required")
+
+    content = await upload.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    try:
+        parsed = parse_ms_project_xml(content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not parsed.tasks:
+        return MSProjectImportResult(
+            total_in_file=0,
+            created=0,
+            linked_to_parent=0,
+            skipped=parsed.skipped_count,
+        )
+
+    created_by_uid: dict[str, Task] = {}
+    parent_links: list[tuple[Task, str]] = []
+    for item in parsed.tasks:
+        status = "done" if item.progress_percent >= 100 else ("in_progress" if item.progress_percent > 0 else "todo")
+        task = Task(
+            project_id=project_id,
+            title=item.title,
+            description=item.description,
+            status=status,
+            priority=item.priority,
+            progress_percent=item.progress_percent,
+            start_date=item.start_date,
+            end_date=item.end_date,
+            estimated_hours=item.estimated_hours,
+            created_by_id=current_user.id,
+        )
+        db.add(task)
+        await db.flush()
+        db.add(
+            TaskEvent(
+                task_id=task.id,
+                actor_id=current_user.id,
+                event_type="task_imported_from_ms_project",
+                payload=f"ms_project_uid={item.uid}",
+            )
+        )
+        created_by_uid[item.uid] = task
+        if item.parent_uid:
+            parent_links.append((task, item.parent_uid))
+
+    linked_to_parent = 0
+    for task, parent_uid in parent_links:
+        parent_task = created_by_uid.get(parent_uid)
+        if not parent_task:
+            continue
+        task.parent_task_id = parent_task.id
+        linked_to_parent += 1
+
+    await db.commit()
+    return MSProjectImportResult(
+        total_in_file=len(parsed.tasks) + parsed.skipped_count,
+        created=len(parsed.tasks),
+        linked_to_parent=linked_to_parent,
+        skipped=parsed.skipped_count,
+    )
 
 
 @router.get("/{project_id}/files/{file_id}/download")

@@ -74,6 +74,13 @@ class ProjectFileOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MSProjectImportResult(BaseModel):
+    total_in_file: int
+    created: int
+    linked_to_parent: int
+    skipped: int
+
+
 # Gantt format for gantt-task-react
 class GanttTask(BaseModel):
     id: str

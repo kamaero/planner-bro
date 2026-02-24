@@ -159,6 +159,13 @@ export interface AITaskDraft {
   updated_at: string
 }
 
+export interface MSProjectImportResult {
+  total_in_file: number
+  created: number
+  linked_to_parent: number
+  skipped: number
+}
+
 export interface GlobalSearchResult {
   projects: Array<{ id: string; name: string; status: string }>
   tasks: Array<{ id: string; title: string; project_id: string; status: string }>
