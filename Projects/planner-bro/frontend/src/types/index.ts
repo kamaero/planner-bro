@@ -121,6 +121,44 @@ export interface TaskEvent {
   created_at: string
 }
 
+export interface AIIngestionJob {
+  id: string
+  project_id: string
+  project_file_id: string
+  status: 'queued' | 'processing' | 'completed' | 'failed'
+  drafts_count: number
+  error_message?: string
+  started_at?: string
+  finished_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AITaskDraft {
+  id: string
+  project_id: string
+  project_file_id: string
+  job_id: string
+  status: 'pending' | 'approved' | 'rejected'
+  title: string
+  description?: string
+  priority: 'low' | 'medium' | 'high' | 'critical'
+  end_date?: string
+  estimated_hours?: number
+  assigned_to_id?: string
+  assignee_hint?: string
+  progress_percent: number
+  next_step?: string
+  source_quote?: string
+  confidence: number
+  raw_payload: Record<string, unknown>
+  approved_task_id?: string
+  approved_by_id?: string
+  assignee?: User
+  created_at: string
+  updated_at: string
+}
+
 export interface GlobalSearchResult {
   projects: Array<{ id: string; name: string; status: string }>
   tasks: Array<{ id: string; title: string; project_id: string; status: string }>

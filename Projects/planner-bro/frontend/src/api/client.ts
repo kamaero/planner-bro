@@ -154,4 +154,16 @@ export const api = {
   // Devices
   registerDevice: (token: string, platform: string) =>
     apiClient.post('/devices/register', { token, platform }).then((r) => r.data),
+
+  // AI drafts
+  listAIJobs: (projectId: string) =>
+    apiClient.get(`/projects/${projectId}/ai-jobs`).then((r) => r.data),
+  listAIDrafts: (projectId: string, params?: { file_id?: string; status_filter?: string }) =>
+    apiClient.get(`/projects/${projectId}/ai-drafts`, { params }).then((r) => r.data),
+  approveAIDraft: (projectId: string, draftId: string) =>
+    apiClient.post(`/projects/${projectId}/ai-drafts/${draftId}/approve`).then((r) => r.data),
+  approveAIDraftsBulk: (projectId: string, draftIds: string[]) =>
+    apiClient.post(`/projects/${projectId}/ai-drafts/approve-bulk`, { draft_ids: draftIds }).then((r) => r.data),
+  rejectAIDraft: (projectId: string, draftId: string) =>
+    apiClient.post(`/projects/${projectId}/ai-drafts/${draftId}/reject`).then((r) => r.data),
 }

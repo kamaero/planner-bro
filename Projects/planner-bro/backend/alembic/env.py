@@ -20,6 +20,8 @@ from app.models import (  # noqa
     TaskComment,
     TaskEvent,
     Notification,
+    AIIngestionJob,
+    AITaskDraft,
 )
 
 config = context.config

@@ -42,6 +42,11 @@ class Settings(BaseSettings):
 
     PROJECT_FILES_DIR: str = "uploads/projects"
 
+    # AI ingestion
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
+
     @model_validator(mode="after")
     def validate_secret_key(self):
         if not self.DEBUG and self.SECRET_KEY.startswith("change-me"):

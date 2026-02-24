@@ -32,6 +32,11 @@ export function useWebSocket() {
           case 'deadline_warning':
             qc.invalidateQueries({ queryKey: ['notifications'] })
             break
+          case 'ai_drafts_ready':
+          case 'ai_drafts_failed':
+            qc.invalidateQueries({ queryKey: ['ai-jobs'] })
+            qc.invalidateQueries({ queryKey: ['ai-drafts'] })
+            break
         }
       } catch {
         // ignore parse errors

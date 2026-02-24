@@ -23,5 +23,6 @@ celery_app.conf.timezone = "UTC"
 celery_app.conf.imports = (
     "app.tasks.deadline_checker",
     "app.tasks.escalation_sla_checker",
+    "app.tasks.ai_ingestion",
 )
 celery_app.autodiscover_tasks(["app.tasks"])

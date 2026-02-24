@@ -8,6 +8,8 @@ import type {
   ProjectFile,
   TaskComment,
   TaskEvent,
+  AIIngestionJob,
+  AITaskDraft,
 } from '@/types'
 
 export function useProjects() {
@@ -158,6 +160,65 @@ export function useDeleteProjectFile() {
       api.deleteProjectFile(projectId, fileId),
     onSuccess: (_, { projectId }) =>
       qc.invalidateQueries({ queryKey: ['project-files', projectId] }),
+  })
+}
+
+export function useAIJobs(projectId: string) {
+  return useQuery<AIIngestionJob[]>({
+    queryKey: ['ai-jobs', projectId],
+    queryFn: () => api.listAIJobs(projectId),
+    enabled: !!projectId,
+    refetchInterval: 5000,
+  })
+}
+
+export function useAIDrafts(projectId: string, statusFilter = 'pending') {
+  return useQuery<AITaskDraft[]>({
+    queryKey: ['ai-drafts', projectId, statusFilter],
+    queryFn: () => api.listAIDrafts(projectId, { status_filter: statusFilter }),
+    enabled: !!projectId,
+    refetchInterval: 5000,
+  })
+}
+
+export function useApproveAIDraft() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, draftId }: { projectId: string; draftId: string }) =>
+      api.approveAIDraft(projectId, draftId),
+    onSuccess: (_, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['ai-drafts', projectId] })
+      qc.invalidateQueries({ queryKey: ['tasks', projectId] })
+      qc.invalidateQueries({ queryKey: ['gantt', projectId] })
+      qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+}
+
+export function useApproveAIDraftsBulk() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, draftIds }: { projectId: string; draftIds: string[] }) =>
+      api.approveAIDraftsBulk(projectId, draftIds),
+    onSuccess: (_, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['ai-drafts', projectId] })
+      qc.invalidateQueries({ queryKey: ['tasks', projectId] })
+      qc.invalidateQueries({ queryKey: ['gantt', projectId] })
+      qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+}
+
+export function useRejectAIDraft() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, draftId }: { projectId: string; draftId: string }) =>
+      api.rejectAIDraft(projectId, draftId),
+    onSuccess: (_, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['ai-drafts', projectId] })
+    },
   })
 }
 

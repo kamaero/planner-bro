@@ -13,6 +13,11 @@ import {
   useProjectFiles,
   useUploadProjectFile,
   useDeleteProjectFile,
+  useAIJobs,
+  useAIDrafts,
+  useApproveAIDraft,
+  useApproveAIDraftsBulk,
+  useRejectAIDraft,
 } from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
 import { api } from '@/api/client'
@@ -72,6 +77,8 @@ export function ProjectDetail() {
   const { data: tasks = [] } = useTasks(id!)
   const { data: members = [] } = useMembers(id!)
   const { data: files = [] } = useProjectFiles(id!)
+  const { data: aiJobs = [] } = useAIJobs(id!)
+  const { data: aiDrafts = [] } = useAIDrafts(id!, 'pending')
   const createTask = useCreateTask()
   const updateProject = useUpdateProject()
   const deleteProject = useDeleteProject()
@@ -79,6 +86,9 @@ export function ProjectDetail() {
   const deleteTask = useDeleteTask()
   const uploadProjectFile = useUploadProjectFile()
   const deleteProjectFile = useDeleteProjectFile()
+  const approveAIDraft = useApproveAIDraft()
+  const approveAIDraftsBulk = useApproveAIDraftsBulk()
+  const rejectAIDraft = useRejectAIDraft()
   const currentUser = useAuthStore((s) => s.user)
 
   const [view, setView] = useState<'gantt' | 'list' | 'members' | 'files'>('gantt')
@@ -117,6 +127,7 @@ export function ProjectDetail() {
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState('all')
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([])
 
   const memberRole = members.find((m) => m.user.id === currentUser?.id)?.role
   const canManage = currentUser?.role === 'admin' || memberRole === 'owner' || memberRole === 'manager'
@@ -164,6 +175,11 @@ export function ProjectDetail() {
     const ids = new Set(tasks.map((t) => t.id))
     setSelectedTaskIds((prev) => prev.filter((id) => ids.has(id)))
   }, [tasks])
+
+  useEffect(() => {
+    const ids = new Set(aiDrafts.map((d) => d.id))
+    setSelectedDraftIds((prev) => prev.filter((id) => ids.has(id)))
+  }, [aiDrafts])
 
   const handleGanttTaskClick = (ganttTask: GanttTask) => {
     const task = tasks.find((t) => t.id === ganttTask.id)
@@ -328,6 +344,31 @@ export function ProjectDetail() {
     anchor.click()
     anchor.remove()
     window.URL.revokeObjectURL(url)
+  }
+
+  const latestJobByFile = useMemo(() => {
+    const map: Record<string, (typeof aiJobs)[number]> = {}
+    aiJobs.forEach((job) => {
+      const existing = map[job.project_file_id]
+      if (!existing || existing.created_at < job.created_at) {
+        map[job.project_file_id] = job
+      }
+    })
+    return map
+  }, [aiJobs])
+
+  const handleApproveDraft = async (draftId: string) => {
+    await approveAIDraft.mutateAsync({ projectId: id!, draftId })
+  }
+
+  const handleRejectDraft = async (draftId: string) => {
+    await rejectAIDraft.mutateAsync({ projectId: id!, draftId })
+  }
+
+  const handleApproveSelectedDrafts = async () => {
+    if (selectedDraftIds.length === 0) return
+    await approveAIDraftsBulk.mutateAsync({ projectId: id!, draftIds: selectedDraftIds })
+    setSelectedDraftIds([])
   }
 
   if (!project) {
@@ -899,6 +940,17 @@ export function ProjectDetail() {
                       {new Date(file.created_at).toLocaleDateString()} ·{' '}
                       {file.uploaded_by?.name ?? 'Неизвестно'}
                     </p>
+                    {latestJobByFile[file.id] && (
+                      <p className="text-xs mt-1 text-muted-foreground">
+                        AI: {latestJobByFile[file.id].status}
+                        {latestJobByFile[file.id].status === 'completed'
+                          ? ` · черновиков: ${latestJobByFile[file.id].drafts_count}`
+                          : ''}
+                        {latestJobByFile[file.id].status === 'failed' && latestJobByFile[file.id].error_message
+                          ? ` · ${latestJobByFile[file.id].error_message}`
+                          : ''}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => handleDownload(file)}>
@@ -921,6 +973,83 @@ export function ProjectDetail() {
               ))}
             </div>
           )}
+
+          <div className="rounded-lg border bg-card p-4">
+            <div className="flex items-center justify-between mb-3 gap-2">
+              <div>
+                <p className="text-sm font-semibold">AI черновики задач</p>
+                <p className="text-xs text-muted-foreground">
+                  После загрузки документа ИИ предлагает задачи. Подтвердите нужные.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleApproveSelectedDrafts}
+                disabled={selectedDraftIds.length === 0 || approveAIDraftsBulk.isPending}
+              >
+                {approveAIDraftsBulk.isPending
+                  ? 'Создание...'
+                  : `Подтвердить выбранные (${selectedDraftIds.length})`}
+              </Button>
+            </div>
+            {aiDrafts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Пока нет pending-черновиков.</p>
+            ) : (
+              <div className="space-y-2">
+                {aiDrafts.map((draft) => (
+                  <div key={draft.id} className="rounded-lg border px-3 py-3">
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedDraftIds.includes(draft.id)}
+                        onChange={() =>
+                          setSelectedDraftIds((prev) =>
+                            prev.includes(draft.id)
+                              ? prev.filter((id) => id !== draft.id)
+                              : [...prev, draft.id]
+                          )
+                        }
+                        className="mt-1 h-4 w-4"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{draft.title}</p>
+                        {draft.description && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{draft.description}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Приоритет: {draft.priority} · Confidence: {draft.confidence}%
+                          {draft.end_date ? ` · Дедлайн: ${new Date(draft.end_date).toLocaleDateString()}` : ''}
+                          {draft.assignee_hint ? ` · Кому: ${draft.assignee_hint}` : ''}
+                        </p>
+                        {draft.source_quote && (
+                          <p className="text-xs text-muted-foreground mt-1 italic line-clamp-2">
+                            Источник: {draft.source_quote}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => handleApproveDraft(draft.id)}
+                          disabled={approveAIDraft.isPending}
+                        >
+                          Подтвердить
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleRejectDraft(draft.id)}
+                          disabled={rejectAIDraft.isPending}
+                        >
+                          Отклонить
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
