@@ -121,6 +121,10 @@ async def create_task(
     await _require_project_member(project_id, current_user, db)
     payload = data.model_dump()
     _prepare_escalation_fields(payload)
+    if payload.get("control_ski"):
+        payload["priority"] = "critical"
+    elif payload.get("priority") == "critical":
+        payload["priority"] = "medium"
     if payload.get("is_escalation") and not payload.get("assigned_to_id"):
         owner_id = (
             await db.execute(select(Project.owner_id).where(Project.id == project_id))
@@ -201,6 +205,11 @@ async def update_task(
 
     for field, value in payload.items():
         setattr(task, field, value)
+
+    if task.control_ski:
+        task.priority = "critical"
+    elif task.priority == "critical":
+        task.priority = "medium"
     await db.flush()
 
     # Notify new assignee

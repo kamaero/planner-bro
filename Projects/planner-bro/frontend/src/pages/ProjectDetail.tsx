@@ -106,6 +106,7 @@ export function ProjectDetail() {
     title: '',
     description: '',
     priority: 'medium',
+    control_ski: false,
     progress_percent: '0',
     next_step: '',
     start_date: '',
@@ -122,6 +123,10 @@ export function ProjectDetail() {
     name: '',
     description: '',
     status: 'planning',
+    priority: 'medium',
+    control_ski: false,
+    launch_basis_text: '',
+    launch_basis_file_id: '',
     start_date: '',
     end_date: '',
     owner_id: '',
@@ -165,6 +170,10 @@ export function ProjectDetail() {
         name: project.name,
         description: project.description ?? '',
         status: project.status,
+        priority: project.priority,
+        control_ski: project.control_ski,
+        launch_basis_text: project.launch_basis_text ?? '',
+        launch_basis_file_id: project.launch_basis_file_id ?? '',
         start_date: project.start_date ?? '',
         end_date: project.end_date ?? '',
         owner_id: project.owner_id,
@@ -175,6 +184,18 @@ export function ProjectDetail() {
       })
     }
   }, [project, editOpen])
+
+  const projectProgress = useMemo(() => {
+    if (!tasks.length) return 0
+    const sum = tasks.reduce((acc, t) => acc + (t.progress_percent ?? 0), 0)
+    return Math.round(sum / tasks.length)
+  }, [tasks])
+
+  const launchBasisFile = useMemo(() => {
+    const fileId = project?.launch_basis_file_id
+    if (!fileId) return null
+    return files.find((f) => f.id === fileId) ?? null
+  }, [files, project?.launch_basis_file_id])
 
   useEffect(() => {
     const ids = new Set(tasks.map((t) => t.id))
@@ -262,6 +283,7 @@ export function ProjectDetail() {
       projectId: id!,
       data: {
         ...taskForm,
+        priority: taskForm.control_ski ? 'critical' : taskForm.priority,
         estimated_hours: taskForm.estimated_hours ? parseInt(taskForm.estimated_hours) : undefined,
         progress_percent: taskForm.progress_percent ? parseInt(taskForm.progress_percent) : 0,
         next_step: taskForm.next_step || undefined,
@@ -282,6 +304,7 @@ export function ProjectDetail() {
       title: '',
       description: '',
       priority: 'medium',
+      control_ski: false,
       progress_percent: '0',
       next_step: '',
       start_date: '',
@@ -304,6 +327,10 @@ export function ProjectDetail() {
         name: editForm.name,
         description: editForm.description,
         status: editForm.status,
+        priority: editForm.control_ski ? 'critical' : editForm.priority,
+        control_ski: editForm.control_ski,
+        launch_basis_text: editForm.launch_basis_text.trim() || null,
+        launch_basis_file_id: editForm.launch_basis_file_id || null,
         start_date: editForm.start_date || null,
         end_date: editForm.end_date || null,
         owner_id: canTransferOwnership ? editForm.owner_id || null : project?.owner_id ?? editForm.owner_id,
@@ -408,6 +435,12 @@ export function ProjectDetail() {
           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: project.color }} />
           <h1 className="text-2xl font-bold">{project.name}</h1>
           <Badge variant="secondary">{project.status}</Badge>
+          <Badge variant="outline" className={PRIORITY_COLORS[project.control_ski ? 'critical' : project.priority]}>
+            {project.control_ski ? 'critical · СКИ' : project.priority}
+          </Badge>
+          {(project.launch_basis_text || launchBasisFile) && (
+            <Badge variant="outline">Основание запуска</Badge>
+          )}
         </div>
 
         <div className="flex gap-1">
@@ -487,6 +520,38 @@ export function ProjectDetail() {
                     ))}
                   </select>
                 </div>
+
+                <div className="space-y-1">
+                  <Label>Приоритет</Label>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={editForm.control_ski ? 'critical' : editForm.priority}
+                      onChange={(e) => setEditForm((f) => ({ ...f, priority: e.target.value }))}
+                      className="w-full border rounded px-2 py-2 bg-background text-sm"
+                      disabled={editForm.control_ski}
+                    >
+                      <option value="low">Низкий</option>
+                      <option value="medium">Средний</option>
+                      <option value="high">Высокий</option>
+                      <option value="critical">Критический</option>
+                    </select>
+                    <label className="flex items-center gap-2 text-sm whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={editForm.control_ski}
+                        onChange={(e) =>
+                          setEditForm((f) => ({
+                            ...f,
+                            control_ski: e.target.checked,
+                            priority: e.target.checked ? 'critical' : f.priority,
+                          }))
+                        }
+                        className="h-4 w-4"
+                      />
+                      Контроль СКИ
+                    </label>
+                  </div>
+                </div>
                 <div className="space-y-1">
                   <Label>Ответственный</Label>
                   <select
@@ -507,6 +572,31 @@ export function ProjectDetail() {
                     </p>
                   )}
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Основание запуска</Label>
+                <Input
+                  value={editForm.launch_basis_text}
+                  onChange={(e) => setEditForm((f) => ({ ...f, launch_basis_text: e.target.value }))}
+                  placeholder="Напр.: Приказ #111222333 24.02.2026"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label>Файл основания запуска</Label>
+                <select
+                  value={editForm.launch_basis_file_id}
+                  onChange={(e) => setEditForm((f) => ({ ...f, launch_basis_file_id: e.target.value }))}
+                  className="w-full border rounded px-2 py-2 bg-background text-sm"
+                >
+                  <option value="">—</option>
+                  {files.map((file) => (
+                    <option key={file.id} value={file.id}>
+                      {file.filename}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
@@ -604,16 +694,34 @@ export function ProjectDetail() {
               </div>
               <div className="space-y-1">
                 <Label>Приоритет</Label>
-                <select
-                  value={taskForm.priority}
-                  onChange={(e) => setTaskForm((f) => ({ ...f, priority: e.target.value }))}
-                  className="w-full border rounded px-3 py-2 text-sm bg-background"
-                >
-                  <option value="low">Низкий</option>
-                  <option value="medium">Средний</option>
-                  <option value="high">Высокий</option>
-                  <option value="critical">Критический</option>
-                </select>
+                <div className="flex items-center gap-3">
+                  <select
+                    value={taskForm.control_ski ? 'critical' : taskForm.priority}
+                    onChange={(e) => setTaskForm((f) => ({ ...f, priority: e.target.value }))}
+                    className="w-full border rounded px-3 py-2 text-sm bg-background"
+                    disabled={taskForm.control_ski}
+                  >
+                    <option value="low">Низкий</option>
+                    <option value="medium">Средний</option>
+                    <option value="high">Высокий</option>
+                    <option value="critical">Критический</option>
+                  </select>
+                  <label className="flex items-center gap-2 text-sm whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={taskForm.control_ski}
+                      onChange={(e) =>
+                        setTaskForm((f) => ({
+                          ...f,
+                          control_ski: e.target.checked,
+                          priority: e.target.checked ? 'critical' : f.priority,
+                        }))
+                      }
+                      className="h-4 w-4"
+                    />
+                    Контроль СКИ
+                  </label>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -738,6 +846,32 @@ export function ProjectDetail() {
             </form>
           </DialogContent>
         </Dialog>
+      </div>
+
+      <div className="rounded-lg border bg-card p-4 mb-6">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="text-sm font-semibold">Прогресс проекта: {projectProgress}%</div>
+            {(project.launch_basis_text || launchBasisFile) && (
+              <div className="text-sm text-muted-foreground">
+                {project.launch_basis_text ? project.launch_basis_text : ''}
+              </div>
+            )}
+          </div>
+          {launchBasisFile && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleDownload(launchBasisFile)}
+            >
+              <Download className="w-4 h-4 mr-1" />
+              Скачать основание
+            </Button>
+          )}
+        </div>
+        <div className="mt-3 h-2 w-full bg-muted rounded-full overflow-hidden">
+          <div className="h-full bg-primary" style={{ width: `${projectProgress}%` }} />
+        </div>
       </div>
 
       {/* Description */}

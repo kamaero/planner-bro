@@ -15,6 +15,10 @@ class ProjectBase(BaseModel):
     description: Optional[str] = None
     color: str = "#6366f1"
     status: str = "planning"
+    priority: str = "medium"
+    control_ski: bool = False
+    launch_basis_text: Optional[str] = None
+    launch_basis_file_id: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     completion_checklist: List[ProjectChecklistItem] = Field(default_factory=list)
@@ -29,6 +33,10 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
     color: Optional[str] = None
     status: Optional[str] = None
+    priority: Optional[str] = None
+    control_ski: Optional[bool] = None
+    launch_basis_text: Optional[str] = None
+    launch_basis_file_id: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     owner_id: Optional[str] = None

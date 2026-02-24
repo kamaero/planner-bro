@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date, timezone
-from sqlalchemy import String, DateTime, Date, ForeignKey, Enum as SAEnum, Integer
+from sqlalchemy import String, DateTime, Date, ForeignKey, Enum as SAEnum, Integer, Boolean
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -27,6 +27,16 @@ class Project(Base):
         default="planning",
         nullable=False,
     )
+    priority: Mapped[str] = mapped_column(
+        SAEnum("low", "medium", "high", "critical", name="project_priority"),
+        default="medium",
+        nullable=False,
+    )
+    control_ski: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    launch_basis_text: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    launch_basis_file_id: Mapped[str | None] = mapped_column(
+        ForeignKey("project_files.id", ondelete="SET NULL"), nullable=True
+    )
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     completion_checklist: Mapped[list[dict]] = mapped_column(
@@ -51,6 +61,9 @@ class Project(Base):
     )
     files: Mapped[list["ProjectFile"]] = relationship(
         "ProjectFile", back_populates="project", cascade="all, delete-orphan"
+    )
+    launch_basis_file: Mapped["ProjectFile" | None] = relationship(
+        "ProjectFile", foreign_keys=[launch_basis_file_id]
     )
 
 

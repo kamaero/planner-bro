@@ -69,6 +69,8 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [status, setStatus] = useState('todo')
+  const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'critical'>('medium')
+  const [controlSki, setControlSki] = useState(false)
   const [progressPercent, setProgressPercent] = useState('0')
   const [nextStep, setNextStep] = useState('')
   const [repeatDays, setRepeatDays] = useState('')
@@ -85,6 +87,8 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     setStartDate(task.start_date ?? '')
     setEndDate(task.end_date ?? '')
     setStatus(task.status)
+    setPriority(task.priority)
+    setControlSki(!!task.control_ski)
     setProgressPercent(String(task.progress_percent ?? 0))
     setNextStep(task.next_step ?? '')
     setRepeatDays(task.repeat_every_days ? String(task.repeat_every_days) : '')
@@ -94,6 +98,32 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   }, [task])
 
   if (!task) return null
+
+  const handlePriorityChange = async (nextPriority: string) => {
+    const p = nextPriority as 'low' | 'medium' | 'high' | 'critical'
+    setPriority(p)
+    await updateTask.mutateAsync({
+      taskId: task.id,
+      data: {
+        priority: controlSki ? 'critical' : p,
+        control_ski: controlSki,
+      },
+    })
+  }
+
+  const handleControlSkiChange = async (checked: boolean) => {
+    const nextControl = checked
+    const nextPriority = nextControl ? 'critical' : priority === 'critical' ? 'medium' : priority
+    setControlSki(nextControl)
+    setPriority(nextPriority)
+    await updateTask.mutateAsync({
+      taskId: task.id,
+      data: {
+        control_ski: nextControl,
+        priority: nextControl ? 'critical' : nextPriority,
+      },
+    })
+  }
 
   const handleStatusSave = async () => {
     const parsed = Number.parseInt(progressPercent, 10)
@@ -153,9 +183,32 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
         <div className="space-y-4">
           {/* Priority & Status */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-xs px-2 py-1 rounded-full font-medium ${PRIORITY_COLORS[task.priority]}`}>
-              {task.priority}
+            <span
+              className={`text-xs px-2 py-1 rounded-full font-medium ${PRIORITY_COLORS[controlSki ? 'critical' : priority]}`}
+            >
+              {controlSki ? 'critical · СКИ' : priority}
             </span>
+            <select
+              value={controlSki ? 'critical' : priority}
+              onChange={(e) => void handlePriorityChange(e.target.value)}
+              className="text-sm border rounded px-2 py-1 bg-background"
+              disabled={controlSki || updateTask.isPending}
+            >
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="critical">critical</option>
+            </select>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={controlSki}
+                onChange={(e) => void handleControlSkiChange(e.target.checked)}
+                className="h-4 w-4"
+                disabled={updateTask.isPending}
+              />
+              Контроль СКИ
+            </label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}

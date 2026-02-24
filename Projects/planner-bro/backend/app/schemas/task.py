@@ -9,6 +9,7 @@ class TaskBase(BaseModel):
     description: Optional[str] = None
     status: str = "todo"
     priority: str = "medium"
+    control_ski: bool = False
     progress_percent: int = Field(default=0, ge=0, le=100)
     next_step: Optional[str] = None
     start_date: Optional[date] = None
@@ -34,6 +35,7 @@ class TaskUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
+    control_ski: Optional[bool] = None
     progress_percent: Optional[int] = Field(default=None, ge=0, le=100)
     next_step: Optional[str] = None
     start_date: Optional[date] = None

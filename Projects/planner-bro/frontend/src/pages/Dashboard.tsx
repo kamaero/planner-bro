@@ -365,6 +365,9 @@ export function Dashboard() {
     description: '',
     color: '#6366f1',
     template: 'blank',
+    priority: 'medium',
+    control_ski: false,
+    launch_basis_text: '',
     start_date: '',
     end_date: '',
   })
@@ -594,8 +597,10 @@ export function Dashboard() {
     const created = await createProject.mutateAsync({
       ...form,
       status: 'active',
+      priority: form.control_ski ? 'critical' : form.priority,
       start_date: form.start_date || undefined,
       end_date: form.end_date || undefined,
+      launch_basis_text: form.launch_basis_text?.trim() || undefined,
     })
     const templateTasks = PROJECT_TEMPLATES[form.template] ?? []
     await Promise.all(
@@ -610,7 +615,17 @@ export function Dashboard() {
       })
     )
     setDialogOpen(false)
-    setForm({ name: '', description: '', color: '#6366f1', template: 'blank', start_date: '', end_date: '' })
+    setForm({
+      name: '',
+      description: '',
+      color: '#6366f1',
+      template: 'blank',
+      priority: 'medium',
+      control_ski: false,
+      launch_basis_text: '',
+      start_date: '',
+      end_date: '',
+    })
   }
 
   if (projectsLoading || tasksLoading) {
@@ -686,6 +701,47 @@ export function Dashboard() {
                   <option value="launch">Запуск проекта</option>
                   <option value="support">Сопровождение</option>
                 </select>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Приоритет проекта</Label>
+                <div className="flex items-center gap-3">
+                  <select
+                    value={form.control_ski ? 'critical' : form.priority}
+                    onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}
+                    className="w-full border rounded px-2 py-2 bg-background text-sm"
+                    disabled={form.control_ski}
+                  >
+                    <option value="low">Низкий</option>
+                    <option value="medium">Средний</option>
+                    <option value="high">Высокий</option>
+                    <option value="critical">Критический</option>
+                  </select>
+                  <label className="flex items-center gap-2 text-sm whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={form.control_ski}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          control_ski: e.target.checked,
+                          priority: e.target.checked ? 'critical' : f.priority,
+                        }))
+                      }
+                      className="h-4 w-4"
+                    />
+                    Контроль СКИ
+                  </label>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Основание запуска</Label>
+                <Input
+                  value={form.launch_basis_text}
+                  onChange={(e) => setForm((f) => ({ ...f, launch_basis_text: e.target.value }))}
+                  placeholder="Напр.: Приказ #111222333 24.02.2026"
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">

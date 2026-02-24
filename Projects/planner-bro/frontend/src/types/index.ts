@@ -16,6 +16,10 @@ export interface Project {
   description?: string
   color: string
   status: 'planning' | 'active' | 'on_hold' | 'completed'
+  priority: 'low' | 'medium' | 'high' | 'critical'
+  control_ski: boolean
+  launch_basis_text?: string
+  launch_basis_file_id?: string
   start_date?: string
   end_date?: string
   completion_checklist?: Array<{ id: string; label: string; done: boolean }>
@@ -33,6 +37,7 @@ export interface Task {
   description?: string
   status: 'todo' | 'in_progress' | 'review' | 'done'
   priority: 'low' | 'medium' | 'high' | 'critical'
+  control_ski: boolean
   progress_percent: number
   next_step?: string
   start_date?: string

@@ -44,6 +44,21 @@ def _ensure_project_completion_allowed(checklist: list[dict]) -> None:
             status_code=400,
             detail="Нельзя завершить проект: заполните checklist definition of done.",
         )
+
+
+def _apply_control_ski(payload: dict, existing_priority: str | None = None, existing_control_ski: bool = False):
+    control_ski = payload.get("control_ski", existing_control_ski)
+    priority = payload.get("priority", existing_priority or "medium")
+
+    if control_ski:
+        payload["control_ski"] = True
+        payload["priority"] = "critical"
+        return
+
+    if "control_ski" in payload:
+        payload["control_ski"] = False
+    if priority == "critical":
+        payload["priority"] = "medium"
     if any(not bool(item.get("done", False)) for item in checklist):
         raise HTTPException(
             status_code=400,
@@ -107,6 +122,10 @@ async def create_project(
     payload = data.model_dump()
     incoming_checklist = _normalize_checklist(payload.get("completion_checklist"))
     payload["completion_checklist"] = incoming_checklist or default_completion_checklist()
+    _apply_control_ski(payload)
+
+    if payload.get("launch_basis_file_id"):
+        raise HTTPException(status_code=400, detail="launch_basis_file_id can be set only after upload")
     project = Project(**payload, owner_id=current_user.id)
     db.add(project)
     await db.flush()
@@ -149,6 +168,19 @@ async def update_project(
     target_status = payload.get("status", project.status)
     if target_status == "completed":
         _ensure_project_completion_allowed(project.completion_checklist)
+
+    launch_basis_file_id = payload.get("launch_basis_file_id")
+    if launch_basis_file_id:
+        file_result = await db.execute(
+            select(ProjectFile.id).where(
+                ProjectFile.id == launch_basis_file_id,
+                ProjectFile.project_id == project_id,
+            )
+        )
+        if not file_result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Launch basis file not found")
+
+    _apply_control_ski(payload, existing_priority=project.priority, existing_control_ski=project.control_ski)
     for field, value in payload.items():
         setattr(project, field, value)
     if owner_id and owner_id != project.owner_id:
