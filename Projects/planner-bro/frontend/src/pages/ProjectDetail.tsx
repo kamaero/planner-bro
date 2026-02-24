@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   useProject,
   useGantt,
@@ -71,6 +71,7 @@ function formatFileSize(size: number) {
 
 export function ProjectDetail() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const { data: project } = useProject(id!)
   const { data: ganttData } = useGantt(id!)
@@ -179,6 +180,16 @@ export function ProjectDetail() {
     const ids = new Set(tasks.map((t) => t.id))
     setSelectedTaskIds((prev) => prev.filter((id) => ids.has(id)))
   }, [tasks])
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const taskId = params.get('task')
+    if (!taskId || tasks.length === 0) return
+    const task = tasks.find((t) => t.id === taskId)
+    if (!task) return
+    setSelectedTask(task)
+    setDrawerOpen(true)
+  }, [location.search, tasks])
 
   useEffect(() => {
     const ids = new Set(aiDrafts.map((d) => d.id))

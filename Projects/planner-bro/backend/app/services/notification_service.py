@@ -64,9 +64,11 @@ async def _filter_recipients_by_reminder_days(
 async def notify_task_assigned(db: AsyncSession, task: Task, assignee_id: str):
     if not assignee_id:
         return
-    title = "Task Assigned"
-    body = f"You have been assigned to: {task.title}"
-    data = {"task_id": task.id, "project_id": task.project_id}
+    title = "Новая задача на вас"
+    body = f"Вам назначена задача «{task.title}»."
+    if task.end_date:
+        body += f" Дедлайн: {task.end_date.isoformat()}."
+    data = {"task_id": task.id, "project_id": task.project_id, "kind": "task_assigned"}
     notif = await _create_notification(db, assignee_id, "task_assigned", title, body, data)
     await db.commit()
 
@@ -85,9 +87,17 @@ async def notify_task_updated(db: AsyncSession, task: Task, actor_id: str):
     if not recipients:
         return
 
-    title = "Task Updated"
-    body = f"Task '{task.title}' has been updated"
-    data = {"task_id": task.id, "project_id": task.project_id}
+    status_labels = {
+        "todo": "к выполнению",
+        "in_progress": "в работе",
+        "review": "на проверке",
+        "done": "выполнено",
+    }
+    title = "Обновление по задаче"
+    body = f"«{task.title}»: статус «{status_labels.get(task.status, task.status)}», прогресс {task.progress_percent}%."
+    if task.next_step:
+        body += f" Следующий шаг: {task.next_step}"
+    data = {"task_id": task.id, "project_id": task.project_id, "kind": "task_updated"}
 
     for uid in recipients:
         await _create_notification(db, uid, "task_updated", title, body, data)
@@ -107,9 +117,9 @@ async def notify_new_task(db: AsyncSession, task: Task):
     recipients = _exclude_ids(member_ids, [task.created_by_id, task.assigned_to_id] if task.assigned_to_id else [task.created_by_id])
     if not recipients:
         return
-    title = "New Task Added"
-    body = f"New task: {task.title}"
-    data = {"task_id": task.id, "project_id": task.project_id}
+    title = "Добавлена новая задача"
+    body = f"В проекте появилась задача «{task.title}»."
+    data = {"task_id": task.id, "project_id": task.project_id, "kind": "new_task"}
 
     for uid in recipients:
         await _create_notification(db, uid, "new_task", title, body, data)
@@ -126,9 +136,9 @@ async def notify_new_task(db: AsyncSession, task: Task):
 
 async def notify_project_updated(db: AsyncSession, project: Project):
     member_ids = await _get_project_member_ids(db, project.id)
-    title = "Project Updated"
-    body = f"Project '{project.name}' has been updated"
-    data = {"project_id": project.id}
+    title = "Проект обновлен"
+    body = f"В проекте «{project.name}» есть изменения."
+    data = {"project_id": project.id, "kind": "project_updated"}
 
     for uid in member_ids:
         await _create_notification(db, uid, "project_updated", title, body, data)

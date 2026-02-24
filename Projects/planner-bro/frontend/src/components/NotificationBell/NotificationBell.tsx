@@ -2,14 +2,28 @@ import { useState } from 'react'
 import { Bell } from 'lucide-react'
 import { useNotifications, useMarkAllRead, useMarkRead } from '@/hooks/useNotifications'
 import { cn } from '@/lib/utils'
+import { useNavigate } from 'react-router-dom'
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false)
+  const navigate = useNavigate()
   const { data: notifications = [] } = useNotifications()
   const markRead = useMarkRead()
   const markAllRead = useMarkAllRead()
 
   const unreadCount = notifications.filter((n) => !n.is_read).length
+
+  const handleOpenNotification = (notification: (typeof notifications)[number]) => {
+    if (!notification.is_read) {
+      markRead.mutate(notification.id)
+    }
+    const projectId = typeof notification.data?.project_id === 'string' ? notification.data.project_id : null
+    const taskId = typeof notification.data?.task_id === 'string' ? notification.data.task_id : null
+    if (projectId) {
+      navigate(`/projects/${projectId}${taskId ? `?task=${taskId}` : ''}`)
+      setOpen(false)
+    }
+  }
 
   return (
     <div className="relative">
@@ -50,7 +64,7 @@ export function NotificationBell() {
               {notifications.map((n) => (
                 <button
                   key={n.id}
-                  onClick={() => !n.is_read && markRead.mutate(n.id)}
+                  onClick={() => handleOpenNotification(n)}
                   className={cn(
                     'w-full text-left px-4 py-3 hover:bg-accent transition-colors',
                     !n.is_read && 'bg-primary/5'

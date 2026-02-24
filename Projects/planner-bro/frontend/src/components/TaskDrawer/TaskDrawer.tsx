@@ -28,6 +28,31 @@ const STATUS_LABELS: Record<string, string> = {
   done: 'Выполнено',
 }
 
+function formatTaskEvent(eventType: string, payload?: string | null) {
+  if (eventType === 'task_created') return 'Задача создана'
+  if (eventType === 'task_deleted') return 'Задача удалена'
+  if (eventType === 'task_imported_from_ms_project') return 'Импортировано из MS Project'
+  if (eventType === 'task_created_from_ai_draft') return 'Создано из AI-черновика'
+  if (eventType === 'task_created_from_recurrence') return 'Создано повторение задачи'
+  if (eventType === 'comment_added') return 'Добавлен комментарий'
+  if (eventType === 'escalation_first_response') return 'Отмечена первая реакция по эскалации'
+
+  if (eventType === 'status_changed') {
+    if (!payload) return 'Статус обновлен'
+    const [from, to] = payload.split('->')
+    if (!to) return `Статус: ${payload}`
+    return `Статус: ${STATUS_LABELS[from] ?? from} → ${STATUS_LABELS[to] ?? to}`
+  }
+  if (eventType === 'progress_updated') return `Прогресс: ${payload ?? ''}%`
+  if (eventType === 'next_step_updated') return `Следующий шаг: ${payload || '—'}`
+  if (eventType === 'assignee_changed') {
+    if (!payload) return 'Исполнитель изменен'
+    return `Изменен исполнитель (${payload})`
+  }
+
+  return payload ? `${eventType} (${payload})` : eventType
+}
+
 interface TaskDrawerProps {
   task: Task | null
   open: boolean
@@ -307,8 +332,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               )}
               {events.map((e) => (
                 <p key={e.id} className="text-xs text-muted-foreground">
-                  {new Date(e.created_at).toLocaleString('ru')} · {e.event_type}
-                  {e.payload ? ` (${e.payload})` : ''}
+                  {new Date(e.created_at).toLocaleString('ru')} · {formatTaskEvent(e.event_type, e.payload)}
                 </p>
               ))}
             </div>
