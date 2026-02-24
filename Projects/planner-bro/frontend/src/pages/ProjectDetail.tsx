@@ -21,6 +21,7 @@ import {
   useRejectAIDraft,
 } from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
+import { useUsers } from '@/hooks/useUsers'
 import { api } from '@/api/client'
 import { GanttChart } from '@/components/GanttChart/GanttChart'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
@@ -78,6 +79,7 @@ export function ProjectDetail() {
   const { data: criticalPath } = useCriticalPath(id!)
   const { data: tasks = [] } = useTasks(id!)
   const { data: members = [] } = useMembers(id!)
+  const { data: users = [] } = useUsers()
   const { data: files = [] } = useProjectFiles(id!)
   const { data: aiJobs = [] } = useAIJobs(id!)
   const { data: aiDrafts = [] } = useAIDrafts(id!, 'pending')
@@ -560,9 +562,9 @@ export function ProjectDetail() {
                     className="w-full border rounded px-2 py-2 bg-background text-sm"
                     disabled={!canTransferOwnership}
                   >
-                    {members.map((m) => (
-                      <option key={m.user.id} value={m.user.id}>
-                        {m.user.name}
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.role})
                       </option>
                     ))}
                   </select>
@@ -751,9 +753,9 @@ export function ProjectDetail() {
                   className="w-full border rounded px-3 py-2 text-sm bg-background"
                 >
                   <option value="">Не назначен</option>
-                  {members.map((m) => (
-                    <option key={m.user.id} value={m.user.id}>
-                      {m.user.name}
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.role})
                     </option>
                   ))}
                 </select>

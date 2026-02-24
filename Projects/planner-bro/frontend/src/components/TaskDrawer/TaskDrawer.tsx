@@ -9,7 +9,7 @@ import {
   useAddTaskComment,
   useTaskEvents,
 } from '@/hooks/useProjects'
-import { useMembers } from '@/hooks/useMembers'
+import { useUsers } from '@/hooks/useUsers'
 import type { Task } from '@/types'
 import { CalendarDays, Clock, User, Trash2 } from 'lucide-react'
 
@@ -65,7 +65,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const deleteTask = useDeleteTask()
   const updateTask = useUpdateTask()
   const addComment = useAddTaskComment()
-  const { data: members = [] } = useMembers(projectId)
+  const { data: users = [] } = useUsers()
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [status, setStatus] = useState('todo')
@@ -265,9 +265,9 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 className="text-sm border rounded px-2 py-1 bg-background flex-1"
               >
                 <option value="">Не назначен</option>
-                {members.map((m) => (
-                  <option key={m.user.id} value={m.user.id}>
-                    {m.user.name}
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.role})
                   </option>
                 ))}
               </select>

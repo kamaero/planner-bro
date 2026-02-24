@@ -47,6 +47,23 @@ async def _require_project_exists(project_id: str, db: AsyncSession) -> None:
         raise HTTPException(status_code=404, detail="Project not found")
 
 
+async def _ensure_member_for_assignee(project_id: str, assignee_id: str, db: AsyncSession) -> None:
+    user = (await db.execute(select(User).where(User.id == assignee_id))).scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=404, detail="Assignee not found")
+    member = (
+        await db.execute(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id == assignee_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not member:
+        db.add(ProjectMember(project_id=project_id, user_id=assignee_id, role="member"))
+        await db.flush()
+
+
 async def _require_task_editor(task: Task, user: User, db: AsyncSession) -> None:
     if user.role == "admin":
         return
@@ -131,6 +148,9 @@ async def create_task(
         ).scalar_one_or_none()
         if owner_id:
             payload["assigned_to_id"] = owner_id
+
+    if payload.get("assigned_to_id"):
+        await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], db)
     task = Task(**payload, project_id=project_id, created_by_id=current_user.id)
     db.add(task)
     await db.flush()
@@ -211,6 +231,9 @@ async def update_task(
     elif task.priority == "critical":
         task.priority = "medium"
     await db.flush()
+
+    if "assigned_to_id" in payload and task.assigned_to_id:
+        await _ensure_member_for_assignee(task.project_id, task.assigned_to_id, db)
 
     # Notify new assignee
     if task.assigned_to_id and task.assigned_to_id != old_assignee:
