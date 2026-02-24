@@ -28,7 +28,7 @@ export function NotificationBell() {
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-11 z-20 w-80 rounded-xl border bg-popover shadow-lg overflow-hidden">
+          <div className="absolute right-0 top-11 z-20 w-80 rounded-xl border bg-card text-card-foreground shadow-xl overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <span className="font-semibold text-sm">Notifications</span>
               {unreadCount > 0 && (
@@ -60,13 +60,13 @@ export function NotificationBell() {
                     {!n.is_read && (
                       <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1" />
                     )}
-                    <div className={cn(!n.is_read ? '' : 'ml-4')}>
-                      <p className="text-sm font-medium">{n.title}</p>
-                      <p className="text-xs text-muted-foreground">{n.body}</p>
-                      <p className="text-[10px] text-muted-foreground mt-1">
-                        {new Date(n.created_at).toLocaleString()}
-                      </p>
-                    </div>
+                  <div className={cn(!n.is_read ? '' : 'ml-4')}>
+                    <p className="text-sm font-medium">{n.title}</p>
+                    <p className="text-xs text-foreground/90">{n.body}</p>
+                    <p className="text-[10px] text-foreground/70 mt-1">
+                      {new Date(n.created_at).toLocaleString()}
+                    </p>
+                  </div>
                   </div>
                 </button>
               ))}
