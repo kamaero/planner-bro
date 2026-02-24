@@ -25,16 +25,36 @@ router = APIRouter(tags=["tasks"])
 
 
 async def _require_project_member(project_id: str, user: User, db: AsyncSession):
+    if not await _is_project_member(project_id, user, db):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
+async def _is_project_member(project_id: str, user: User, db: AsyncSession) -> bool:
     if user.role == "admin":
-        return
+        return True
     result = await db.execute(
         select(ProjectMember).where(
             ProjectMember.project_id == project_id,
             ProjectMember.user_id == user.id
         )
     )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="Access denied")
+    return result.scalar_one_or_none() is not None
+
+
+async def _require_project_exists(project_id: str, db: AsyncSession) -> None:
+    exists = (await db.execute(select(Project.id).where(Project.id == project_id))).scalar_one_or_none()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+
+async def _require_task_editor(task: Task, user: User, db: AsyncSession) -> None:
+    if user.role == "admin":
+        return
+    if task.assigned_to_id == user.id:
+        return
+    if await _is_project_member(task.project_id, user, db):
+        return
+    raise HTTPException(status_code=403, detail="Edit access denied")
 
 
 async def _log_task_event(
@@ -87,7 +107,7 @@ async def list_tasks(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_member(project_id, current_user, db)
+    await _require_project_exists(project_id, db)
     return await get_tasks_for_project(db, project_id)
 
 
@@ -141,7 +161,6 @@ async def get_task(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _require_project_member(task.project_id, current_user, db)
     return task
 
 
@@ -155,7 +174,7 @@ async def update_task(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _require_project_member(task.project_id, current_user, db)
+    await _require_task_editor(task, current_user, db)
 
     old_assignee = task.assigned_to_id
     old_status = task.status
@@ -223,7 +242,7 @@ async def delete_task(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _require_project_member(task.project_id, current_user, db)
+    await _require_task_editor(task, current_user, db)
     await _log_task_event(db, task.id, current_user.id, "task_deleted")
     await db.delete(task)
     await db.commit()
@@ -239,7 +258,7 @@ async def update_task_status(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _require_project_member(task.project_id, current_user, db)
+    await _require_task_editor(task, current_user, db)
 
     valid_statuses = {"todo", "in_progress", "review", "done"}
     if data.status not in valid_statuses:
@@ -334,7 +353,7 @@ async def critical_path(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_member(project_id, current_user, db)
+    await _require_project_exists(project_id, db)
     tasks = (await db.execute(select(Task).where(Task.project_id == project_id))).scalars().all()
     by_id = {t.id: t for t in tasks}
     children: dict[str, list[str]] = {}
@@ -389,7 +408,6 @@ async def list_task_comments(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _require_project_member(task.project_id, current_user, db)
     result = await db.execute(
         select(TaskComment)
         .where(TaskComment.task_id == task_id)
@@ -409,7 +427,7 @@ async def add_task_comment(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _require_project_member(task.project_id, current_user, db)
+    await _require_task_editor(task, current_user, db)
     comment = TaskComment(task_id=task_id, author_id=current_user.id, body=data.body)
     db.add(comment)
     await db.flush()
@@ -431,7 +449,6 @@ async def list_task_events(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _require_project_member(task.project_id, current_user, db)
     result = await db.execute(
         select(TaskEvent)
         .where(TaskEvent.task_id == task_id)

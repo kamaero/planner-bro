@@ -55,6 +55,8 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
     if not user or not user.password_hash or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
 
     return TokenPair(
         access_token=create_access_token(user.id),
@@ -80,6 +82,8 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
 
     # Refresh token rotation: old token becomes unusable after first refresh.
     await revoke_refresh_token(jti, exp)
@@ -147,6 +151,8 @@ async def google_oauth(data: GoogleOAuthRequest, db: AsyncSession = Depends(get_
         user = result.scalar_one_or_none()
 
     if user:
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="User account is inactive")
         if not user.google_id:
             user.google_id = info["sub"]
             await db.commit()

@@ -1,15 +1,35 @@
+import secrets
+import string
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, delete
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.security import hash_password
 from app.models.user import User
 from app.models.project import Project, ProjectMember
 from app.models.task import Task
-from app.schemas.user import UserOut, UserUpdate, UserProfile, ReminderSettingsUpdate
+from app.schemas.user import (
+    UserOut,
+    UserUpdate,
+    UserProfile,
+    ReminderSettingsUpdate,
+    ResetPasswordResponse,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+def _require_team_admin(user: User) -> None:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can manage team accounts")
+
+
+def _generate_temporary_password(length: int = 14) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 @router.get("/me", response_model=UserProfile)
@@ -38,7 +58,10 @@ async def search_users(
 ):
     result = await db.execute(
         select(User)
-        .where(or_(User.email.ilike(f"%{q}%"), User.name.ilike(f"%{q}%")))
+        .where(
+            User.is_active == True,  # noqa: E712
+            or_(User.email.ilike(f"%{q}%"), User.name.ilike(f"%{q}%")),
+        )
         .limit(10)
     )
     return result.scalars().all()
@@ -49,10 +72,60 @@ async def list_users(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if current_user.role not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Access denied")
-    result = await db.execute(select(User))
+    result = await db.execute(
+        select(User).where(User.is_active == True).order_by(User.created_at.desc())  # noqa: E712
+    )
     return result.scalars().all()
+
+
+@router.post("/{user_id}/reset-password", response_model=ResetPasswordResponse)
+async def reset_user_password(
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_team_admin(current_user)
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=404, detail="User not found")
+    temporary_password = _generate_temporary_password()
+    user.password_hash = hash_password(temporary_password)
+    await db.commit()
+    return ResetPasswordResponse(temporary_password=temporary_password)
+
+
+@router.delete("/{user_id}", status_code=204)
+async def deactivate_user(
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_team_admin(current_user)
+    if current_user.id == user_id:
+        raise HTTPException(status_code=400, detail="You cannot deactivate your own account")
+
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    owns_projects = (
+        await db.execute(select(Project.id).where(Project.owner_id == user_id).limit(1))
+    ).scalar_one_or_none()
+    if owns_projects:
+        raise HTTPException(
+            status_code=400,
+            detail="Нельзя удалить сотрудника: сначала передайте его проекты другому владельцу.",
+        )
+
+    user.is_active = False
+    user.password_hash = None
+    user.google_id = None
+    user.fcm_token = None
+
+    await db.execute(
+        delete(ProjectMember).where(ProjectMember.user_id == user_id)
+    )
+    await db.commit()
 
 
 @router.put("/me/reminders", response_model=UserProfile)
@@ -75,31 +148,18 @@ async def global_search(
 ):
     like = f"%{q}%"
 
-    if current_user.role == "admin":
-        project_stmt = select(Project).where(or_(Project.name.ilike(like), Project.description.ilike(like))).limit(10)
-        task_stmt = select(Task).where(or_(Task.title.ilike(like), Task.description.ilike(like))).limit(10)
-    else:
-        project_stmt = (
-            select(Project)
-            .join(ProjectMember, ProjectMember.project_id == Project.id)
-            .where(ProjectMember.user_id == current_user.id)
-            .where(or_(Project.name.ilike(like), Project.description.ilike(like)))
-            .limit(10)
-        )
-        task_stmt = (
-            select(Task)
-            .join(ProjectMember, ProjectMember.project_id == Task.project_id)
-            .where(ProjectMember.user_id == current_user.id)
-            .where(or_(Task.title.ilike(like), Task.description.ilike(like)))
-            .limit(10)
-        )
+    project_stmt = select(Project).where(or_(Project.name.ilike(like), Project.description.ilike(like))).limit(10)
+    task_stmt = select(Task).where(or_(Task.title.ilike(like), Task.description.ilike(like))).limit(10)
 
     projects = (await db.execute(project_stmt)).scalars().all()
     tasks = (await db.execute(task_stmt)).scalars().all()
     users = (
         await db.execute(
             select(User)
-            .where(or_(User.email.ilike(like), User.name.ilike(like)))
+            .where(
+                User.is_active == True,  # noqa: E712
+                or_(User.email.ilike(like), User.name.ilike(like)),
+            )
             .limit(10)
         )
     ).scalars().all()
@@ -119,6 +179,6 @@ async def get_user(
 ):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if not user:
+    if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
     return user

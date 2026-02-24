@@ -88,6 +88,9 @@ export const api = {
   updateReminderSettings: (reminderDays: string) =>
     apiClient.put('/users/me/reminders', { reminder_days: reminderDays }).then((r) => r.data),
   listUsers: () => apiClient.get('/users').then((r) => r.data),
+  resetUserPassword: (userId: string) =>
+    apiClient.post(`/users/${userId}/reset-password`).then((r) => r.data as { temporary_password: string }),
+  deactivateUser: (userId: string) => apiClient.delete(`/users/${userId}`),
   searchUsers: (q: string) => apiClient.get('/users/search', { params: { q } }).then((r) => r.data),
   globalSearch: (q: string) =>
     apiClient.get('/users/global/search', { params: { q } }).then((r) => r.data),

@@ -6,7 +6,7 @@ import { api } from '@/api/client'
 import { Login } from '@/pages/Login'
 import { Dashboard } from '@/pages/Dashboard'
 import { ProjectDetail } from '@/pages/ProjectDetail'
-import { Settings } from '@/pages/Settings'
+import { Team } from '@/pages/Team'
 import { Analytics } from '@/pages/Analytics'
 import { GoogleCallback } from '@/pages/GoogleCallback'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
@@ -16,7 +16,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
-  Settings as SettingsIcon,
+  Users,
   BarChart2,
   Moon,
   Sun,
@@ -70,7 +70,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { to: '/', label: 'Проекты', icon: LayoutDashboard },
     { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
-    { to: '/settings', label: 'Настройки', icon: SettingsIcon },
+    { to: '/team', label: 'Команда', icon: Users },
   ]
 
   useEffect(() => {
@@ -304,15 +304,16 @@ export function App() {
         }
       />
       <Route
-        path="/settings"
+        path="/team"
         element={
           <AuthGuard>
             <AppLayout>
-              <Settings />
+              <Team />
             </AppLayout>
           </AuthGuard>
         }
       />
+      <Route path="/settings" element={<Navigate to="/team" replace />} />
     </Routes>
   )
 }

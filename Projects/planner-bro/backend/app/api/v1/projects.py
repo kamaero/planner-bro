@@ -63,18 +63,16 @@ async def _require_project_access(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    member_result = await db.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == user.id
+    if require_manager and user.role != "admin":
+        member_result = await db.execute(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id == user.id
+            )
         )
-    )
-    member = member_result.scalar_one_or_none()
-    if not member and user.role != "admin":
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    if require_manager and member and member.role not in ("owner", "manager") and user.role != "admin":
-        raise HTTPException(status_code=403, detail="Manager access required")
+        member = member_result.scalar_one_or_none()
+        if not member or member.role not in ("owner", "manager"):
+            raise HTTPException(status_code=403, detail="Manager access required")
 
     return project
 
@@ -94,12 +92,10 @@ async def list_projects(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if current_user.role == "admin":
-        result = await db.execute(
-            select(Project).options(selectinload(Project.owner))
-        )
-        return result.scalars().all()
-    return await get_projects_for_user(db, current_user.id)
+    result = await db.execute(
+        select(Project).options(selectinload(Project.owner))
+    )
+    return result.scalars().all()
 
 
 @router.post("/", response_model=ProjectOut, status_code=201)

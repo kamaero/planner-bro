@@ -22,6 +22,7 @@ class UserOut(UserBase):
     id: str
     avatar_url: Optional[str] = None
     reminder_days: str = "1,3"
+    is_active: bool = True
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -57,3 +58,7 @@ class GoogleOAuthRequest(BaseModel):
 
 class ReminderSettingsUpdate(BaseModel):
     reminder_days: str
+
+
+class ResetPasswordResponse(BaseModel):
+    temporary_password: str
