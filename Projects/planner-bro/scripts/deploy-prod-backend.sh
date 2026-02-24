@@ -20,6 +20,7 @@ if [ "$SYNC_CODE" = "1" ]; then
     "$REMOTE_HOST:$REMOTE_DIR/docker-compose.prod.yml"
 
   rsync -az --delete --no-owner --no-group \
+    --exclude 'ssl/' \
     "$LOCAL_ROOT/nginx/" \
     "$REMOTE_HOST:$REMOTE_DIR/nginx/"
 
