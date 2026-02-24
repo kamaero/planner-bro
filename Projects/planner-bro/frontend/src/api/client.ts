@@ -135,8 +135,10 @@ export const api = {
   updateTask: (taskId: string, data: object) =>
     apiClient.put(`/tasks/${taskId}`, data).then((r) => r.data),
   deleteTask: (taskId: string) => apiClient.delete(`/tasks/${taskId}`),
-  updateTaskStatus: (taskId: string, status: string) =>
-    apiClient.patch(`/tasks/${taskId}/status`, { status }).then((r) => r.data),
+  updateTaskStatus: (
+    taskId: string,
+    data: { status: string; progress_percent?: number; next_step?: string | null }
+  ) => apiClient.patch(`/tasks/${taskId}/status`, data).then((r) => r.data),
   listTaskComments: (taskId: string) => apiClient.get(`/tasks/${taskId}/comments`).then((r) => r.data),
   addTaskComment: (taskId: string, body: string) =>
     apiClient.post(`/tasks/${taskId}/comments`, { body }).then((r) => r.data),

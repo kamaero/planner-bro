@@ -32,6 +32,8 @@ export interface Task {
   description?: string
   status: 'todo' | 'in_progress' | 'review' | 'done'
   priority: 'low' | 'medium' | 'high' | 'critical'
+  progress_percent: number
+  next_step?: string
   start_date?: string
   end_date?: string
   assigned_to_id?: string

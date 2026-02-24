@@ -27,6 +27,8 @@ class Task(Base):
         default="medium",
         nullable=False,
     )
+    progress_percent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_step: Mapped[str | None] = mapped_column(String(500), nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     assigned_to_id: Mapped[str | None] = mapped_column(

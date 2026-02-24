@@ -91,6 +91,8 @@ export function ProjectDetail() {
     title: '',
     description: '',
     priority: 'medium',
+    progress_percent: '0',
+    next_step: '',
     start_date: '',
     end_date: '',
     estimated_hours: '',
@@ -197,7 +199,13 @@ export function ProjectDetail() {
     setBulkBusy(true)
     try {
       await Promise.all(
-        selectedTaskIds.map((taskId) => updateTaskStatus.mutateAsync({ taskId, status }))
+        selectedTaskIds.map((taskId) =>
+          updateTaskStatus.mutateAsync({
+            taskId,
+            status,
+            progress_percent: status === 'done' ? 100 : undefined,
+          })
+        )
       )
       setSelectedTaskIds([])
     } finally {
@@ -224,6 +232,8 @@ export function ProjectDetail() {
       data: {
         ...taskForm,
         estimated_hours: taskForm.estimated_hours ? parseInt(taskForm.estimated_hours) : undefined,
+        progress_percent: taskForm.progress_percent ? parseInt(taskForm.progress_percent) : 0,
+        next_step: taskForm.next_step || undefined,
         start_date: taskForm.start_date || undefined,
         end_date: taskForm.end_date || undefined,
         assigned_to_id: taskForm.assigned_to_id || undefined,
@@ -241,6 +251,8 @@ export function ProjectDetail() {
       title: '',
       description: '',
       priority: 'medium',
+      progress_percent: '0',
+      next_step: '',
       start_date: '',
       end_date: '',
       estimated_hours: '',
@@ -281,6 +293,28 @@ export function ProjectDetail() {
     if (!window.confirm('Удалить проект? Это действие нельзя отменить.')) return
     await deleteProject.mutateAsync(id)
     navigate('/')
+  }
+
+  const handleQuickStatusChange = async (task: Task, status: string) => {
+    const suggestedProgress = status === 'done' ? 100 : task.progress_percent ?? 0
+    const progressInput = window.prompt('Прогресс задачи (0-100)', String(suggestedProgress))
+    if (progressInput === null) return
+    const progress = Number.parseInt(progressInput, 10)
+    if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
+      window.alert('Прогресс должен быть числом от 0 до 100.')
+      return
+    }
+    const nextStepInput = window.prompt(
+      'Следующий шаг (можно оставить пустым)',
+      task.next_step ?? ''
+    )
+    if (nextStepInput === null) return
+    await updateTaskStatus.mutateAsync({
+      taskId: task.id,
+      status,
+      progress_percent: progress,
+      next_step: nextStepInput.trim() || null,
+    })
   }
 
   const handleDownload = async (file: ProjectFile) => {
@@ -517,6 +551,26 @@ export function ProjectDetail() {
                   <option value="high">Высокий</option>
                   <option value="critical">Критический</option>
                 </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Прогресс, %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={taskForm.progress_percent}
+                    onChange={(e) => setTaskForm((f) => ({ ...f, progress_percent: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Следующий шаг</Label>
+                  <Input
+                    value={taskForm.next_step}
+                    onChange={(e) => setTaskForm((f) => ({ ...f, next_step: e.target.value }))}
+                    placeholder="Необязательно"
+                  />
+                </div>
               </div>
               <div className="space-y-1">
                 <Label>Исполнитель</Label>
@@ -775,10 +829,28 @@ export function ProjectDetail() {
                   {task.assignee && (
                     <span className="text-xs text-muted-foreground">{task.assignee.name}</span>
                   )}
-                  <Badge variant="outline" className="text-xs">
-                    {STATUS_LABELS[task.status]}
-                  </Badge>
+                  <select
+                    value={task.status}
+                    onChange={(e) => handleQuickStatusChange(task, e.target.value)}
+                    className="text-xs border rounded px-2 py-1 bg-background"
+                  >
+                    <option value="todo">{STATUS_LABELS.todo}</option>
+                    <option value="in_progress">{STATUS_LABELS.in_progress}</option>
+                    <option value="review">{STATUS_LABELS.review}</option>
+                    <option value="done">{STATUS_LABELS.done}</option>
+                  </select>
                 </div>
+              </div>
+              <div className="mt-2">
+                <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary"
+                    style={{ width: `${Math.max(0, Math.min(100, task.progress_percent ?? 0))}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Прогресс: {task.progress_percent ?? 0}%{task.next_step ? ` · Следующий шаг: ${task.next_step}` : ''}
+                </p>
               </div>
               {task.end_date && (
                 <p className="text-xs text-muted-foreground mt-1">

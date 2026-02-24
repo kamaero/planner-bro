@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, date
 from typing import Optional
 from app.schemas.user import UserOut
@@ -9,6 +9,8 @@ class TaskBase(BaseModel):
     description: Optional[str] = None
     status: str = "todo"
     priority: str = "medium"
+    progress_percent: int = Field(default=0, ge=0, le=100)
+    next_step: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     assigned_to_id: Optional[str] = None
@@ -32,6 +34,8 @@ class TaskUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
+    progress_percent: Optional[int] = Field(default=None, ge=0, le=100)
+    next_step: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     assigned_to_id: Optional[str] = None
@@ -48,6 +52,8 @@ class TaskUpdate(BaseModel):
 
 class TaskStatusUpdate(BaseModel):
     status: str
+    progress_percent: Optional[int] = Field(default=None, ge=0, le=100)
+    next_step: Optional[str] = None
 
 
 class TaskOut(TaskBase):

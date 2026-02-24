@@ -43,6 +43,9 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const { data: members = [] } = useMembers(projectId)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [status, setStatus] = useState('todo')
+  const [progressPercent, setProgressPercent] = useState('0')
+  const [nextStep, setNextStep] = useState('')
   const [repeatDays, setRepeatDays] = useState('')
   const [isEscalation, setIsEscalation] = useState(false)
   const [escalationFor, setEscalationFor] = useState('')
@@ -52,19 +55,33 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
 
-  if (!task) return null
-
   useEffect(() => {
+    if (!task) return
     setStartDate(task.start_date ?? '')
     setEndDate(task.end_date ?? '')
+    setStatus(task.status)
+    setProgressPercent(String(task.progress_percent ?? 0))
+    setNextStep(task.next_step ?? '')
     setRepeatDays(task.repeat_every_days ? String(task.repeat_every_days) : '')
     setIsEscalation(!!task.is_escalation)
     setEscalationFor(task.escalation_for ?? '')
     setEscalationSlaHours(String(task.escalation_sla_hours ?? 24))
   }, [task])
 
-  const handleStatusChange = (status: string) => {
-    updateStatus.mutate({ taskId: task.id, status })
+  if (!task) return null
+
+  const handleStatusSave = async () => {
+    const parsed = Number.parseInt(progressPercent, 10)
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+      window.alert('Прогресс должен быть числом от 0 до 100.')
+      return
+    }
+    await updateStatus.mutateAsync({
+      taskId: task.id,
+      status,
+      progress_percent: parsed,
+      next_step: nextStep.trim() || null,
+    })
   }
 
   const handleAssigneeChange = (assignedToId: string) => {
@@ -115,8 +132,8 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               {task.priority}
             </span>
             <select
-              value={task.status}
-              onChange={(e) => handleStatusChange(e.target.value)}
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
               className="text-sm border rounded px-2 py-1 bg-background"
             >
               {STATUS_OPTIONS.map((s) => (
@@ -125,6 +142,33 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 </option>
               ))}
             </select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleStatusSave}
+              disabled={updateStatus.isPending}
+            >
+              {updateStatus.isPending ? 'Сохранение...' : 'Обновить статус'}
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground">Прогресс, %</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={progressPercent}
+              onChange={(e) => setProgressPercent(e.target.value)}
+              className="w-full text-sm border rounded px-2 py-1 bg-background"
+            />
+            <label className="text-xs text-muted-foreground">Следующий шаг</label>
+            <input
+              value={nextStep}
+              onChange={(e) => setNextStep(e.target.value)}
+              className="w-full text-sm border rounded px-2 py-1 bg-background"
+              placeholder="Например: согласовать ТЗ с отделом ИБ"
+            />
           </div>
 
           {/* Description */}

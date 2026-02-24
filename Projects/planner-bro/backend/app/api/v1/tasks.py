@@ -246,7 +246,29 @@ async def update_task_status(
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
 
     task.status = data.status
+    if data.progress_percent is not None:
+        task.progress_percent = data.progress_percent
+    elif data.status == "done":
+        task.progress_percent = 100
+    if data.next_step is not None:
+        task.next_step = data.next_step.strip() or None
     await _log_task_event(db, task.id, current_user.id, "status_changed", data.status)
+    if data.progress_percent is not None:
+        await _log_task_event(
+            db,
+            task.id,
+            current_user.id,
+            "progress_updated",
+            str(data.progress_percent),
+        )
+    if data.next_step is not None:
+        await _log_task_event(
+            db,
+            task.id,
+            current_user.id,
+            "next_step_updated",
+            task.next_step,
+        )
 
     if data.status == "done" and task.repeat_every_days and task.repeat_every_days > 0:
         next_start = task.start_date + timedelta(days=task.repeat_every_days) if task.start_date else None
@@ -258,6 +280,8 @@ async def update_task_status(
             description=task.description,
             status="todo",
             priority=task.priority,
+            progress_percent=0,
+            next_step=None,
             start_date=next_start,
             end_date=next_end,
             assigned_to_id=task.assigned_to_id,

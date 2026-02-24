@@ -113,10 +113,20 @@ export function useUpdateTask() {
 export function useUpdateTaskStatus() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ taskId, status }: { taskId: string; status: string }) =>
-      api.updateTaskStatus(taskId, status),
+    mutationFn: ({
+      taskId,
+      status,
+      progress_percent,
+      next_step,
+    }: {
+      taskId: string
+      status: string
+      progress_percent?: number
+      next_step?: string | null
+    }) => api.updateTaskStatus(taskId, { status, progress_percent, next_step }),
     onSuccess: (updatedTask: Task) => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['gantt'] })
       qc.invalidateQueries({ queryKey: ['critical-path', updatedTask.project_id] })
       qc.invalidateQueries({ queryKey: ['escalations'] })
     },
