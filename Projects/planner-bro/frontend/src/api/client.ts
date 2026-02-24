@@ -70,19 +70,17 @@ apiClient.interceptors.response.use(
 // API functions
 export const api = {
   // Auth
-  register: (data: { email: string; name: string; password: string; role?: string }) =>
-    apiClient.post('/auth/register', data).then((r) => r.data),
   login: (email: string, password: string) =>
     apiClient.post('/auth/login', { email, password }).then((r) => r.data),
   refresh: (refreshToken: string) =>
     axios.post('/api/v1/auth/refresh', { refresh_token: refreshToken }).then((r) => r.data),
   logout: (refreshToken: string) =>
     apiClient.post('/auth/logout', { refresh_token: refreshToken }).then((r) => r.data),
-  googleAuth: (code: string, redirectUri: string) =>
-    apiClient.post('/auth/google', { code, redirect_uri: redirectUri }).then((r) => r.data),
 
   // Users
   getMe: () => apiClient.get('/users/me').then((r) => r.data),
+  createUser: (data: { email: string; name: string; password: string; role?: string }) =>
+    apiClient.post('/users/', data).then((r) => r.data),
   updateMe: (data: Partial<{ name: string; avatar_url: string }>) =>
     apiClient.put('/users/me', data).then((r) => r.data),
   updateReminderSettings: (reminderDays: string) =>

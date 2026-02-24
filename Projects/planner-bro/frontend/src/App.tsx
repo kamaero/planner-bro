@@ -8,7 +8,6 @@ import { Dashboard } from '@/pages/Dashboard'
 import { ProjectDetail } from '@/pages/ProjectDetail'
 import { Team } from '@/pages/Team'
 import { Analytics } from '@/pages/Analytics'
-import { GoogleCallback } from '@/pages/GoogleCallback'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -272,7 +271,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/auth/google/callback" element={<GoogleCallback />} />
+      <Route path="/auth/google/callback" element={<Navigate to="/login" replace />} />
       <Route
         path="/"
         element={

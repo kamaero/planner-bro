@@ -12,6 +12,7 @@ from app.models.user import User
 from app.models.project import Project, ProjectMember
 from app.models.task import Task
 from app.schemas.user import (
+    UserCreate,
     UserOut,
     UserUpdate,
     UserProfile,
@@ -35,6 +36,29 @@ def _generate_temporary_password(length: int = 14) -> str:
 @router.get("/me", response_model=UserProfile)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.post("/", response_model=UserOut, status_code=201)
+async def create_user_by_admin(
+    data: UserCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_team_admin(current_user)
+    existing = await db.execute(select(User).where(User.email == data.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user = User(
+        email=data.email,
+        name=data.name,
+        password_hash=hash_password(data.password),
+        role=data.role,
+        is_active=True,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.put("/me", response_model=UserProfile)

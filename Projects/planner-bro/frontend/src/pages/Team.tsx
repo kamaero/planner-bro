@@ -44,7 +44,7 @@ export function Team() {
     setInviteError('')
     setInviteSuccess('')
     try {
-      await api.register({
+      await api.createUser({
         name: invite.name,
         email: invite.email,
         password: invite.password,
