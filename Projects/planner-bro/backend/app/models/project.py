@@ -60,7 +60,10 @@ class Project(Base):
         "Task", back_populates="project", cascade="all, delete-orphan"
     )
     files: Mapped[list["ProjectFile"]] = relationship(
-        "ProjectFile", back_populates="project", cascade="all, delete-orphan"
+        "ProjectFile",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        foreign_keys="ProjectFile.project_id",
     )
     launch_basis_file: Mapped["ProjectFile | None"] = relationship(
         "ProjectFile", foreign_keys=[launch_basis_file_id]
@@ -104,5 +107,7 @@ class ProjectFile(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    project: Mapped["Project"] = relationship("Project", back_populates="files")
+    project: Mapped["Project"] = relationship(
+        "Project", back_populates="files", foreign_keys=[project_id]
+    )
     uploaded_by: Mapped["User"] = relationship("User")
