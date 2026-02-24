@@ -303,6 +303,54 @@ function DeadlineCards({
   )
 }
 
+function WeekChangesCard({
+  created,
+  completed,
+  updated,
+  overdue,
+  stale,
+  activeWithProgress,
+}: {
+  created: number
+  completed: number
+  updated: number
+  overdue: number
+  stale: number
+  activeWithProgress: number
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg border p-3">
+          <p className="text-xs text-muted-foreground">Создано</p>
+          <p className="text-xl font-semibold">{created}</p>
+        </div>
+        <div className="rounded-lg border p-3">
+          <p className="text-xs text-muted-foreground">Обновлено</p>
+          <p className="text-xl font-semibold">{updated}</p>
+        </div>
+        <div className="rounded-lg border p-3">
+          <p className="text-xs text-muted-foreground">Завершено</p>
+          <p className="text-xl font-semibold text-emerald-700">{completed}</p>
+        </div>
+        <div className="rounded-lg border p-3">
+          <p className="text-xs text-muted-foreground">Просрочено сейчас</p>
+          <p className="text-xl font-semibold text-red-700">{overdue}</p>
+        </div>
+      </div>
+      <div className="rounded-lg border p-3">
+        <p className="text-xs text-muted-foreground mb-1">Текущие сигналы качества</p>
+        <p className="text-sm">
+          Без апдейта 7+ дней: <span className="font-semibold">{stale}</span>
+        </p>
+        <p className="text-sm">
+          В работе с прогрессом: <span className="font-semibold">{activeWithProgress}</span>
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ─── main component ────────────────────────────────────────────────────────────
 
 export function Dashboard() {
@@ -326,6 +374,11 @@ export function Dashboard() {
   const focusSectionRef = useRef<HTMLElement | null>(null)
 
   const today = new Date().toISOString().slice(0, 10)
+  const sevenDaysAgo = useMemo(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    return d.toISOString()
+  }, [])
 
   const handleFocus = (key: 'active' | 'in_progress' | 'overdue' | 'done') => {
     setFocus(key)
@@ -484,6 +537,19 @@ export function Dashboard() {
       return new Date(task.escalation_due_at).getTime() < now
     })
   }, [escalations])
+  const weekChanges = useMemo(() => {
+    const created = tasks.filter((t) => t.created_at >= sevenDaysAgo).length
+    const updated = tasks.filter((t) => t.updated_at >= sevenDaysAgo).length
+    const completed = tasks.filter((t) => t.status === 'done' && t.updated_at >= sevenDaysAgo).length
+    const overdue = tasks.filter((t) => t.end_date && t.end_date < today && t.status !== 'done').length
+    const stale = tasks.filter((t) => t.updated_at < sevenDaysAgo && t.status !== 'done').length
+    const activeWithProgress = tasks.filter(
+      (t) =>
+        (t.status === 'in_progress' || t.status === 'review') &&
+        (t.progress_percent ?? 0) > 0
+    ).length
+    return { created, updated, completed, overdue, stale, activeWithProgress }
+  }, [tasks, sevenDaysAgo, today])
 
   const focusTitles: Record<typeof focus, string> = {
     active: 'Активные проекты',
@@ -759,6 +825,16 @@ export function Dashboard() {
           </SectionCard>
         </div>
         <div className="space-y-6">
+          <SectionCard title="Изменения за 7 дней">
+            <WeekChangesCard
+              created={weekChanges.created}
+              completed={weekChanges.completed}
+              updated={weekChanges.updated}
+              overdue={weekChanges.overdue}
+              stale={weekChanges.stale}
+              activeWithProgress={weekChanges.activeWithProgress}
+            />
+          </SectionCard>
           <SectionCard title="Узкие места: зависимости и блокеры">
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
