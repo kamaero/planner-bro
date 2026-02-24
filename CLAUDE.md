@@ -114,6 +114,36 @@ Required before features work:
 - **Email**: `SMTP_USER` + `SMTP_PASSWORD` (only deadline_missed events send email)
 - **Project files storage**: `PROJECT_FILES_DIR` points to a writable directory. In production, mount this directory as a persistent volume.
 
+## Production Security (VPS: 95.164.92.165)
+
+Current hardening state on the live server (as of 2026-02-24):
+
+### SSH
+- `PasswordAuthentication no` — only key auth
+- `PermitRootLogin prohibit-password` — root login only by key
+- `X11Forwarding no`
+- **fail2ban** active on port 22: `maxretry=3`, `bantime=86400s`
+
+### Firewall & Ports
+- UFW default deny-incoming. Explicitly allowed: `22/tcp`, `443/tcp`, `1194/udp`
+- **Docker bypasses UFW** — use `iptables -I DOCKER-USER` to restrict Docker-exposed ports
+- `awg-easy` VPN admin panel bound to `127.0.0.1:8080` (not public)
+- PostgreSQL (5432) and Redis (6379) — internal Docker network only, not exposed to host
+
+### Nginx
+- `/docs`, `/openapi.json`, `/redoc` — blocked (return 404). API schema not public.
+- Security headers: `HSTS`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`
+- TLS 1.2/1.3 only
+
+### Secrets
+- `.env.prod` permissions: `600` (root only)
+- PostgreSQL password: strong random hex (not the default `planner`)
+- Redis password set via `requirepass`
+
+### SSL Certificate
+- Provider: Let's Encrypt. Expires: **2026-05-23**. No auto-renewal configured — renew manually before expiry.
+- Cert location: `nginx/ssl/fullchain.pem` + `privkey.pem`
+
 ## Database
 
 PostgreSQL 16. Async driver: `asyncpg`. Sync driver (Alembic only): `psycopg2`.
