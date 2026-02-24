@@ -3,10 +3,10 @@ set -euo pipefail
 
 REMOTE_HOST="${REMOTE_HOST:-root@95.164.92.165}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/planner-bro}"
-REMOTE_BRANCH="${REMOTE_BRANCH:-main}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 PRUNE_IMAGES="${PRUNE_IMAGES:-0}"
 SYNC_CODE="${SYNC_CODE:-1}"
+RESTART_SERVICES="${RESTART_SERVICES:-1}"
 
 LOCAL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -32,21 +32,22 @@ if [ "$SYNC_CODE" = "1" ]; then
     "$REMOTE_HOST:$REMOTE_DIR/README.md"
 fi
 
-ssh "$REMOTE_HOST" bash -lc "
-  set -euo pipefail
-  cd '$REMOTE_DIR'
+ssh "$REMOTE_HOST" "REMOTE_DIR='$REMOTE_DIR' COMPOSE_FILE='$COMPOSE_FILE' PRUNE_IMAGES='$PRUNE_IMAGES' RESTART_SERVICES='$RESTART_SERVICES' bash -s" <<'EOF'
+set -euo pipefail
 
+cd "$REMOTE_DIR"
+
+if [ "$RESTART_SERVICES" = "1" ]; then
   if docker compose version >/dev/null 2>&1; then
-    DC='docker compose'
+    docker compose -f "$COMPOSE_FILE" up -d --build backend celery_worker celery_beat nginx
   else
-    DC='docker-compose'
+    docker-compose -f "$COMPOSE_FILE" up -d --build backend celery_worker celery_beat nginx
   fi
+fi
 
-  \$DC -f '$COMPOSE_FILE' up -d --build backend celery_worker celery_beat nginx
-
-  if [ "$PRUNE_IMAGES" = "1" ]; then
-    docker image prune -f
-  fi
-"
+if [ "$PRUNE_IMAGES" = "1" ]; then
+  docker image prune -f
+fi
+EOF
 
 echo "Backend deployed to $REMOTE_HOST:$REMOTE_DIR"
