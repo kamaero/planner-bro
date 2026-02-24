@@ -82,7 +82,7 @@ cp /etc/letsencrypt/live/yourdomain.com/privkey.pem nginx/ssl/
 # 4. First run on VPS (backend/infra)
 docker compose -f docker-compose.prod.yml up -d --build
 
-# 5. Next deploys from local machine (pull latest backend + sync frontend dist)
+# 5. Next deploys from local machine (sync backend/infra + sync frontend dist)
 ./scripts/deploy-prod.sh
 
 # Optional: deploy backend only
