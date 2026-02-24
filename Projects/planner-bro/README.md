@@ -79,14 +79,14 @@ cp /etc/letsencrypt/live/yourdomain.com/privkey.pem nginx/ssl/
 
 # 3. Copy .env.example → .env.prod, fill in production values
 
-# 4. Start production stack (backend/infra)
+# 4. First run on VPS (backend/infra)
 docker compose -f docker-compose.prod.yml up -d --build
 
-# 5. Deploy frontend from prebuilt local dist (no server build)
-./scripts/deploy-frontend-dist.sh
+# 5. Next deploys from local machine (pull latest backend + sync frontend dist)
+./scripts/deploy-prod.sh
 
-# Optional: type check frontend locally
-cd frontend && npm run typecheck
+# Optional: deploy backend only
+SKIP_FRONTEND=1 ./scripts/deploy-prod.sh
 ```
 
 ## Architecture
