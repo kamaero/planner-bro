@@ -19,6 +19,9 @@ async def get_projects_for_user(db: AsyncSession, user_id: str) -> list[Project]
 
 
 async def get_gantt_data(db: AsyncSession, project_id: str) -> GanttData:
+    project_result = await db.execute(select(Project).where(Project.id == project_id))
+    project = project_result.scalar_one_or_none()
+
     result = await db.execute(
         select(Task)
         .where(Task.project_id == project_id)
@@ -26,7 +29,34 @@ async def get_gantt_data(db: AsyncSession, project_id: str) -> GanttData:
     )
     tasks = result.scalars().all()
 
+    basis_date = None
+    if project and project.start_date:
+        basis_date = project.start_date
+    else:
+        for t in tasks:
+            if t.start_date and (basis_date is None or t.start_date < basis_date):
+                basis_date = t.start_date
+    if basis_date is None:
+        basis_date = date.today()
+
     gantt_tasks = []
+    if project and (project.launch_basis_text or project.launch_basis_file_id):
+        gantt_tasks.append(
+            GanttTask(
+                id=f"launch_basis:{project_id}",
+                name="Основание запуска",
+                start=basis_date.isoformat(),
+                end=basis_date.isoformat(),
+                progress=0.0,
+                dependencies=[],
+                type="milestone",
+                project=project_id,
+                assignee=None,
+                color="#111827",
+                priority=None,
+                status=None,
+            )
+        )
     for t in tasks:
         start = t.start_date or date.today()
         end = t.end_date or start
