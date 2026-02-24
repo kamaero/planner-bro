@@ -62,7 +62,7 @@ class Project(Base):
     files: Mapped[list["ProjectFile"]] = relationship(
         "ProjectFile", back_populates="project", cascade="all, delete-orphan"
     )
-    launch_basis_file: Mapped["ProjectFile" | None] = relationship(
+    launch_basis_file: Mapped["ProjectFile | None"] = relationship(
         "ProjectFile", foreign_keys=[launch_basis_file_id]
     )
 
