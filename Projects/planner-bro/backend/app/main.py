@@ -77,6 +77,13 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     try:
         while True:
             data = await websocket.receive_text()
-            # Heartbeat / ping handling
+            if data == "ping":
+                await websocket.send_text("pong")
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket, user_id, project_ids)
+        ws_manager.disconnect(websocket)
+    except Exception:
+        ws_manager.disconnect(websocket)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
