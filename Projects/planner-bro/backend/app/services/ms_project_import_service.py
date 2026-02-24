@@ -113,6 +113,18 @@ def _find_project_root(root: ET.Element) -> ET.Element:
 
 
 def parse_ms_project_xml(content: bytes) -> MSProjectParseResult:
+    stripped = content.lstrip()
+    # Legacy MS Project .mpp files are OLE Compound File Binary format.
+    if content.startswith(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"):
+        raise ValueError(
+            "Похоже, загружен .mpp файл. Экспортируйте проект из MS Project в XML (MSPDI) и загрузите .xml."
+        )
+    # Generic non-XML payload guard for clearer UX than raw parser error.
+    if not stripped.startswith((b"<", b"\xef\xbb\xbf<", b"\xff\xfe<", b"\xfe\xff<")):
+        raise ValueError(
+            "Файл не похож на XML. Нужен XML-экспорт MS Project (MSPDI), а не исходный .mpp."
+        )
+
     try:
         root = ET.fromstring(content)
     except ET.ParseError as exc:
