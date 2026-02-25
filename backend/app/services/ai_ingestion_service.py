@@ -73,13 +73,59 @@ def _normalize_int(value: Any, default: int, min_value: int, max_value: int) -> 
     return parsed
 
 
+def _resolve_ai_provider() -> tuple[str, str, str, str]:
+    if settings.DEEPSEEK_API_KEY:
+        return (
+            "deepseek",
+            settings.DEEPSEEK_API_KEY,
+            settings.DEEPSEEK_BASE_URL.rstrip("/"),
+            settings.DEEPSEEK_MODEL,
+        )
+    if settings.OPENROUTER_API_KEY:
+        return (
+            "openrouter",
+            settings.OPENROUTER_API_KEY,
+            settings.OPENROUTER_BASE_URL.rstrip("/"),
+            settings.OPENROUTER_MODEL,
+        )
+    raise ValueError("AI provider is not configured (set DEEPSEEK_API_KEY or OPENROUTER_API_KEY)")
+
+
+def _extract_llm_content(data: dict[str, Any], provider: str) -> str:
+    err = data.get("error")
+    if isinstance(err, dict):
+        message = str(err.get("message") or err.get("code") or f"Unknown {provider} error")
+        raise ValueError(f"{provider} error: {message}")
+
+    choices = data.get("choices")
+    if not isinstance(choices, list) or len(choices) == 0:
+        preview = json.dumps(data, ensure_ascii=False)[:400]
+        raise ValueError(f"{provider} returned no choices. Response: {preview}")
+
+    message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+    content = message.get("content")
+
+    # Some providers can return content as an array of blocks.
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and isinstance(block.get("text"), str):
+                text_parts.append(block["text"])
+        content = "\n".join(text_parts).strip()
+
+    if not isinstance(content, str) or not content.strip():
+        preview = json.dumps(choices[0], ensure_ascii=False)[:400]
+        raise ValueError(f"{provider} returned empty message content. Choice: {preview}")
+
+    return content
+
+
 async def generate_task_drafts_from_text(
     text: str,
     project_name: str,
     member_hints: list[str],
 ) -> list[dict[str, Any]]:
-    if not settings.OPENROUTER_API_KEY:
-        raise ValueError("OPENROUTER_API_KEY is not configured")
+    provider, api_key, base_url, model = _resolve_ai_provider()
 
     prompt = (
         "Ты помощник PM в ИТ-отделе. Извлеки только задачи, которые относятся к IT.\n"
@@ -107,23 +153,30 @@ async def generate_task_drafts_from_text(
     )
 
     headers = {
-        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     body = {
-        "model": settings.OPENROUTER_MODEL,
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
     }
     async with httpx.AsyncClient(timeout=90.0) as client:
-        response = await client.post(
-            f"{settings.OPENROUTER_BASE_URL.rstrip('/')}/chat/completions",
-            headers=headers,
-            json=body,
-        )
-    response.raise_for_status()
+        try:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=body,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raw = exc.response.text[:400] if exc.response is not None else ""
+            raise ValueError(
+                f"{provider} HTTP {exc.response.status_code if exc.response else 'error'}: {raw}"
+            ) from exc
+
     data = response.json()
-    content = data["choices"][0]["message"]["content"]
+    content = _extract_llm_content(data, provider=provider)
     parsed = _safe_json_loads(content)
 
     tasks: list[dict[str, Any]] = []
