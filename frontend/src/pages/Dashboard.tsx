@@ -45,6 +45,24 @@ const PROJECT_TEMPLATES: Record<string, Array<{ title: string; priority: string;
     { title: 'Обзор инцидентов', priority: 'medium', daysOffset: 3 },
     { title: 'План улучшений', priority: 'medium', daysOffset: 7 },
   ],
+  procurement: [
+    { title: 'Формирование ТЗ на закупку', priority: 'high', daysOffset: 2 },
+    { title: 'Согласование бюджета и спецификации', priority: 'high', daysOffset: 5 },
+    { title: 'Запуск конкурсной процедуры', priority: 'medium', daysOffset: 10 },
+    { title: 'Приемка поставки и проверка комплектности', priority: 'high', daysOffset: 20 },
+  ],
+  implementation: [
+    { title: 'План внедрения и окно работ', priority: 'high', daysOffset: 2 },
+    { title: 'Подготовка инфраструктуры', priority: 'high', daysOffset: 6 },
+    { title: 'Пилот и тестирование', priority: 'medium', daysOffset: 12 },
+    { title: 'Промышленный запуск и инструкции', priority: 'high', daysOffset: 18 },
+  ],
+  integration: [
+    { title: 'Анализ API и контрактов обмена', priority: 'high', daysOffset: 3 },
+    { title: 'Разработка и настройка интеграции', priority: 'high', daysOffset: 9 },
+    { title: 'Сквозное тестирование сценариев', priority: 'medium', daysOffset: 14 },
+    { title: 'Ввод в эксплуатацию и мониторинг', priority: 'high', daysOffset: 21 },
+  ],
 }
 
 // ─── small components ─────────────────────────────────────────────────────────
@@ -700,6 +718,9 @@ export function Dashboard() {
                   <option value="blank">Пустой проект</option>
                   <option value="launch">Запуск проекта</option>
                   <option value="support">Сопровождение</option>
+                  <option value="procurement">Закупка</option>
+                  <option value="implementation">Внедрение</option>
+                  <option value="integration">Интеграция</option>
                 </select>
               </div>
 
