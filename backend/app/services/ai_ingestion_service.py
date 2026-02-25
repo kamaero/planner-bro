@@ -1,5 +1,6 @@
 import json
 import re
+import subprocess
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,18 @@ def extract_text_for_ai(storage_path: str, content_type: str | None = None) -> s
         for page in reader.pages:
             parts.append(page.extract_text() or "")
         text = "\n".join(parts).strip()
+    elif lowered == ".doc" or "msword" in type_hint:
+        # Legacy Word .doc parsing via antiword with UTF-8 map
+        proc = subprocess.run(
+            ["antiword", "-m", "UTF-8", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()
+            raise ValueError(f"Could not parse .doc via antiword: {err[:300]}")
+        text = proc.stdout.strip()
     else:
         text = path.read_text(encoding="utf-8", errors="ignore").strip()
 
@@ -125,6 +138,90 @@ def _resolve_ai_provider() -> tuple[str, str, str, str]:
     raise ValueError("AI provider is not configured (set DEEPSEEK_API_KEY or OPENROUTER_API_KEY)")
 
 
+def _extract_tasks_from_fixed_plan_table(source_text: str) -> list[dict[str, Any]]:
+    # Expected fixed yearly table format from "ПЛАН МЕРОПРИЯТИЙ" .doc documents
+    lines = source_text.splitlines()
+    table_lines = [line for line in lines if line.strip().startswith("|") and line.strip().endswith("|")]
+    if len(table_lines) < 10:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    for line in table_lines:
+        parts = [p.strip() for p in line.strip().split("|")[1:-1]]
+        if len(parts) < 6:
+            continue
+        task_no = parts[1]
+        activity = parts[2]
+        priority = parts[3]
+        assignee = parts[4]
+        comment = parts[5]
+
+        if "мероприятие" in _normalize_spaces(activity):
+            continue
+
+        starts_new = bool(re.fullmatch(r"\d{1,3}", task_no))
+        if starts_new:
+            if current and current.get("description"):
+                rows.append(current)
+            current = {
+                "task_no": task_no,
+                "description": activity,
+                "priority_raw": priority,
+                "assignee_hint": assignee or None,
+                "comment": comment or None,
+            }
+            continue
+
+        if not current:
+            continue
+        if activity:
+            current["description"] = f"{current['description']} {activity}".strip()
+        if not current.get("priority_raw") and priority:
+            current["priority_raw"] = priority
+        if not current.get("assignee_hint") and assignee:
+            current["assignee_hint"] = assignee
+        if comment:
+            current["comment"] = (f"{current.get('comment', '')} {comment}").strip()
+
+    if current and current.get("description"):
+        rows.append(current)
+
+    tasks: list[dict[str, Any]] = []
+    for row in rows:
+        desc = " ".join(str(row.get("description", "")).split()).strip()
+        if not desc or len(desc) < 12:
+            continue
+        title = desc[:180]
+        if len(desc) > 180:
+            title = f"{title}..."
+
+        priority_map = {"1": "critical", "2": "high", "3": "medium"}
+        p_raw = str(row.get("priority_raw") or "").strip()
+        priority = priority_map.get(p_raw, "medium")
+
+        quote = desc[:500]
+        next_step = row.get("comment") or None
+        tasks.append(
+            {
+                "title": title,
+                "description": desc,
+                "priority": priority,
+                "end_date": None,
+                "estimated_hours": None,
+                "assignee_hint": row.get("assignee_hint"),
+                "progress_percent": 0,
+                "next_step": str(next_step)[:500] if next_step else None,
+                "source_quote": quote,
+                "confidence": 95,
+                "raw_payload": row,
+            }
+        )
+
+    return tasks[:120]
+
+
 def _extract_llm_content(data: dict[str, Any], provider: str) -> str:
     err = data.get("error")
     if isinstance(err, dict):
@@ -159,6 +256,10 @@ async def generate_task_drafts_from_text(
     project_name: str,
     member_hints: list[str],
 ) -> list[dict[str, Any]]:
+    fixed_tasks = _extract_tasks_from_fixed_plan_table(text)
+    if fixed_tasks:
+        return fixed_tasks
+
     provider, api_key, base_url, model = _resolve_ai_provider()
 
     prompt = (
