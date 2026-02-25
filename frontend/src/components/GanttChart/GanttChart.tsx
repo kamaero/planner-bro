@@ -1,7 +1,7 @@
 import { Gantt, Task, ViewMode } from 'gantt-task-react'
 import 'gantt-task-react/dist/index.css'
 import type { GanttTask } from '@/types'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useState } from 'react'
 
 const GANTT_TASK_LIMIT = 150
 
@@ -26,52 +26,15 @@ function toGanttTasks(tasks: GanttTask[]): Task[] {
 
 export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Week)
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const [containerWidth, setContainerWidth] = useState(0)
 
   const displayTasks = tasks.slice(0, GANTT_TASK_LIMIT)
   const ganttTasks = toGanttTasks(displayTasks)
-  const timeColumnCount = useMemo(() => {
-    if (ganttTasks.length === 0) return 1
-    const starts = ganttTasks.map((t) => t.start.getTime())
-    const ends = ganttTasks.map((t) => t.end.getTime())
-    const minStart = new Date(Math.min(...starts))
-    const maxEnd = new Date(Math.max(...ends))
-
-    const dayMs = 24 * 60 * 60 * 1000
-    const daySpan = Math.max(1, Math.ceil((maxEnd.getTime() - minStart.getTime()) / dayMs) + 1)
-    if (viewMode === ViewMode.Day) return daySpan
-    if (viewMode === ViewMode.Week) return Math.max(1, Math.ceil(daySpan / 7))
-    return (
-      (maxEnd.getFullYear() - minStart.getFullYear()) * 12 +
-      (maxEnd.getMonth() - minStart.getMonth()) +
-      1
-    )
-  }, [ganttTasks, viewMode])
-
-  const columnWidth = useMemo(() => {
-    if (!containerWidth || !timeColumnCount) {
-      return viewMode === ViewMode.Month ? 150 : 60
-    }
-    const minWidth = viewMode === ViewMode.Day ? 42 : viewMode === ViewMode.Week ? 90 : 140
-    const maxWidth = viewMode === ViewMode.Day ? 90 : viewMode === ViewMode.Week ? 260 : 300
-    const adaptive = Math.floor(containerWidth / timeColumnCount)
-    return Math.min(maxWidth, Math.max(minWidth, adaptive))
-  }, [containerWidth, timeColumnCount, viewMode])
-
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-
-    const observer = new ResizeObserver((entries) => {
-      const nextWidth = Math.floor(entries[0]?.contentRect.width ?? 0)
-      setContainerWidth(nextWidth)
-    })
-    observer.observe(el)
-    setContainerWidth(Math.floor(el.getBoundingClientRect().width))
-
-    return () => observer.disconnect()
-  }, [])
+  const columnWidth =
+    viewMode === ViewMode.Week
+      ? 220
+      : viewMode === ViewMode.Month
+        ? 150
+        : 60
 
   if (tasks.length === 0) {
     return (
@@ -82,7 +45,7 @@ export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
   }
 
   return (
-    <div ref={containerRef}>
+    <div>
       {tasks.length > GANTT_TASK_LIMIT && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-2 text-sm text-amber-800 dark:text-amber-300">
           Показано {GANTT_TASK_LIMIT} из {tasks.length} задач с датами. Используйте фильтры в списке задач для детального просмотра.
@@ -116,6 +79,7 @@ export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
           if (original && onTaskClick) onTaskClick(original)
         }}
         listCellWidth=""
+        preStepsCount={0}
         columnWidth={columnWidth}
       />
     </div>
