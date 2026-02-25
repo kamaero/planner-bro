@@ -20,6 +20,7 @@ import {
   useApproveAIDraft,
   useApproveAIDraftsBulk,
   useRejectAIDraft,
+  useProjectDeadlineHistory,
 } from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
 import { useUsers } from '@/hooks/useUsers'
@@ -27,6 +28,8 @@ import { api } from '@/api/client'
 import { GanttChart } from '@/components/GanttChart/GanttChart'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
 import { MembersPanel } from '@/components/MembersPanel/MembersPanel'
+import { TaskTable } from '@/components/TaskTable/TaskTable'
+import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -145,6 +148,13 @@ export function ProjectDetail() {
   const [bulkAssignee, setBulkAssignee] = useState('keep')
   const [bulkPriority, setBulkPriority] = useState('keep')
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([])
+  const [showProjectDeadlineModal, setShowProjectDeadlineModal] = useState(false)
+  const [pendingProjectFormData, setPendingProjectFormData] = useState<Record<string, unknown> | null>(null)
+
+  const { data: projectDeadlineHistory = [] } = useProjectDeadlineHistory(id)
+  // shiftsMap is empty here — per-task shift counts are shown inside TaskDrawer
+  // when the user opens a task. Table shows shift indicator only when shifts data is available.
+  const shiftsMap = useMemo(() => ({} as Record<string, number>), [])
 
   const memberRole = members.find((m) => m.user.id === currentUser?.id)?.role
   const canManage = currentUser?.role === 'admin' || memberRole === 'owner' || memberRole === 'manager'
@@ -391,23 +401,45 @@ export function ProjectDetail() {
 
   const handleUpdateProject = async (e: React.FormEvent) => {
     e.preventDefault()
+    const formData: Record<string, unknown> = {
+      name: editForm.name,
+      description: editForm.description,
+      status: editForm.status,
+      priority: editForm.control_ski ? 'critical' : editForm.priority,
+      control_ski: editForm.control_ski,
+      launch_basis_text: editForm.launch_basis_text.trim() || null,
+      launch_basis_file_id: editForm.launch_basis_file_id || null,
+      start_date: editForm.start_date || null,
+      end_date: editForm.end_date || null,
+      owner_id: canTransferOwnership ? editForm.owner_id || null : project?.owner_id ?? editForm.owner_id,
+      completion_checklist: editForm.completion_checklist,
+    }
+
+    const endDateChanged = editForm.end_date !== (project?.end_date ?? '') && editForm.end_date
+    if (endDateChanged) {
+      setPendingProjectFormData(formData)
+      setShowProjectDeadlineModal(true)
+      return
+    }
+
+    await updateProject.mutateAsync({ projectId: id!, data: formData })
+    setEditOpen(false)
+  }
+
+  const handleProjectDeadlineConfirm = async (reason: string) => {
+    if (!pendingProjectFormData) return
+    setShowProjectDeadlineModal(false)
     await updateProject.mutateAsync({
       projectId: id!,
-      data: {
-        name: editForm.name,
-        description: editForm.description,
-        status: editForm.status,
-        priority: editForm.control_ski ? 'critical' : editForm.priority,
-        control_ski: editForm.control_ski,
-        launch_basis_text: editForm.launch_basis_text.trim() || null,
-        launch_basis_file_id: editForm.launch_basis_file_id || null,
-        start_date: editForm.start_date || null,
-        end_date: editForm.end_date || null,
-        owner_id: canTransferOwnership ? editForm.owner_id || null : project?.owner_id ?? editForm.owner_id,
-        completion_checklist: editForm.completion_checklist,
-      },
+      data: { ...pendingProjectFormData, deadline_change_reason: reason },
     })
+    setPendingProjectFormData(null)
     setEditOpen(false)
+  }
+
+  const handleProjectDeadlineCancel = () => {
+    setShowProjectDeadlineModal(false)
+    setPendingProjectFormData(null)
   }
 
   const handleUploadFile = async () => {
@@ -993,6 +1025,16 @@ export function ProjectDetail() {
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="text-sm font-semibold">Прогресс проекта: {projectProgress}%</div>
+            {project.end_date && (
+              <div className="text-sm text-muted-foreground flex items-center gap-1">
+                Дедлайн: {new Date(project.end_date).toLocaleDateString('ru-RU')}
+                {projectDeadlineHistory.length > 0 && (
+                  <span className="text-xs text-amber-600 font-medium ml-1">
+                    (переносился {projectDeadlineHistory.length}×)
+                  </span>
+                )}
+              </div>
+            )}
             {(project.launch_basis_text || launchBasisFile) && (
               <div className="text-sm text-muted-foreground">
                 {project.launch_basis_text ? project.launch_basis_text : ''}
@@ -1170,53 +1212,15 @@ export function ProjectDetail() {
             </div>
           </div>
 
-          {filteredTasks.length === 0 && (
-            <div className="text-center py-10 text-muted-foreground text-sm">
-              Задачи по выбранным фильтрам не найдены.
-            </div>
-          )}
-          {filteredTasks.length > 0 && filteredTasks.length <= VIRTUAL_THRESHOLD && (
-            filteredTasks.map((task) => (
-              <div
-                key={task.id}
-                className="w-full rounded-lg border bg-card p-4 hover:shadow-sm transition-shadow"
-              >
-                {renderTaskContent(task)}
-              </div>
-            ))
-          )}
-          {filteredTasks.length > VIRTUAL_THRESHOLD && (
-            <div
-              ref={taskListRef}
-              className="overflow-y-auto rounded-lg"
-              style={{ height: '65vh', maxHeight: '700px' }}
-            >
-              <div style={{ height: taskVirtualizer.getTotalSize(), position: 'relative' }}>
-                {taskVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const task = filteredTasks[virtualRow.index]
-                  return (
-                    <div
-                      key={virtualRow.key}
-                      data-index={virtualRow.index}
-                      ref={taskVirtualizer.measureElement}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        transform: `translateY(${virtualRow.start}px)`,
-                        paddingBottom: '12px',
-                      }}
-                    >
-                      <div className="w-full rounded-lg border bg-card p-4 hover:shadow-sm transition-shadow">
-                        {renderTaskContent(task)}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+          <TaskTable
+            tasks={filteredTasks}
+            onTaskClick={handleTaskClick}
+            onStatusChange={(taskId, status) => {
+              const task = tasks.find((t) => t.id === taskId)
+              if (task) handleQuickStatusChange(task, status)
+            }}
+            shiftsMap={shiftsMap}
+          />
         </div>
       ) : view === 'members' ? (
         <MembersPanel projectId={id!} />
@@ -1450,6 +1454,14 @@ export function ProjectDetail() {
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         projectId={id!}
+      />
+
+      <DeadlineReasonModal
+        open={showProjectDeadlineModal}
+        oldDate={project?.end_date ?? ''}
+        newDate={(pendingProjectFormData?.end_date as string) ?? ''}
+        onConfirm={handleProjectDeadlineConfirm}
+        onCancel={handleProjectDeadlineCancel}
       />
     </div>
   )

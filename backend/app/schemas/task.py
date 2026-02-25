@@ -50,6 +50,7 @@ class TaskUpdate(BaseModel):
     escalation_first_response_at: Optional[datetime] = None
     escalation_overdue_at: Optional[datetime] = None
     repeat_every_days: Optional[int] = None
+    deadline_change_reason: Optional[str] = None
 
 
 class TaskStatusUpdate(BaseModel):

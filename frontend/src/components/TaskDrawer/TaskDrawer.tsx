@@ -8,10 +8,12 @@ import {
   useTaskComments,
   useAddTaskComment,
   useTaskEvents,
+  useTaskDeadlineHistory,
 } from '@/hooks/useProjects'
 import { useUsers } from '@/hooks/useUsers'
 import type { Task } from '@/types'
-import { CalendarDays, Clock, User, Trash2 } from 'lucide-react'
+import { CalendarDays, Clock, User, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
+import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -78,9 +80,13 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [escalationFor, setEscalationFor] = useState('')
   const [escalationSlaHours, setEscalationSlaHours] = useState('24')
   const [commentBody, setCommentBody] = useState('')
+  const [showDeadlineReasonModal, setShowDeadlineReasonModal] = useState(false)
+  const [pendingEndDate, setPendingEndDate] = useState('')
+  const [showDeadlineHistory, setShowDeadlineHistory] = useState(false)
 
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
+  const { data: deadlineHistory = [] } = useTaskDeadlineHistory(task?.id)
 
   useEffect(() => {
     if (!task) return
@@ -154,6 +160,14 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   }
 
   const handleSaveDates = async () => {
+    const endDateChanged = endDate !== (task.end_date ?? '')
+    if (endDateChanged && endDate) {
+      // Need reason for changing end_date
+      setPendingEndDate(endDate)
+      setShowDeadlineReasonModal(true)
+      return
+    }
+    // No end_date change or clearing it — save directly
     await updateTask.mutateAsync({
       taskId: task.id,
       data: {
@@ -167,6 +181,30 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     })
   }
 
+  const handleDeadlineReasonConfirm = async (reason: string) => {
+    setShowDeadlineReasonModal(false)
+    await updateTask.mutateAsync({
+      taskId: task.id,
+      data: {
+        start_date: startDate || null,
+        end_date: pendingEndDate || null,
+        repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
+        is_escalation: isEscalation,
+        escalation_for: escalationFor || null,
+        escalation_sla_hours: escalationSlaHours ? parseInt(escalationSlaHours) : 24,
+        deadline_change_reason: reason,
+      },
+    })
+    setPendingEndDate('')
+  }
+
+  const handleDeadlineReasonCancel = () => {
+    setShowDeadlineReasonModal(false)
+    // Revert end date input to original
+    setEndDate(task.end_date ?? '')
+    setPendingEndDate('')
+  }
+
   const handleAddComment = async () => {
     if (!commentBody.trim()) return
     await addComment.mutateAsync({ taskId: task.id, body: commentBody.trim() })
@@ -174,232 +212,284 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{task.title}</DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{task.title}</DialogTitle>
+          </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Priority & Status */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className={`text-xs px-2 py-1 rounded-full font-medium ${PRIORITY_COLORS[controlSki ? 'critical' : priority]}`}
-            >
-              {controlSki ? 'critical · СКИ' : priority}
-            </span>
-            <select
-              value={controlSki ? 'critical' : priority}
-              onChange={(e) => void handlePriorityChange(e.target.value)}
-              className="text-sm border rounded px-2 py-1 bg-background"
-              disabled={controlSki || updateTask.isPending}
-            >
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="critical">critical</option>
-            </select>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={controlSki}
-                onChange={(e) => void handleControlSkiChange(e.target.checked)}
-                className="h-4 w-4"
-                disabled={updateTask.isPending}
-              />
-              Контроль СКИ
-            </label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="text-sm border rounded px-2 py-1 bg-background"
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleStatusSave}
-              disabled={updateStatus.isPending}
-            >
-              {updateStatus.isPending ? 'Сохранение...' : 'Обновить статус'}
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">Прогресс, %</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={progressPercent}
-              onChange={(e) => setProgressPercent(e.target.value)}
-              className="w-full text-sm border rounded px-2 py-1 bg-background"
-            />
-            <label className="text-xs text-muted-foreground">Следующий шаг</label>
-            <input
-              value={nextStep}
-              onChange={(e) => setNextStep(e.target.value)}
-              className="w-full text-sm border rounded px-2 py-1 bg-background"
-              placeholder="Например: согласовать ТЗ с отделом ИБ"
-            />
-          </div>
-
-          {/* Description */}
-          {task.description && (
-            <p className="text-sm text-muted-foreground">{task.description}</p>
-          )}
-
-          {/* Meta */}
-          <div className="space-y-2 text-sm">
-            {/* Assignee selector */}
-            <div className="flex items-center gap-2">
-              <User className="w-4 h-4 text-muted-foreground shrink-0" />
+          <div className="space-y-4">
+            {/* Priority & Status */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`text-xs px-2 py-1 rounded-full font-medium ${PRIORITY_COLORS[controlSki ? 'critical' : priority]}`}
+              >
+                {controlSki ? 'critical · СКИ' : priority}
+              </span>
               <select
-                value={task.assigned_to_id ?? ''}
-                onChange={(e) => handleAssigneeChange(e.target.value)}
-                className="text-sm border rounded px-2 py-1 bg-background flex-1"
+                value={controlSki ? 'critical' : priority}
+                onChange={(e) => void handlePriorityChange(e.target.value)}
+                className="text-sm border rounded px-2 py-1 bg-background"
+                disabled={controlSki || updateTask.isPending}
               >
-                <option value="">Не назначен</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({u.role})
-                  </option>
-                ))}
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="critical">critical</option>
               </select>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <CalendarDays className="w-4 h-4" />
-                <span>Дедлайн и даты</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="text-sm border rounded px-2 py-1 bg-background"
-                />
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="text-sm border rounded px-2 py-1 bg-background"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSaveDates}
-                disabled={updateTask.isPending}
-              >
-                {updateTask.isPending ? 'Сохранение...' : 'Сохранить даты'}
-              </Button>
-            </div>
-            {task.estimated_hours && (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Clock className="w-4 h-4" />
-                <span>{task.estimated_hours}h estimated</span>
-              </div>
-            )}
-            <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  checked={isEscalation}
-                  onChange={(e) => setIsEscalation(e.target.checked)}
+                  checked={controlSki}
+                  onChange={(e) => void handleControlSkiChange(e.target.checked)}
+                  className="h-4 w-4"
+                  disabled={updateTask.isPending}
                 />
-                Эскалация на руководителя
+                Контроль СКИ
               </label>
-              {isEscalation && (
-                <div className="space-y-2">
-                  <input
-                    value={escalationFor}
-                    onChange={(e) => setEscalationFor(e.target.value)}
-                    className="w-full text-sm border rounded px-2 py-1 bg-background"
-                    placeholder="Описание проблемы для эскалации"
-                  />
-                  <input
-                    type="number"
-                    min={1}
-                    value={escalationSlaHours}
-                    onChange={(e) => setEscalationSlaHours(e.target.value)}
-                    className="w-full text-sm border rounded px-2 py-1 bg-background"
-                    placeholder="SLA реакции (часы)"
-                  />
-                  {task.escalation_due_at && (
-                    <p className="text-xs text-muted-foreground">
-                      Срок реакции: {new Date(task.escalation_due_at).toLocaleString('ru')}
-                    </p>
-                  )}
-                  {task.escalation_first_response_at && (
-                    <p className="text-xs text-emerald-700">
-                      Первая реакция: {new Date(task.escalation_first_response_at).toLocaleString('ru')}
-                    </p>
-                  )}
-                  {task.escalation_overdue_at && (
-                    <p className="text-xs text-red-700">
-                      SLA просрочен: {new Date(task.escalation_overdue_at).toLocaleString('ru')}
-                    </p>
-                  )}
-                </div>
-              )}
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                className="text-sm border rounded px-2 py-1 bg-background"
+              >
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleStatusSave}
+                disabled={updateStatus.isPending}
+              >
+                {updateStatus.isPending ? 'Сохранение...' : 'Обновить статус'}
+              </Button>
             </div>
-          </div>
 
-          <div className="space-y-2 border-t pt-3">
-            <p className="text-sm font-medium">Комментарии</p>
-            <div className="space-y-2 max-h-32 overflow-auto">
-              {comments.length === 0 && (
-                <p className="text-xs text-muted-foreground">Комментариев пока нет.</p>
-              )}
-              {comments.map((c) => (
-                <div key={c.id} className="text-xs rounded border p-2">
-                  <p className="font-medium">{c.author?.name ?? 'Пользователь'}</p>
-                  <p className="text-muted-foreground">{c.body}</p>
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-2">
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground">Прогресс, %</label>
               <input
-                value={commentBody}
-                onChange={(e) => setCommentBody(e.target.value)}
-                placeholder="Добавить комментарий..."
-                className="flex-1 text-sm border rounded px-2 py-1 bg-background"
+                type="number"
+                min={0}
+                max={100}
+                value={progressPercent}
+                onChange={(e) => setProgressPercent(e.target.value)}
+                className="w-full text-sm border rounded px-2 py-1 bg-background"
               />
-              <Button size="sm" variant="outline" onClick={handleAddComment}>
-                Добавить
+              <label className="text-xs text-muted-foreground">Следующий шаг</label>
+              <input
+                value={nextStep}
+                onChange={(e) => setNextStep(e.target.value)}
+                className="w-full text-sm border rounded px-2 py-1 bg-background"
+                placeholder="Например: согласовать ТЗ с отделом ИБ"
+              />
+            </div>
+
+            {/* Description */}
+            {task.description && (
+              <p className="text-sm text-muted-foreground">{task.description}</p>
+            )}
+
+            {/* Meta */}
+            <div className="space-y-2 text-sm">
+              {/* Assignee selector */}
+              <div className="flex items-center gap-2">
+                <User className="w-4 h-4 text-muted-foreground shrink-0" />
+                <select
+                  value={task.assigned_to_id ?? ''}
+                  onChange={(e) => handleAssigneeChange(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
+                >
+                  <option value="">Не назначен</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <CalendarDays className="w-4 h-4" />
+                  <span>Дедлайн и даты</span>
+                  {deadlineHistory.length > 0 && (
+                    <span className="ml-auto text-xs text-amber-600 font-medium">
+                      Переносился {deadlineHistory.length} раз
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="text-sm border rounded px-2 py-1 bg-background"
+                  />
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="text-sm border rounded px-2 py-1 bg-background"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveDates}
+                  disabled={updateTask.isPending}
+                >
+                  {updateTask.isPending ? 'Сохранение...' : 'Сохранить даты'}
+                </Button>
+
+                {/* Deadline history collapsible */}
+                {deadlineHistory.length > 0 && (
+                  <div className="rounded border bg-muted/30">
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setShowDeadlineHistory(!showDeadlineHistory)}
+                    >
+                      <span>История переносов дедлайна</span>
+                      {showDeadlineHistory ? (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    {showDeadlineHistory && (
+                      <div className="px-3 pb-2 space-y-1.5 border-t">
+                        {deadlineHistory.map((change) => (
+                          <div key={change.id} className="pt-2 text-xs">
+                            <div className="flex items-center justify-between text-muted-foreground">
+                              <span>
+                                {new Date(change.created_at).toLocaleDateString('ru-RU')}
+                                {change.changed_by && ` · ${change.changed_by.name}`}
+                              </span>
+                              <span>
+                                {new Date(change.old_date).toLocaleDateString('ru-RU')} →{' '}
+                                {new Date(change.new_date).toLocaleDateString('ru-RU')}
+                              </span>
+                            </div>
+                            <p className="text-foreground mt-0.5 italic">"{change.reason}"</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {task.estimated_hours && (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Clock className="w-4 h-4" />
+                  <span>{task.estimated_hours}h estimated</span>
+                </div>
+              )}
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={isEscalation}
+                    onChange={(e) => setIsEscalation(e.target.checked)}
+                  />
+                  Эскалация на руководителя
+                </label>
+                {isEscalation && (
+                  <div className="space-y-2">
+                    <input
+                      value={escalationFor}
+                      onChange={(e) => setEscalationFor(e.target.value)}
+                      className="w-full text-sm border rounded px-2 py-1 bg-background"
+                      placeholder="Описание проблемы для эскалации"
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      value={escalationSlaHours}
+                      onChange={(e) => setEscalationSlaHours(e.target.value)}
+                      className="w-full text-sm border rounded px-2 py-1 bg-background"
+                      placeholder="SLA реакции (часы)"
+                    />
+                    {task.escalation_due_at && (
+                      <p className="text-xs text-muted-foreground">
+                        Срок реакции: {new Date(task.escalation_due_at).toLocaleString('ru')}
+                      </p>
+                    )}
+                    {task.escalation_first_response_at && (
+                      <p className="text-xs text-emerald-700">
+                        Первая реакция: {new Date(task.escalation_first_response_at).toLocaleString('ru')}
+                      </p>
+                    )}
+                    {task.escalation_overdue_at && (
+                      <p className="text-xs text-red-700">
+                        SLA просрочен: {new Date(task.escalation_overdue_at).toLocaleString('ru')}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2 border-t pt-3">
+              <p className="text-sm font-medium">Комментарии</p>
+              <div className="space-y-2 max-h-32 overflow-auto">
+                {comments.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Комментариев пока нет.</p>
+                )}
+                {comments.map((c) => (
+                  <div key={c.id} className="text-xs rounded border p-2">
+                    <p className="font-medium">{c.author?.name ?? 'Пользователь'}</p>
+                    <p className="text-muted-foreground">{c.body}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={commentBody}
+                  onChange={(e) => setCommentBody(e.target.value)}
+                  placeholder="Добавить комментарий..."
+                  className="flex-1 text-sm border rounded px-2 py-1 bg-background"
+                />
+                <Button size="sm" variant="outline" onClick={handleAddComment}>
+                  Добавить
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2 border-t pt-3">
+              <p className="text-sm font-medium">История</p>
+              <div className="space-y-1 max-h-28 overflow-auto">
+                {events.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Событий пока нет.</p>
+                )}
+                {events.map((e) => (
+                  <p key={e.id} className="text-xs text-muted-foreground">
+                    {new Date(e.created_at).toLocaleString('ru')} · {formatTaskEvent(e.event_type, e.payload)}
+                  </p>
+                ))}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end pt-2">
+              <Button variant="destructive" size="sm" onClick={handleDelete}>
+                <Trash2 className="w-4 h-4 mr-1" />
+                Удалить
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
 
-          <div className="space-y-2 border-t pt-3">
-            <p className="text-sm font-medium">История</p>
-            <div className="space-y-1 max-h-28 overflow-auto">
-              {events.length === 0 && (
-                <p className="text-xs text-muted-foreground">Событий пока нет.</p>
-              )}
-              {events.map((e) => (
-                <p key={e.id} className="text-xs text-muted-foreground">
-                  {new Date(e.created_at).toLocaleString('ru')} · {formatTaskEvent(e.event_type, e.payload)}
-                </p>
-              ))}
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex justify-end pt-2">
-            <Button variant="destructive" size="sm" onClick={handleDelete}>
-              <Trash2 className="w-4 h-4 mr-1" />
-              Удалить
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+      <DeadlineReasonModal
+        open={showDeadlineReasonModal}
+        oldDate={task.end_date ?? ''}
+        newDate={pendingEndDate}
+        onConfirm={handleDeadlineReasonConfirm}
+        onCancel={handleDeadlineReasonCancel}
+      />
+    </>
   )
 }

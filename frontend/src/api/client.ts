@@ -186,6 +186,14 @@ export const api = {
   registerDevice: (token: string, platform: string) =>
     apiClient.post('/devices/register', { token, platform }).then((r) => r.data),
 
+  // Deadline history & stats
+  listTaskDeadlineHistory: (taskId: string) =>
+    apiClient.get(`/tasks/${taskId}/deadline-history`).then((r) => r.data),
+  listProjectDeadlineHistory: (projectId: string) =>
+    apiClient.get(`/projects/${projectId}/deadline-history`).then((r) => r.data),
+  getDeadlineStats: () =>
+    apiClient.get('/projects/analytics/deadline-stats-summary').then((r) => r.data),
+
   // AI drafts
   listAIJobs: (projectId: string) =>
     apiClient.get(`/projects/${projectId}/ai-jobs`).then((r) => r.data),

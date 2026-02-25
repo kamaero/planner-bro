@@ -4,7 +4,7 @@ import shutil
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
@@ -14,11 +14,13 @@ from app.models.user import User
 from app.models.project import Project, ProjectMember, ProjectFile, default_completion_checklist
 from app.models.task import Task, TaskEvent
 from app.models.ai import AIIngestionJob, AITaskDraft
+from app.models.deadline_change import DeadlineChange
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
     AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut, MSProjectImportResult
 )
 from app.schemas.ai import AIIngestionJobOut, AITaskDraftOut, AITaskDraftBulkApproveRequest
+from app.schemas.deadline_change import DeadlineChangeOut, DeadlineStats
 from app.services.project_service import get_projects_for_user, get_gantt_data
 from app.services.notification_service import notify_project_updated, notify_new_task, notify_task_assigned
 from app.services.ms_project_import_service import parse_ms_project_xml
@@ -156,6 +158,81 @@ async def create_project(
     return result.scalar_one()
 
 
+@router.get("/analytics/deadline-stats-summary", response_model=DeadlineStats)
+async def get_deadline_stats_list(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Alias placed before /{project_id} to avoid route shadowing."""
+    from datetime import date as date_type
+
+    all_changes = (
+        await db.execute(
+            select(DeadlineChange).options(selectinload(DeadlineChange.changed_by))
+        )
+    ).scalars().all()
+
+    total_shifts = len(all_changes)
+    task_ids_with_shifts = {c.entity_id for c in all_changes if c.entity_type == "task"}
+    project_ids_with_shifts = {c.entity_id for c in all_changes if c.entity_type == "project"}
+    shift_days = [abs((c.new_date - c.old_date).days) for c in all_changes]
+    avg_shift_days = round(sum(shift_days) / len(shift_days), 1) if shift_days else 0.0
+
+    today = date_type.today()
+    real_overdue_tasks = []
+    if task_ids_with_shifts:
+        tasks_result = await db.execute(
+            select(Task).where(Task.id.in_(task_ids_with_shifts), Task.status != "done")
+        )
+        tasks_with_history = tasks_result.scalars().all()
+        for task in tasks_with_history:
+            task_changes = sorted(
+                [c for c in all_changes if c.entity_type == "task" and c.entity_id == task.id],
+                key=lambda c: c.created_at,
+            )
+            original_end = task_changes[0].old_date if task_changes else task.end_date
+            if original_end and original_end < today:
+                real_overdue_tasks.append({
+                    "id": task.id,
+                    "title": task.title,
+                    "project_id": task.project_id,
+                    "original_end_date": original_end.isoformat(),
+                    "current_end_date": task.end_date.isoformat() if task.end_date else None,
+                    "shifts": len(task_changes),
+                })
+
+    shifts_by_project_map: dict[str, int] = {}
+    for c in all_changes:
+        if c.entity_type == "task":
+            task_res = (await db.execute(select(Task.project_id).where(Task.id == c.entity_id))).scalar_one_or_none()
+            if task_res:
+                shifts_by_project_map[task_res] = shifts_by_project_map.get(task_res, 0) + 1
+        else:
+            shifts_by_project_map[c.entity_id] = shifts_by_project_map.get(c.entity_id, 0) + 1
+
+    project_names: dict[str, str] = {}
+    if shifts_by_project_map:
+        proj_result = await db.execute(
+            select(Project.id, Project.name).where(Project.id.in_(list(shifts_by_project_map.keys())))
+        )
+        for pid, pname in proj_result.all():
+            project_names[pid] = pname
+
+    shifts_by_project = [
+        {"project_id": pid, "project_name": project_names.get(pid, pid), "shifts": cnt}
+        for pid, cnt in sorted(shifts_by_project_map.items(), key=lambda x: -x[1])
+    ]
+
+    return DeadlineStats(
+        total_shifts=total_shifts,
+        tasks_with_shifts=len(task_ids_with_shifts),
+        projects_with_shifts=len(project_ids_with_shifts),
+        avg_shift_days=avg_shift_days,
+        real_overdue_tasks=real_overdue_tasks,
+        shifts_by_project=shifts_by_project,
+    )
+
+
 @router.get("/{project_id}", response_model=ProjectOut)
 async def get_project(
     project_id: str,
@@ -177,11 +254,20 @@ async def update_project(
     payload = data.model_dump(exclude_none=True)
     owner_id = payload.pop("owner_id", None)
     checklist_payload = payload.pop("completion_checklist", None)
+    deadline_change_reason = payload.pop("deadline_change_reason", None)
+
     if checklist_payload is not None:
         project.completion_checklist = _normalize_checklist(checklist_payload)
     target_status = payload.get("status", project.status)
     if target_status == "completed":
         _ensure_project_completion_allowed(project.completion_checklist)
+
+    # Validate deadline change requires a reason
+    new_end_date = payload.get("end_date")
+    old_end_date = project.end_date
+    if new_end_date is not None and new_end_date != old_end_date:
+        if not deadline_change_reason:
+            raise HTTPException(status_code=422, detail="Укажите причину изменения дедлайна")
 
     launch_basis_file_id = payload.get("launch_basis_file_id")
     if launch_basis_file_id:
@@ -197,6 +283,18 @@ async def update_project(
     _apply_control_ski(payload, existing_priority=project.priority, existing_control_ski=project.control_ski)
     for field, value in payload.items():
         setattr(project, field, value)
+
+    # Record deadline change if end_date actually changed
+    if new_end_date is not None and new_end_date != old_end_date and deadline_change_reason:
+        db.add(DeadlineChange(
+            entity_type="project",
+            entity_id=project_id,
+            changed_by_id=current_user.id,
+            old_date=old_end_date,
+            new_date=new_end_date,
+            reason=deadline_change_reason,
+        ))
+
     if owner_id and owner_id != project.owner_id:
         if current_user.role != "admin" and (not requester_member or requester_member.role != "owner"):
             raise HTTPException(status_code=403, detail="Only owner or admin can transfer ownership")
@@ -739,3 +837,21 @@ async def remove_member(
         )
     await db.delete(member)
     await db.commit()
+
+
+@router.get("/{project_id}/deadline-history", response_model=list[DeadlineChangeOut])
+async def list_project_deadline_history(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_access(project_id, current_user, db)
+    result = await db.execute(
+        select(DeadlineChange)
+        .where(DeadlineChange.entity_type == "project", DeadlineChange.entity_id == project_id)
+        .options(selectinload(DeadlineChange.changed_by))
+        .order_by(DeadlineChange.created_at.desc())
+    )
+    return result.scalars().all()
+
+

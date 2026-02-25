@@ -9,6 +9,7 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.models.task import Task, TaskComment, TaskEvent
 from app.models.project import Project, ProjectMember
+from app.models.deadline_change import DeadlineChange
 from app.schemas.task import (
     TaskCreate,
     TaskUpdate,
@@ -20,6 +21,7 @@ from app.schemas.task import (
     TaskCommentOut,
     TaskEventOut,
 )
+from app.schemas.deadline_change import DeadlineChangeOut
 from app.services.task_service import get_tasks_for_project, get_task_by_id
 from app.services.notification_service import notify_task_assigned, notify_task_updated, notify_new_task
 
@@ -241,7 +243,16 @@ async def update_task(
 
     old_assignee = task.assigned_to_id
     old_status = task.status
+    old_end_date = task.end_date
     payload = data.model_dump(exclude_none=True)
+    deadline_change_reason = payload.pop("deadline_change_reason", None)
+
+    # Validate deadline change requires a reason
+    new_end_date = payload.get("end_date")
+    if new_end_date is not None and new_end_date != old_end_date:
+        if not deadline_change_reason:
+            raise HTTPException(status_code=422, detail="Укажите причину изменения дедлайна")
+
     if any(
         key in payload
         for key in (
@@ -264,6 +275,17 @@ async def update_task(
 
     for field, value in payload.items():
         setattr(task, field, value)
+
+    # Record deadline change if end_date actually changed
+    if new_end_date is not None and new_end_date != old_end_date and deadline_change_reason:
+        db.add(DeadlineChange(
+            entity_type="task",
+            entity_id=task.id,
+            changed_by_id=current_user.id,
+            old_date=old_end_date,
+            new_date=new_end_date,
+            reason=deadline_change_reason,
+        ))
 
     task.priority = _normalize_priority_for_control_ski(task.priority, bool(task.control_ski))
     await db.flush()
@@ -643,5 +665,23 @@ async def list_task_events(
         .where(TaskEvent.task_id == task_id)
         .order_by(TaskEvent.created_at.desc())
         .limit(100)
+    )
+    return result.scalars().all()
+
+
+@router.get("/tasks/{task_id}/deadline-history", response_model=list[DeadlineChangeOut])
+async def list_task_deadline_history(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    task = await get_task_by_id(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    result = await db.execute(
+        select(DeadlineChange)
+        .where(DeadlineChange.entity_type == "task", DeadlineChange.entity_id == task_id)
+        .options(selectinload(DeadlineChange.changed_by))
+        .order_by(DeadlineChange.created_at.desc())
     )
     return result.scalars().all()

@@ -188,3 +188,34 @@ export interface GlobalSearchResult {
   tasks: Array<{ id: string; title: string; project_id: string; status: string }>
   users: Array<{ id: string; name: string; email: string }>
 }
+
+export interface DeadlineChange {
+  id: string
+  entity_type: 'task' | 'project'
+  entity_id: string
+  old_date: string
+  new_date: string
+  reason: string
+  created_at: string
+  changed_by?: User
+}
+
+export interface DeadlineStats {
+  total_shifts: number
+  tasks_with_shifts: number
+  projects_with_shifts: number
+  avg_shift_days: number
+  real_overdue_tasks: Array<{
+    id: string
+    title: string
+    project_id: string
+    original_end_date: string
+    current_end_date: string | null
+    shifts: number
+  }>
+  shifts_by_project: Array<{
+    project_id: string
+    project_name: string
+    shifts: number
+  }>
+}

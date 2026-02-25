@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useAllTasks } from '@/hooks/useProjects'
+import { useAllTasks, useDeadlineStats } from '@/hooks/useProjects'
 import {
   BarChart,
   Bar,
@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
-import { Download } from 'lucide-react'
+import { Download, AlertTriangle } from 'lucide-react'
 import type { Task, Project } from '@/types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -80,6 +80,7 @@ function exportCSV(tasks: Task[], projects: Project[]) {
 
 export function Analytics() {
   const { tasks, projects, isLoading } = useAllTasks()
+  const { data: deadlineStats } = useDeadlineStats()
   const [reportFrom, setReportFrom] = useState('')
   const [reportTo, setReportTo] = useState('')
   const [reportProject, setReportProject] = useState('all')
@@ -289,6 +290,101 @@ export function Analytics() {
           </ResponsiveContainer>
         </div>
       )}
+
+      {/* Deadline Audit Section */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-amber-500" />
+          <h2 className="text-lg font-semibold">Честная статистика дедлайнов</h2>
+        </div>
+
+        {deadlineStats ? (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <MetricCard
+                label="Переносов дедлайнов"
+                value={deadlineStats.total_shifts}
+                sub="суммарно по задачам и проектам"
+              />
+              <MetricCard
+                label="Задач с переносами"
+                value={deadlineStats.tasks_with_shifts}
+                sub="уникальных задач"
+              />
+              <MetricCard
+                label="Средний сдвиг"
+                value={deadlineStats.avg_shift_days}
+                sub="дней в среднем"
+              />
+            </div>
+
+            {deadlineStats.real_overdue_tasks.length > 0 && (
+              <div className="rounded-xl border bg-card p-5">
+                <h3 className="text-sm font-semibold mb-3">
+                  Задачи с реальной просрочкой (по изначальному дедлайну)
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs text-muted-foreground uppercase tracking-wide">
+                        <th className="text-left pb-2">Задача</th>
+                        <th className="text-left pb-2">Исходный дедлайн</th>
+                        <th className="text-left pb-2">Текущий дедлайн</th>
+                        <th className="text-left pb-2">Переносов</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {deadlineStats.real_overdue_tasks.map((t) => (
+                        <tr key={t.id}>
+                          <td className="py-2 pr-4 font-medium">{t.title}</td>
+                          <td className="py-2 pr-4 text-red-600">
+                            {new Date(t.original_end_date).toLocaleDateString('ru-RU')}
+                          </td>
+                          <td className="py-2 pr-4 text-amber-600">
+                            {t.current_end_date
+                              ? new Date(t.current_end_date).toLocaleDateString('ru-RU')
+                              : '—'}
+                          </td>
+                          <td className="py-2">
+                            <span className="text-amber-600 font-medium">{t.shifts}×</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {deadlineStats.shifts_by_project.length > 0 && (
+              <div className="rounded-xl border bg-card p-5">
+                <h3 className="text-sm font-semibold mb-3">Переносы по проектам</h3>
+                <ResponsiveContainer width="100%" height={Math.max(160, deadlineStats.shifts_by_project.length * 36)}>
+                  <BarChart
+                    data={deadlineStats.shifts_by_project}
+                    layout="vertical"
+                    margin={{ top: 0, right: 20, bottom: 0, left: 120 }}
+                  >
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
+                    <YAxis
+                      type="category"
+                      dataKey="project_name"
+                      tick={{ fontSize: 11 }}
+                      width={115}
+                    />
+                    <Tooltip />
+                    <Bar dataKey="shifts" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
+            Нет данных о переносах дедлайнов.
+          </div>
+        )}
+      </div>
     </div>
   )
 }

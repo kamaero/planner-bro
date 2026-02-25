@@ -41,6 +41,7 @@ class ProjectUpdate(BaseModel):
     end_date: Optional[date] = None
     owner_id: Optional[str] = None
     completion_checklist: Optional[List[ProjectChecklistItem]] = None
+    deadline_change_reason: Optional[str] = None
 
 
 class ProjectOut(ProjectBase):

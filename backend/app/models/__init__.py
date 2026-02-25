@@ -3,6 +3,7 @@ from app.models.project import Project, ProjectMember, ProjectFile
 from app.models.task import Task, TaskComment, TaskEvent
 from app.models.notification import Notification
 from app.models.ai import AIIngestionJob, AITaskDraft
+from app.models.deadline_change import DeadlineChange
 
 __all__ = [
     "User",
@@ -15,4 +16,5 @@ __all__ = [
     "Notification",
     "AIIngestionJob",
     "AITaskDraft",
+    "DeadlineChange",
 ]

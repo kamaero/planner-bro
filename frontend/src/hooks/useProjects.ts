@@ -12,6 +12,8 @@ import type {
   AITaskDraft,
   MSProjectImportResult,
   TaskBulkUpdateResult,
+  DeadlineChange,
+  DeadlineStats,
 } from '@/types'
 
 export function useProjects() {
@@ -333,5 +335,28 @@ export function useTaskEvents(taskId?: string) {
     queryKey: ['task-events', taskId],
     queryFn: () => api.listTaskEvents(taskId!),
     enabled: !!taskId,
+  })
+}
+
+export function useTaskDeadlineHistory(taskId?: string) {
+  return useQuery<DeadlineChange[]>({
+    queryKey: ['deadline-history-task', taskId],
+    queryFn: () => api.listTaskDeadlineHistory(taskId!),
+    enabled: !!taskId,
+  })
+}
+
+export function useProjectDeadlineHistory(projectId?: string) {
+  return useQuery<DeadlineChange[]>({
+    queryKey: ['deadline-history-project', projectId],
+    queryFn: () => api.listProjectDeadlineHistory(projectId!),
+    enabled: !!projectId,
+  })
+}
+
+export function useDeadlineStats() {
+  return useQuery<DeadlineStats>({
+    queryKey: ['deadline-stats'],
+    queryFn: () => api.getDeadlineStats(),
   })
 }
