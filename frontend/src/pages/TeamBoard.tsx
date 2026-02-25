@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button'
 
 const TEAM_ROOM_ID = 'plannerbro_team_whiteboard'
-const TEAM_ROOM_KEY = 'plannerbro_room_key_22'
+const TEAM_ROOM_KEY = 'plannerbro_room_key_220'
 
 function buildTeamBoardUrl() {
   const url = new URL('/excalidraw/', window.location.origin)
