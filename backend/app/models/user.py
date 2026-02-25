@@ -19,6 +19,10 @@ class User(Base):
         default="developer",
         nullable=False,
     )
+    can_manage_team: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_delete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_import: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_bulk_edit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     reminder_days: Mapped[str] = mapped_column(String(64), default="1,3", nullable=False)
     fcm_token: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

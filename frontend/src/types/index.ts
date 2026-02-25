@@ -3,6 +3,10 @@ export interface User {
   email: string
   name: string
   role: 'admin' | 'manager' | 'developer'
+  can_manage_team: boolean
+  can_delete: boolean
+  can_import: boolean
+  can_bulk_edit: boolean
   is_active?: boolean
   avatar_url?: string
   reminder_days?: string

@@ -7,6 +7,10 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str
     role: str = "developer"
+    can_manage_team: Optional[bool] = None
+    can_delete: Optional[bool] = None
+    can_import: Optional[bool] = None
+    can_bulk_edit: Optional[bool] = None
 
 
 class UserCreate(UserBase):
@@ -21,6 +25,10 @@ class UserUpdate(BaseModel):
 class UserOut(UserBase):
     id: str
     avatar_url: Optional[str] = None
+    can_manage_team: bool = False
+    can_delete: bool = False
+    can_import: bool = False
+    can_bulk_edit: bool = False
     reminder_days: str = "1,3"
     is_active: bool = True
     created_at: datetime
@@ -30,6 +38,14 @@ class UserOut(UserBase):
 
 class UserProfile(UserOut):
     updated_at: datetime
+
+
+class UserPermissionsUpdate(BaseModel):
+    role: Optional[str] = None
+    can_manage_team: Optional[bool] = None
+    can_delete: Optional[bool] = None
+    can_import: Optional[bool] = None
+    can_bulk_edit: Optional[bool] = None
 
 
 class TokenPair(BaseModel):

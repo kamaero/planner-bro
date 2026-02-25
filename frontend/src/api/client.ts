@@ -88,6 +88,16 @@ export const api = {
   listUsers: () => apiClient.get('/users/').then((r) => r.data),
   resetUserPassword: (userId: string) =>
     apiClient.post(`/users/${userId}/reset-password`).then((r) => r.data as { temporary_password: string }),
+  updateUserPermissions: (
+    userId: string,
+    data: Partial<{
+      role: 'admin' | 'manager' | 'developer'
+      can_manage_team: boolean
+      can_delete: boolean
+      can_import: boolean
+      can_bulk_edit: boolean
+    }>
+  ) => apiClient.patch(`/users/${userId}/permissions`, data).then((r) => r.data),
   deactivateUser: (userId: string) => apiClient.delete(`/users/${userId}`),
   searchUsers: (q: string) => apiClient.get('/users/search', { params: { q } }).then((r) => r.data),
   globalSearch: (q: string) =>

@@ -147,6 +147,9 @@ export function ProjectDetail() {
   const memberRole = members.find((m) => m.user.id === currentUser?.id)?.role
   const canManage = currentUser?.role === 'admin' || memberRole === 'owner' || memberRole === 'manager'
   const canTransferOwnership = currentUser?.role === 'admin' || memberRole === 'owner'
+  const canDelete = currentUser?.role === 'admin' || !!currentUser?.can_delete
+  const canImport = currentUser?.role === 'admin' || !!currentUser?.can_import
+  const canBulkEdit = currentUser?.role === 'admin' || !!currentUser?.can_bulk_edit
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {
@@ -261,7 +264,7 @@ export function ProjectDetail() {
   }
 
   const handleBulkStatusUpdate = async (status: string) => {
-    if (!canManage || selectedTaskIds.length === 0) return
+    if (!canManage || !canBulkEdit || selectedTaskIds.length === 0) return
     setBulkBusy(true)
     try {
       await bulkUpdateTasks.mutateAsync({
@@ -278,7 +281,7 @@ export function ProjectDetail() {
   }
 
   const handleBulkAssign = async () => {
-    if (!canManage || selectedTaskIds.length === 0 || bulkAssignee === 'keep') return
+    if (!canManage || !canBulkEdit || selectedTaskIds.length === 0 || bulkAssignee === 'keep') return
     setBulkBusy(true)
     try {
       await bulkUpdateTasks.mutateAsync({
@@ -296,7 +299,7 @@ export function ProjectDetail() {
   }
 
   const handleBulkPriority = async () => {
-    if (!canManage || selectedTaskIds.length === 0 || bulkPriority === 'keep') return
+    if (!canManage || !canBulkEdit || selectedTaskIds.length === 0 || bulkPriority === 'keep') return
     setBulkBusy(true)
     try {
       if (bulkPriority === 'ski') {
@@ -325,7 +328,7 @@ export function ProjectDetail() {
   }
 
   const handleBulkDelete = async () => {
-    if (!canManage || selectedTaskIds.length === 0) return
+    if (!canManage || !canBulkEdit || !canDelete || selectedTaskIds.length === 0) return
     if (!window.confirm(`Удалить выбранные задачи (${selectedTaskIds.length})?`)) return
     setBulkBusy(true)
     try {
@@ -412,14 +415,14 @@ export function ProjectDetail() {
   }
 
   const handleDeleteProject = async () => {
-    if (!id || !canManage) return
+    if (!id || !canManage || !canDelete) return
     if (!window.confirm('Удалить проект? Это действие нельзя отменить.')) return
     await deleteProject.mutateAsync(id)
     navigate('/')
   }
 
   const handleImportMSProject = async () => {
-    if (!msProjectFile) return
+    if (!msProjectFile || !canImport) return
     const result = await importMSProjectTasks.mutateAsync({ projectId: id!, file: msProjectFile })
     setMsProjectImportResult(result)
     setMsProjectFile(null)
@@ -779,7 +782,7 @@ export function ProjectDetail() {
           </DialogContent>
         </Dialog>
 
-        {canManage && (
+        {canManage && canDelete && (
           <Button
             variant="destructive"
             size="sm"
@@ -1075,7 +1078,7 @@ export function ProjectDetail() {
               <span className="text-xs text-muted-foreground">
                 Выбрано: {selectedTaskIds.length} / Видимых: {filteredTasks.length}
               </span>
-              {canManage && (
+              {canManage && canBulkEdit && (
                 <>
                   <Button
                     size="sm"
@@ -1105,7 +1108,7 @@ export function ProjectDetail() {
                     size="sm"
                     variant="destructive"
                     onClick={handleBulkDelete}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy || !canDelete}
                   >
                     Удалить выбранные
                   </Button>
@@ -1245,12 +1248,17 @@ export function ProjectDetail() {
                 <Button
                   variant="outline"
                   onClick={handleImportMSProject}
-                  disabled={!msProjectFile || importMSProjectTasks.isPending}
+                  disabled={!msProjectFile || importMSProjectTasks.isPending || !canImport}
                 >
                   {importMSProjectTasks.isPending ? 'Импорт...' : 'Импортировать задачи'}
                 </Button>
               </div>
             </div>
+            {!canImport && (
+              <p className="text-xs text-muted-foreground">
+                У вас нет права `import` для загрузки задач из MS Project.
+              </p>
+            )}
             {msProjectImportResult && (
               <p className="text-xs text-muted-foreground">
                 Импорт завершен: создано {msProjectImportResult.created}, связей родитель-дочерняя{' '}

@@ -46,6 +46,20 @@ async def _require_project_manager(project_id: str, user: User, db: AsyncSession
         raise HTTPException(status_code=403, detail="Manager access required")
 
 
+def _require_bulk_permission(user: User) -> None:
+    if user.role == "admin":
+        return
+    if not user.can_bulk_edit:
+        raise HTTPException(status_code=403, detail="No permission for bulk operations")
+
+
+def _require_delete_permission(user: User) -> None:
+    if user.role == "admin":
+        return
+    if not user.can_delete:
+        raise HTTPException(status_code=403, detail="No permission to delete tasks")
+
+
 async def _is_project_member(project_id: str, user: User, db: AsyncSession) -> bool:
     if user.role == "admin":
         return True
@@ -294,6 +308,7 @@ async def bulk_update_tasks(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    _require_bulk_permission(current_user)
     await _require_project_exists(project_id, db)
     await _require_project_manager(project_id, current_user, db)
 
@@ -309,6 +324,8 @@ async def bulk_update_tasks(
         raise HTTPException(status_code=400, detail="delete cannot be combined with update fields")
     if not delete_requested and not payload:
         raise HTTPException(status_code=400, detail="No changes specified")
+    if delete_requested:
+        _require_delete_permission(current_user)
 
     if "status" in payload:
         valid_statuses = {"todo", "in_progress", "review", "done"}
@@ -409,6 +426,7 @@ async def delete_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    _require_delete_permission(current_user)
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")

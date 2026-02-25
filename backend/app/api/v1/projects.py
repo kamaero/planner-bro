@@ -44,6 +44,11 @@ def _ensure_project_completion_allowed(checklist: list[dict]) -> None:
             status_code=400,
             detail="Нельзя завершить проект: заполните checklist definition of done.",
         )
+    if any(not bool(item.get("done", False)) for item in checklist):
+        raise HTTPException(
+            status_code=400,
+            detail="Нельзя завершить проект: все пункты definition of done должны быть отмечены.",
+        )
 
 
 def _apply_control_ski(payload: dict, existing_priority: str | None = None, existing_control_ski: bool = False):
@@ -59,11 +64,20 @@ def _apply_control_ski(payload: dict, existing_priority: str | None = None, exis
         payload["control_ski"] = False
     if priority == "critical":
         payload["priority"] = "medium"
-    if any(not bool(item.get("done", False)) for item in checklist):
-        raise HTTPException(
-            status_code=400,
-            detail="Нельзя завершить проект: все пункты definition of done должны быть отмечены.",
-        )
+
+
+def _require_import_permission(user: User) -> None:
+    if user.role == "admin":
+        return
+    if not user.can_import:
+        raise HTTPException(status_code=403, detail="No permission to import tasks/files")
+
+
+def _require_delete_permission(user: User) -> None:
+    if user.role == "admin":
+        return
+    if not user.can_delete:
+        raise HTTPException(status_code=403, detail="No permission to delete")
 
 
 async def _require_project_access(
@@ -218,6 +232,7 @@ async def delete_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    _require_delete_permission(current_user)
     project = await _require_project_access(project_id, current_user, db, require_manager=True)
     await db.delete(project)
     await db.commit()
@@ -325,6 +340,7 @@ async def import_tasks_from_ms_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    _require_import_permission(current_user)
     await _require_project_access(project_id, current_user, db)
     if not upload.filename:
         raise HTTPException(status_code=400, detail="Filename required")
@@ -427,6 +443,7 @@ async def delete_project_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    _require_delete_permission(current_user)
     await _require_project_access(project_id, current_user, db, require_manager=True)
     result = await db.execute(
         select(ProjectFile).where(

@@ -13,13 +13,16 @@ export function Team() {
   const [error, setError] = useState('')
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
   const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({})
+  const [permissionDrafts, setPermissionDrafts] = useState<
+    Record<string, Pick<User, 'role' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'>>
+  >({})
 
   const [invite, setInvite] = useState({ name: '', email: '', role: 'developer', password: '' })
   const [inviting, setInviting] = useState(false)
   const [inviteSuccess, setInviteSuccess] = useState('')
   const [inviteError, setInviteError] = useState('')
 
-  const canManageTeam = currentUser?.role === 'admin'
+  const canManageTeam = currentUser?.role === 'admin' || currentUser?.can_manage_team
 
   const loadUsers = async () => {
     setLoading(true)
@@ -27,6 +30,17 @@ export function Team() {
     try {
       const data = await api.listUsers()
       setUsers(data)
+      const drafts: Record<string, Pick<User, 'role' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'>> = {}
+      data.forEach((user: User) => {
+        drafts[user.id] = {
+          role: user.role,
+          can_manage_team: user.can_manage_team,
+          can_delete: user.can_delete,
+          can_import: user.can_import,
+          can_bulk_edit: user.can_bulk_edit,
+        }
+      })
+      setPermissionDrafts(drafts)
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? 'Не удалось загрузить список команды')
     } finally {
@@ -94,6 +108,64 @@ export function Team() {
     }
   }
 
+  const handlePermissionChange = (
+    userId: string,
+    field: 'role' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit',
+    value: string | boolean
+  ) => {
+    setPermissionDrafts((prev) => ({
+      ...prev,
+      [userId]: {
+        ...(prev[userId] ?? {
+          role: 'developer',
+          can_manage_team: false,
+          can_delete: false,
+          can_import: false,
+          can_bulk_edit: false,
+        }),
+        [field]: value,
+      } as Pick<User, 'role' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'>,
+    }))
+  }
+
+  const isPermissionChanged = (user: User) => {
+    const draft = permissionDrafts[user.id]
+    if (!draft) return false
+    return (
+      draft.role !== user.role ||
+      draft.can_manage_team !== user.can_manage_team ||
+      draft.can_delete !== user.can_delete ||
+      draft.can_import !== user.can_import ||
+      draft.can_bulk_edit !== user.can_bulk_edit
+    )
+  }
+
+  const handleSavePermissions = async (user: User) => {
+    if (!canManageTeam) return
+    const draft = permissionDrafts[user.id]
+    if (!draft) return
+    setBusyUserId(user.id)
+    setError('')
+    try {
+      const updated = await api.updateUserPermissions(user.id, draft)
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)))
+      setPermissionDrafts((prev) => ({
+        ...prev,
+        [user.id]: {
+          role: updated.role,
+          can_manage_team: updated.can_manage_team,
+          can_delete: updated.can_delete,
+          can_import: updated.can_import,
+          can_bulk_edit: updated.can_bulk_edit,
+        },
+      }))
+    } catch (err: any) {
+      setError(err?.response?.data?.detail ?? 'Не удалось обновить права сотрудника')
+    } finally {
+      setBusyUserId(null)
+    }
+  }
+
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold">Команда</h1>
@@ -118,14 +190,80 @@ export function Team() {
                 <p className="text-sm font-medium truncate">
                   {user.name} - {user.email}
                 </p>
-                <p className="text-xs text-muted-foreground">Роль: {user.role}</p>
+                <p className="text-xs text-muted-foreground">
+                  Роль: {permissionDrafts[user.id]?.role ?? user.role}
+                </p>
                 {tempPasswords[user.id] && (
                   <p className="text-xs text-orange-600 mt-1">
                     Временный пароль: {tempPasswords[user.id]}
                   </p>
                 )}
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                  <select
+                    value={permissionDrafts[user.id]?.role ?? user.role}
+                    onChange={(e) => handlePermissionChange(user.id, 'role', e.target.value)}
+                    className="border rounded px-2 py-1 bg-background"
+                    disabled={
+                      !canManageTeam ||
+                      busyUserId === user.id ||
+                      (currentUser?.role !== 'admin' && user.role === 'admin')
+                    }
+                  >
+                    <option value="developer">developer</option>
+                    <option value="manager">manager</option>
+                    {currentUser?.role === 'admin' && <option value="admin">admin</option>}
+                  </select>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={permissionDrafts[user.id]?.can_manage_team ?? user.can_manage_team}
+                      onChange={(e) => handlePermissionChange(user.id, 'can_manage_team', e.target.checked)}
+                      disabled={
+                        !canManageTeam ||
+                        busyUserId === user.id ||
+                        currentUser?.role !== 'admin'
+                      }
+                    />
+                    team
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={permissionDrafts[user.id]?.can_delete ?? user.can_delete}
+                      onChange={(e) => handlePermissionChange(user.id, 'can_delete', e.target.checked)}
+                      disabled={!canManageTeam || busyUserId === user.id}
+                    />
+                    delete
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={permissionDrafts[user.id]?.can_import ?? user.can_import}
+                      onChange={(e) => handlePermissionChange(user.id, 'can_import', e.target.checked)}
+                      disabled={!canManageTeam || busyUserId === user.id}
+                    />
+                    import
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={permissionDrafts[user.id]?.can_bulk_edit ?? user.can_bulk_edit}
+                      onChange={(e) => handlePermissionChange(user.id, 'can_bulk_edit', e.target.checked)}
+                      disabled={!canManageTeam || busyUserId === user.id}
+                    />
+                    bulk
+                  </label>
+                </div>
               </div>
               <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleSavePermissions(user)}
+                  disabled={!canManageTeam || busyUserId === user.id || !isPermissionChanged(user)}
+                >
+                  Сохранить права
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"
@@ -182,7 +320,7 @@ export function Team() {
             >
               <option value="developer">Developer</option>
               <option value="manager">Manager</option>
-              <option value="admin">Admin</option>
+              {currentUser?.role === 'admin' && <option value="admin">Admin</option>}
             </select>
           </div>
           <div className="space-y-1">

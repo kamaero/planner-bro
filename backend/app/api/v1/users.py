@@ -16,6 +16,7 @@ from app.schemas.user import (
     UserOut,
     UserUpdate,
     UserProfile,
+    UserPermissionsUpdate,
     ReminderSettingsUpdate,
     ResetPasswordResponse,
 )
@@ -23,9 +24,36 @@ from app.schemas.user import (
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-def _require_team_admin(user: User) -> None:
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Only admin can manage team accounts")
+def _can_manage_team(user: User) -> bool:
+    return user.role == "admin" or bool(user.can_manage_team)
+
+
+def _require_team_manager(user: User) -> None:
+    if not _can_manage_team(user):
+        raise HTTPException(status_code=403, detail="No permission to manage team accounts")
+
+
+def _default_permissions_for_role(role: str) -> dict[str, bool]:
+    if role == "admin":
+        return {
+            "can_manage_team": True,
+            "can_delete": True,
+            "can_import": True,
+            "can_bulk_edit": True,
+        }
+    if role == "manager":
+        return {
+            "can_manage_team": False,
+            "can_delete": True,
+            "can_import": True,
+            "can_bulk_edit": True,
+        }
+    return {
+        "can_manage_team": False,
+        "can_delete": False,
+        "can_import": False,
+        "can_bulk_edit": False,
+    }
 
 
 def _generate_temporary_password(length: int = 14) -> str:
@@ -44,16 +72,32 @@ async def create_user_by_admin(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_team_admin(current_user)
+    _require_team_manager(current_user)
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
+    if current_user.role != "admin" and data.role == "admin":
+        raise HTTPException(status_code=403, detail="Only admin can create admin accounts")
+
+    permissions = _default_permissions_for_role(data.role)
+    if current_user.role == "admin":
+        overrides = {
+            "can_manage_team": data.can_manage_team,
+            "can_delete": data.can_delete,
+            "can_import": data.can_import,
+            "can_bulk_edit": data.can_bulk_edit,
+        }
+        for key, value in overrides.items():
+            if value is not None:
+                permissions[key] = value
+
     user = User(
         email=data.email,
         name=data.name,
         password_hash=hash_password(data.password),
         role=data.role,
         is_active=True,
+        **permissions,
     )
     db.add(user)
     await db.commit()
@@ -108,7 +152,7 @@ async def reset_user_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_team_admin(current_user)
+    _require_team_manager(current_user)
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
@@ -124,7 +168,7 @@ async def deactivate_user(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_team_admin(current_user)
+    _require_team_manager(current_user)
     if current_user.id == user_id:
         raise HTTPException(status_code=400, detail="You cannot deactivate your own account")
 
@@ -150,6 +194,49 @@ async def deactivate_user(
         delete(ProjectMember).where(ProjectMember.user_id == user_id)
     )
     await db.commit()
+
+
+@router.patch("/{user_id}/permissions", response_model=UserOut)
+async def update_user_permissions(
+    user_id: str,
+    data: UserPermissionsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_team_manager(current_user)
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=404, detail="User not found")
+    if current_user.role != "admin" and user.role == "admin":
+        raise HTTPException(status_code=403, detail="Only admin can update admin permissions")
+
+    payload = data.model_dump(exclude_none=True)
+    if not payload:
+        return user
+
+    if "role" in payload:
+        new_role = payload["role"]
+        if new_role not in ("admin", "manager", "developer"):
+            raise HTTPException(status_code=400, detail="Invalid role")
+        if current_user.role != "admin" and new_role == "admin":
+            raise HTTPException(status_code=403, detail="Only admin can assign admin role")
+        if current_user.id == user.id and new_role != "admin":
+            raise HTTPException(status_code=400, detail="You cannot demote your own admin role")
+        user.role = new_role
+
+    if current_user.id == user.id and payload.get("can_manage_team") is False:
+        raise HTTPException(status_code=400, detail="You cannot remove your own team management permission")
+
+    for field, value in payload.items():
+        if field == "role":
+            continue
+        if field == "can_manage_team" and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Only admin can grant team management permission")
+        setattr(user, field, value)
+
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.put("/me/reminders", response_model=UserProfile)
