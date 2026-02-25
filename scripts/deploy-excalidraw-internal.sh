@@ -55,6 +55,11 @@ docker run -d \
   -e VITE_APP_FIREBASE_CONFIG="{}" \
   -e VITE_APP_HTTP_STORAGE_BACKEND_URL="https://plannerbro.ru/excalidraw-storage/api/v2" \
   -e VITE_APP_STORAGE_BACKEND="http" \
+  -e VITE_APP_LIBRARY_URL="https://plannerbro.ru/excalidraw/" \
+  -e VITE_APP_LIBRARY_BACKEND="https://plannerbro.ru/excalidraw-storage/api/v2" \
+  -e VITE_APP_PLUS_APP="https://plannerbro.ru/excalidraw/" \
+  -e VITE_APP_PLUS_LP="https://plannerbro.ru/excalidraw/" \
+  -e VITE_APP_PORTAL_URL="https://plannerbro.ru/excalidraw/" \
   -e VITE_APP_DISABLE_TRACKING="true" \
   alswl/excalidraw:v0.18.0-fork-b3
 
