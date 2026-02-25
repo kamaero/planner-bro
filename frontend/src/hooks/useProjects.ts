@@ -11,6 +11,7 @@ import type {
   AIIngestionJob,
   AITaskDraft,
   MSProjectImportResult,
+  TaskBulkUpdateResult,
 } from '@/types'
 
 export function useProjects() {
@@ -259,6 +260,33 @@ export function useDeleteTask() {
       qc.invalidateQueries({ queryKey: ['gantt'] })
       qc.invalidateQueries({ queryKey: ['critical-path'] })
       qc.invalidateQueries({ queryKey: ['escalations'] })
+    },
+  })
+}
+
+export function useBulkUpdateTasks() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      data,
+    }: {
+      projectId: string
+      data: {
+        task_ids: string[]
+        status?: string
+        priority?: string
+        control_ski?: boolean
+        assigned_to_id?: string | null
+        delete?: boolean
+      }
+    }) => api.bulkUpdateTasks(projectId, data) as Promise<TaskBulkUpdateResult>,
+    onSuccess: (_, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['tasks', projectId] })
+      qc.invalidateQueries({ queryKey: ['gantt', projectId] })
+      qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
+      qc.invalidateQueries({ queryKey: ['escalations'] })
+      qc.invalidateQueries({ queryKey: ['notifications'] })
     },
   })
 }

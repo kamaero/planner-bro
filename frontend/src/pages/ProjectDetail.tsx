@@ -9,7 +9,7 @@ import {
   useUpdateProject,
   useDeleteProject,
   useUpdateTaskStatus,
-  useDeleteTask,
+  useBulkUpdateTasks,
   useProjectFiles,
   useUploadProjectFile,
   useDeleteProjectFile,
@@ -88,7 +88,7 @@ export function ProjectDetail() {
   const updateProject = useUpdateProject()
   const deleteProject = useDeleteProject()
   const updateTaskStatus = useUpdateTaskStatus()
-  const deleteTask = useDeleteTask()
+  const bulkUpdateTasks = useBulkUpdateTasks()
   const uploadProjectFile = useUploadProjectFile()
   const deleteProjectFile = useDeleteProjectFile()
   const importMSProjectTasks = useImportMSProjectTasks()
@@ -140,6 +140,8 @@ export function ProjectDetail() {
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState('all')
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkAssignee, setBulkAssignee] = useState('keep')
+  const [bulkPriority, setBulkPriority] = useState('keep')
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([])
 
   const memberRole = members.find((m) => m.user.id === currentUser?.id)?.role
@@ -262,16 +264,61 @@ export function ProjectDetail() {
     if (!canManage || selectedTaskIds.length === 0) return
     setBulkBusy(true)
     try {
-      await Promise.all(
-        selectedTaskIds.map((taskId) =>
-          updateTaskStatus.mutateAsync({
-            taskId,
-            status,
-            progress_percent: status === 'done' ? 100 : undefined,
-          })
-        )
-      )
+      await bulkUpdateTasks.mutateAsync({
+        projectId: id!,
+        data: {
+          task_ids: selectedTaskIds,
+          status,
+        },
+      })
       setSelectedTaskIds([])
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const handleBulkAssign = async () => {
+    if (!canManage || selectedTaskIds.length === 0 || bulkAssignee === 'keep') return
+    setBulkBusy(true)
+    try {
+      await bulkUpdateTasks.mutateAsync({
+        projectId: id!,
+        data: {
+          task_ids: selectedTaskIds,
+          assigned_to_id: bulkAssignee === 'unassigned' ? null : bulkAssignee,
+        },
+      })
+      setSelectedTaskIds([])
+      setBulkAssignee('keep')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const handleBulkPriority = async () => {
+    if (!canManage || selectedTaskIds.length === 0 || bulkPriority === 'keep') return
+    setBulkBusy(true)
+    try {
+      if (bulkPriority === 'ski') {
+        await bulkUpdateTasks.mutateAsync({
+          projectId: id!,
+          data: {
+            task_ids: selectedTaskIds,
+            control_ski: true,
+          },
+        })
+      } else {
+        await bulkUpdateTasks.mutateAsync({
+          projectId: id!,
+          data: {
+            task_ids: selectedTaskIds,
+            priority: bulkPriority,
+            control_ski: false,
+          },
+        })
+      }
+      setSelectedTaskIds([])
+      setBulkPriority('keep')
     } finally {
       setBulkBusy(false)
     }
@@ -282,7 +329,13 @@ export function ProjectDetail() {
     if (!window.confirm(`Удалить выбранные задачи (${selectedTaskIds.length})?`)) return
     setBulkBusy(true)
     try {
-      await Promise.all(selectedTaskIds.map((taskId) => deleteTask.mutateAsync(taskId)))
+      await bulkUpdateTasks.mutateAsync({
+        projectId: id!,
+        data: {
+          task_ids: selectedTaskIds,
+          delete: true,
+        },
+      })
       setSelectedTaskIds([])
     } finally {
       setBulkBusy(false)
@@ -1055,6 +1108,49 @@ export function ProjectDetail() {
                     disabled={selectedTaskIds.length === 0 || bulkBusy}
                   >
                     Удалить выбранные
+                  </Button>
+                  <select
+                    value={bulkAssignee}
+                    onChange={(e) => setBulkAssignee(e.target.value)}
+                    className="border rounded px-2 py-1 text-sm bg-background"
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                  >
+                    <option value="keep">Исполнитель: без изменений</option>
+                    <option value="unassigned">Исполнитель: снять назначение</option>
+                    {members.map((m) => (
+                      <option key={m.user.id} value={m.user.id}>
+                        Исполнитель: {m.user.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleBulkAssign}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy || bulkAssignee === 'keep'}
+                  >
+                    Применить исполнителя
+                  </Button>
+                  <select
+                    value={bulkPriority}
+                    onChange={(e) => setBulkPriority(e.target.value)}
+                    className="border rounded px-2 py-1 text-sm bg-background"
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                  >
+                    <option value="keep">Приоритет: без изменений</option>
+                    <option value="low">Низкий</option>
+                    <option value="medium">Средний</option>
+                    <option value="high">Высокий</option>
+                    <option value="critical">Критический</option>
+                    <option value="ski">Контроль СКИ (critical)</option>
+                  </select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleBulkPriority}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy || bulkPriority === 'keep'}
+                  >
+                    Применить приоритет
                   </Button>
                 </>
               )}

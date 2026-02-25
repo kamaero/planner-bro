@@ -149,6 +149,17 @@ export const api = {
     taskId: string,
     data: { status: string; progress_percent?: number; next_step?: string | null }
   ) => apiClient.patch(`/tasks/${taskId}/status`, data).then((r) => r.data),
+  bulkUpdateTasks: (
+    projectId: string,
+    data: {
+      task_ids: string[]
+      status?: string
+      priority?: string
+      control_ski?: boolean
+      assigned_to_id?: string | null
+      delete?: boolean
+    }
+  ) => apiClient.post(`/projects/${projectId}/tasks/bulk`, data).then((r) => r.data),
   listTaskComments: (taskId: string) => apiClient.get(`/tasks/${taskId}/comments`).then((r) => r.data),
   addTaskComment: (taskId: string, body: string) =>
     apiClient.post(`/tasks/${taskId}/comments`, { body }).then((r) => r.data),

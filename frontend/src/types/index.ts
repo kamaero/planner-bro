@@ -127,6 +127,13 @@ export interface TaskEvent {
   created_at: string
 }
 
+export interface TaskBulkUpdateResult {
+  requested: number
+  updated: number
+  deleted: number
+  skipped: number
+}
+
 export interface AIIngestionJob {
   id: string
   project_id: string

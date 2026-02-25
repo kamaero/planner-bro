@@ -13,6 +13,8 @@ from app.schemas.task import (
     TaskCreate,
     TaskUpdate,
     TaskStatusUpdate,
+    TaskBulkUpdateRequest,
+    TaskBulkUpdateResult,
     TaskOut,
     TaskCommentCreate,
     TaskCommentOut,
@@ -27,6 +29,21 @@ router = APIRouter(tags=["tasks"])
 async def _require_project_member(project_id: str, user: User, db: AsyncSession):
     if not await _is_project_member(project_id, user, db):
         raise HTTPException(status_code=403, detail="Access denied")
+
+
+async def _require_project_manager(project_id: str, user: User, db: AsyncSession) -> None:
+    if user.role == "admin":
+        return
+    member = (
+        await db.execute(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not member or member.role not in ("owner", "manager"):
+        raise HTTPException(status_code=403, detail="Manager access required")
 
 
 async def _is_project_member(project_id: str, user: User, db: AsyncSession) -> bool:
@@ -89,6 +106,14 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _normalize_priority_for_control_ski(priority: str, control_ski: bool) -> str:
+    if control_ski:
+        return "critical"
+    if priority == "critical":
+        return "medium"
+    return priority
+
+
 def _prepare_escalation_fields(payload: dict, task_created_at: datetime | None = None) -> None:
     is_escalation = bool(payload.get("is_escalation"))
     if not is_escalation:
@@ -138,10 +163,10 @@ async def create_task(
     await _require_project_member(project_id, current_user, db)
     payload = data.model_dump()
     _prepare_escalation_fields(payload)
-    if payload.get("control_ski"):
-        payload["priority"] = "critical"
-    elif payload.get("priority") == "critical":
-        payload["priority"] = "medium"
+    payload["priority"] = _normalize_priority_for_control_ski(
+        payload.get("priority", "medium"),
+        bool(payload.get("control_ski")),
+    )
     if payload.get("is_escalation") and not payload.get("assigned_to_id"):
         owner_id = (
             await db.execute(select(Project.owner_id).where(Project.id == project_id))
@@ -226,10 +251,7 @@ async def update_task(
     for field, value in payload.items():
         setattr(task, field, value)
 
-    if task.control_ski:
-        task.priority = "critical"
-    elif task.priority == "critical":
-        task.priority = "medium"
+    task.priority = _normalize_priority_for_control_ski(task.priority, bool(task.control_ski))
     await db.flush()
 
     if "assigned_to_id" in payload and task.assigned_to_id:
@@ -263,6 +285,122 @@ async def update_task(
         select(Task).where(Task.id == task.id).options(selectinload(Task.assignee))
     )
     return result.scalar_one()
+
+
+@router.post("/projects/{project_id}/tasks/bulk", response_model=TaskBulkUpdateResult)
+async def bulk_update_tasks(
+    project_id: str,
+    data: TaskBulkUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_exists(project_id, db)
+    await _require_project_manager(project_id, current_user, db)
+
+    raw_ids = [task_id.strip() for task_id in data.task_ids if task_id.strip()]
+    task_ids = list(dict.fromkeys(raw_ids))
+    if not task_ids:
+        raise HTTPException(status_code=400, detail="task_ids must contain at least one id")
+
+    payload = data.model_dump(exclude_unset=True)
+    payload.pop("task_ids", None)
+    delete_requested = bool(payload.pop("delete", False))
+    if delete_requested and payload:
+        raise HTTPException(status_code=400, detail="delete cannot be combined with update fields")
+    if not delete_requested and not payload:
+        raise HTTPException(status_code=400, detail="No changes specified")
+
+    if "status" in payload:
+        valid_statuses = {"todo", "in_progress", "review", "done"}
+        if payload["status"] not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    if "priority" in payload:
+        valid_priorities = {"low", "medium", "high", "critical"}
+        if payload["priority"] not in valid_priorities:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid priority. Must be one of: {valid_priorities}"
+            )
+    if "assigned_to_id" in payload and payload["assigned_to_id"]:
+        await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], db)
+
+    tasks = (
+        await db.execute(
+            select(Task)
+            .where(
+                Task.project_id == project_id,
+                Task.id.in_(task_ids),
+            )
+            .options(selectinload(Task.assignee))
+        )
+    ).scalars().all()
+
+    requested = len(task_ids)
+    result = TaskBulkUpdateResult(requested=requested, skipped=max(0, requested - len(tasks)))
+
+    if delete_requested:
+        for task in tasks:
+            await _log_task_event(db, task.id, current_user.id, "task_deleted_bulk")
+            await db.delete(task)
+            result.deleted += 1
+        await db.commit()
+        return result
+
+    for task in tasks:
+        old_status = task.status
+        old_assignee = task.assigned_to_id
+        changed = False
+
+        for field, value in payload.items():
+            if getattr(task, field) != value:
+                setattr(task, field, value)
+                changed = True
+
+        if payload.get("status") == "done" and task.progress_percent != 100:
+            task.progress_percent = 100
+            changed = True
+
+        normalized_priority = _normalize_priority_for_control_ski(task.priority, bool(task.control_ski))
+        if normalized_priority != task.priority:
+            task.priority = normalized_priority
+            changed = True
+
+        if not changed:
+            continue
+
+        await db.flush()
+        result.updated += 1
+
+        if task.status != old_status:
+            await _log_task_event(
+                db,
+                task.id,
+                current_user.id,
+                "status_changed",
+                f"{old_status}->{task.status}",
+            )
+        if task.assigned_to_id != old_assignee:
+            await _log_task_event(
+                db,
+                task.id,
+                current_user.id,
+                "assignee_changed",
+                f"{old_assignee or ''}->{task.assigned_to_id or ''}",
+            )
+            if task.assigned_to_id:
+                await notify_task_assigned(db, task, task.assigned_to_id)
+
+        await _log_task_event(
+            db,
+            task.id,
+            current_user.id,
+            "task_bulk_updated",
+            ",".join(sorted(payload.keys())),
+        )
+        await _mark_escalation_response(task, current_user.id, db)
+        await notify_task_updated(db, task, current_user.id)
+
+    await db.commit()
+    return result
 
 
 @router.delete("/tasks/{task_id}", status_code=204)
@@ -331,6 +469,7 @@ async def update_task_status(
             description=task.description,
             status="todo",
             priority=task.priority,
+            control_ski=task.control_ski,
             progress_percent=0,
             next_step=None,
             start_date=next_start,

@@ -58,6 +58,22 @@ class TaskStatusUpdate(BaseModel):
     next_step: Optional[str] = None
 
 
+class TaskBulkUpdateRequest(BaseModel):
+    task_ids: list[str] = Field(min_length=1, max_length=500)
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    control_ski: Optional[bool] = None
+    assigned_to_id: Optional[str] = None
+    delete: bool = False
+
+
+class TaskBulkUpdateResult(BaseModel):
+    requested: int
+    updated: int = 0
+    deleted: int = 0
+    skipped: int = 0
+
+
 class TaskOut(TaskBase):
     id: str
     project_id: str
