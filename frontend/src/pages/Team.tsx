@@ -76,6 +76,11 @@ export function Team() {
 
   const handleResetPassword = async (user: User) => {
     if (!canManageTeam) return
+    if (user.id === currentUser?.id) {
+      setError('Сброс собственного пароля через список команды отключен')
+      return
+    }
+    if (!window.confirm(`Сбросить пароль для ${user.name} (${user.email})?`)) return
     setBusyUserId(user.id)
     setError('')
     try {
@@ -268,7 +273,7 @@ export function Team() {
                   size="sm"
                   variant="outline"
                   onClick={() => handleResetPassword(user)}
-                  disabled={!canManageTeam || busyUserId === user.id}
+                  disabled={!canManageTeam || busyUserId === user.id || user.id === currentUser?.id}
                 >
                   Сброс пароля
                 </Button>

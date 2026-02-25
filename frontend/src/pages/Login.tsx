@@ -19,7 +19,8 @@ export function Login() {
     setLoading(true)
 
     try {
-      const tokens = await api.login(form.email, form.password)
+      const email = form.email.trim().toLowerCase()
+      const tokens = await api.login(email, form.password)
       setTokens(tokens.access_token, tokens.refresh_token)
       const user = await api.getMe()
       setUser(user)

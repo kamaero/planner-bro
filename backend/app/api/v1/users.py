@@ -3,7 +3,7 @@ import string
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, delete
+from sqlalchemy import select, or_, delete, func
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -22,6 +22,10 @@ from app.schemas.user import (
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
 
 
 def _can_manage_team(user: User) -> bool:
@@ -73,7 +77,8 @@ async def create_user_by_admin(
     db: AsyncSession = Depends(get_db),
 ):
     _require_team_manager(current_user)
-    existing = await db.execute(select(User).where(User.email == data.email))
+    normalized_email = _normalize_email(data.email)
+    existing = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
     if current_user.role != "admin" and data.role == "admin":
@@ -92,7 +97,7 @@ async def create_user_by_admin(
                 permissions[key] = value
 
     user = User(
-        email=data.email,
+        email=normalized_email,
         name=data.name,
         password_hash=hash_password(data.password),
         role=data.role,
@@ -153,6 +158,11 @@ async def reset_user_password(
     db: AsyncSession = Depends(get_db),
 ):
     _require_team_manager(current_user)
+    if current_user.id == user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Сброс собственного пароля через раздел Команда запрещен. Используйте отдельную смену пароля.",
+        )
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
