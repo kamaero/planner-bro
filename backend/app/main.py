@@ -1,20 +1,45 @@
+import asyncio
+import logging
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.config import settings
-from app.core.database import engine
+from app.core.database import engine, AsyncSessionLocal
 from app.core.firebase import init_firebase
 from app.core.security import decode_token
 from app.api.v1 import auth, projects, tasks, users, notifications
 from app.services.websocket_manager import ws_manager
 
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+async def _ws_cleanup_loop() -> None:
+    """Periodically evict WebSocket connections silent for > 90 s."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            removed = await ws_manager.cleanup_stale(timeout_seconds=90)
+            if removed:
+                logger.warning("WS cleanup: removed %d stale connections", removed)
+        except Exception as exc:
+            logger.error("WS cleanup error: %s", exc)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_firebase()
-    yield
+    cleanup_task = asyncio.create_task(_ws_cleanup_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
 
 
 app = FastAPI(
@@ -41,12 +66,41 @@ app.include_router(notifications.router, prefix="/api/v1")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    import redis.asyncio as aioredis
+
+    checks: dict[str, object] = {}
+
+    # Database reachability
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+        checks["db"] = "ok"
+    except Exception as exc:
+        logger.error("Health DB check failed: %s", exc)
+        checks["db"] = "error"
+
+    # Redis reachability
+    try:
+        r = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
+        await r.ping()
+        await r.aclose()
+        checks["redis"] = "ok"
+    except Exception as exc:
+        logger.error("Health Redis check failed: %s", exc)
+        checks["redis"] = "error"
+
+    checks["ws_connections"] = len(ws_manager._socket_user)
+
+    status = (
+        "ok"
+        if all(v == "ok" for k, v in checks.items() if k != "ws_connections")
+        else "degraded"
+    )
+    return {"status": status, **checks}
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
-    from app.core.database import AsyncSessionLocal
     from app.models.user import User
     from app.models.project import ProjectMember
 
@@ -67,7 +121,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             await websocket.close(code=4001)
             return
 
-        # Get user's project IDs
         member_result = await db.execute(
             select(ProjectMember.project_id).where(ProjectMember.user_id == user_id)
         )
@@ -78,6 +131,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         while True:
             data = await websocket.receive_text()
             if data == "ping":
+                ws_manager.record_ping(websocket)
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)

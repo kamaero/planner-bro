@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/authStore'
+import { WS_EVENTS } from '@/api/events'
 
 type WSEvent = {
   event: string
@@ -21,23 +22,23 @@ export function useWebSocket() {
       try {
         const { event, data } = JSON.parse(evt.data) as WSEvent
         switch (event) {
-          case 'task_created':
-          case 'task_updated':
+          case WS_EVENTS.TASK_CREATED:
+          case WS_EVENTS.TASK_UPDATED:
             qc.invalidateQueries({ queryKey: ['tasks', data.project_id as string] })
             qc.invalidateQueries({ queryKey: ['gantt', data.project_id as string] })
             qc.invalidateQueries({ queryKey: ['notifications'] })
             break
-          case 'project_updated':
+          case WS_EVENTS.PROJECT_UPDATED:
             qc.invalidateQueries({ queryKey: ['projects'] })
             qc.invalidateQueries({ queryKey: ['projects', data.project_id as string] })
             qc.invalidateQueries({ queryKey: ['notifications'] })
             break
-          case 'task_assigned':
-          case 'deadline_warning':
+          case WS_EVENTS.TASK_ASSIGNED:
+          case WS_EVENTS.DEADLINE_WARNING:
             qc.invalidateQueries({ queryKey: ['notifications'] })
             break
-          case 'ai_drafts_ready':
-          case 'ai_drafts_failed':
+          case WS_EVENTS.AI_DRAFTS_READY:
+          case WS_EVENTS.AI_DRAFTS_FAILED:
             qc.invalidateQueries({ queryKey: ['ai-jobs'] })
             qc.invalidateQueries({ queryKey: ['ai-drafts'] })
             break

@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Dict, Set
 from fastapi import WebSocket
 
@@ -12,6 +13,8 @@ class WebSocketManager:
         # WebSocket -> metadata
         self._socket_user: Dict[WebSocket, str] = {}
         self._socket_projects: Dict[WebSocket, list[str]] = {}
+        # WebSocket -> last ping timestamp (monotonic)
+        self._last_ping: Dict[WebSocket, float] = {}
 
     async def connect(self, websocket: WebSocket, user_id: str, project_ids: list[str]):
         await websocket.accept()
@@ -20,14 +23,21 @@ class WebSocketManager:
         self._user_sockets[user_id].add(websocket)
         self._socket_user[websocket] = user_id
         self._socket_projects[websocket] = project_ids
+        self._last_ping[websocket] = time.monotonic()
         for project_id in project_ids:
             if project_id not in self._rooms:
                 self._rooms[project_id] = set()
             self._rooms[project_id].add(websocket)
 
+    def record_ping(self, websocket: WebSocket) -> None:
+        """Update last-seen timestamp when a client sends a ping."""
+        if websocket in self._socket_user:
+            self._last_ping[websocket] = time.monotonic()
+
     def disconnect(self, websocket: WebSocket):
         user_id = self._socket_user.pop(websocket, None)
         project_ids = self._socket_projects.pop(websocket, [])
+        self._last_ping.pop(websocket, None)
 
         if user_id is not None:
             sockets = self._user_sockets.get(user_id)
@@ -46,6 +56,24 @@ class WebSocketManager:
     def _disconnect_if_known(self, websocket: WebSocket):
         if websocket in self._socket_user or websocket in self._socket_projects:
             self.disconnect(websocket)
+
+    async def cleanup_stale(self, timeout_seconds: int = 90) -> int:
+        """Close connections that haven't sent a ping within timeout_seconds.
+
+        Returns the number of connections removed.
+        """
+        now = time.monotonic()
+        stale = [
+            ws for ws, ts in list(self._last_ping.items())
+            if now - ts > timeout_seconds
+        ]
+        for ws in stale:
+            self._disconnect_if_known(ws)
+            try:
+                await ws.close(code=1001)
+            except Exception:
+                pass
+        return len(stale)
 
     async def broadcast_to_project(self, project_id: str, event: str, data: dict):
         room = self._rooms.get(project_id, set())

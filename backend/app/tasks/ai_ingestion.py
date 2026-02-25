@@ -10,6 +10,7 @@ from app.models.project import Project, ProjectFile, ProjectMember
 from app.models.user import User
 from app.services.ai_ingestion_service import extract_text_for_ai, generate_task_drafts_from_text
 from app.services.websocket_manager import ws_manager
+from app.services import events as ev
 from app.tasks.celery_app import celery_app
 
 
@@ -121,7 +122,7 @@ async def _async_process_file_for_ai(job_id: str):
             await db.commit()
             await ws_manager.broadcast_to_project(
                 project.id,
-                "ai_drafts_ready",
+                ev.AI_DRAFTS_READY,
                 {
                     "project_id": project.id,
                     "project_file_id": file_record.id,
@@ -136,7 +137,7 @@ async def _async_process_file_for_ai(job_id: str):
             await db.commit()
             await ws_manager.broadcast_to_project(
                 project.id,
-                "ai_drafts_failed",
+                ev.AI_DRAFTS_FAILED,
                 {
                     "project_id": project.id,
                     "project_file_id": file_record.id,

@@ -6,6 +6,7 @@ from app.models.project import Project, ProjectMember
 from app.models.task import Task
 from app.core.firebase import send_push_to_multiple
 from app.services.websocket_manager import ws_manager
+from app.services import events as ev
 import aiosmtplib
 from email.mime.text import MIMEText
 from app.core.config import settings
@@ -76,7 +77,7 @@ async def notify_task_assigned(db: AsyncSession, task: Task, assignee_id: str):
     if tokens:
         send_push_to_multiple(tokens, title, body, data)
 
-    await ws_manager.send_to_user(assignee_id, "task_assigned", {
+    await ws_manager.send_to_user(assignee_id, ev.TASK_ASSIGNED, {
         "notification_id": notif.id, "task_id": task.id, "title": title, "body": body
     })
 
@@ -107,7 +108,7 @@ async def notify_task_updated(db: AsyncSession, task: Task, actor_id: str):
     if tokens:
         send_push_to_multiple(tokens, title, body, data)
 
-    await ws_manager.broadcast_to_project(task.project_id, "task_updated", {
+    await ws_manager.broadcast_to_project(task.project_id, ev.TASK_UPDATED, {
         "task_id": task.id, "project_id": task.project_id
     })
 
@@ -129,7 +130,7 @@ async def notify_new_task(db: AsyncSession, task: Task):
     if tokens:
         send_push_to_multiple(tokens, title, body, data)
 
-    await ws_manager.broadcast_to_project(task.project_id, "task_created", {
+    await ws_manager.broadcast_to_project(task.project_id, ev.TASK_CREATED, {
         "task_id": task.id, "project_id": task.project_id
     })
 
@@ -148,7 +149,7 @@ async def notify_project_updated(db: AsyncSession, project: Project):
     if tokens:
         send_push_to_multiple(tokens, title, body, data)
 
-    await ws_manager.broadcast_to_project(project.id, "project_updated", {"project_id": project.id})
+    await ws_manager.broadcast_to_project(project.id, ev.PROJECT_UPDATED, {"project_id": project.id})
 
 
 async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
@@ -186,7 +187,7 @@ async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
     if days_until <= 0:
         await _send_email_to_members(db, member_ids, title, body)
 
-    await ws_manager.broadcast_to_project(task.project_id, "deadline_warning", data)
+    await ws_manager.broadcast_to_project(task.project_id, ev.DEADLINE_WARNING, data)
 
 
 async def notify_escalation_sla_breached(db: AsyncSession, task: Task, breached_at):
@@ -211,7 +212,7 @@ async def notify_escalation_sla_breached(db: AsyncSession, task: Task, breached_
     if tokens:
         send_push_to_multiple(tokens, title, body, data)
     for uid in recipients:
-        await ws_manager.send_to_user(uid, "escalation_sla_breached", data)
+        await ws_manager.send_to_user(uid, ev.ESCALATION_SLA_BREACHED, data)
 
 
 async def _send_email_to_members(db: AsyncSession, user_ids: list[str], subject: str, body: str):
