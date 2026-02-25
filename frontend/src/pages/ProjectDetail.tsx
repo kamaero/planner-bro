@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   useProject,
@@ -34,6 +34,7 @@ import { Badge } from '@/components/ui/badge'
 import type { Task, GanttTask, ProjectFile, MSProjectImportResult } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2 } from 'lucide-react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -165,6 +166,15 @@ export function ProjectDetail() {
   }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter])
 
   const selectedVisibleCount = filteredTasks.filter((t) => selectedTaskIds.includes(t.id)).length
+
+  const VIRTUAL_THRESHOLD = 40
+  const taskListRef = useRef<HTMLDivElement>(null)
+  const taskVirtualizer = useVirtualizer({
+    count: filteredTasks.length,
+    getScrollElement: () => taskListRef.current,
+    estimateSize: () => 110,
+    overscan: 5,
+  })
 
   useEffect(() => {
     if (project && editOpen) {
@@ -421,6 +431,69 @@ export function ProjectDetail() {
     await approveAIDraftsBulk.mutateAsync({ projectId: id!, draftIds: selectedDraftIds })
     setSelectedDraftIds([])
   }
+
+  const renderTaskContent = (task: Task) => (
+    <>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            checked={selectedTaskIds.includes(task.id)}
+            onChange={() => handleToggleTaskSelection(task.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="h-4 w-4"
+          />
+          <button
+            onClick={() => handleTaskClick(task)}
+            className="text-left hover:text-primary transition-colors"
+          >
+            <span className="font-medium text-sm">{task.title}</span>
+          </button>
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[task.priority]}`}
+          >
+            {task.priority}
+          </span>
+          {task.is_escalation && (
+            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-800">
+              эскалация
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {task.assignee && (
+            <span className="text-xs text-muted-foreground">{task.assignee.name}</span>
+          )}
+          <select
+            value={task.status}
+            onChange={(e) => handleQuickStatusChange(task, e.target.value)}
+            className="text-xs border rounded px-2 py-1 bg-background"
+          >
+            <option value="todo">{STATUS_LABELS.todo}</option>
+            <option value="in_progress">{STATUS_LABELS.in_progress}</option>
+            <option value="review">{STATUS_LABELS.review}</option>
+            <option value="done">{STATUS_LABELS.done}</option>
+          </select>
+        </div>
+      </div>
+      <div className="mt-2">
+        <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary"
+            style={{ width: `${Math.max(0, Math.min(100, task.progress_percent ?? 0))}%` }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          Прогресс: {task.progress_percent ?? 0}%{task.next_step ? ` · Следующий шаг: ${task.next_step}` : ''}
+        </p>
+      </div>
+      {task.end_date && (
+        <p className="text-xs text-muted-foreground mt-1">
+          Дедлайн: {new Date(task.end_date).toLocaleDateString()}
+        </p>
+      )}
+    </>
+  )
 
   if (!project) {
     return <div className="p-6 text-muted-foreground">Loading...</div>
@@ -993,71 +1066,48 @@ export function ProjectDetail() {
               Задачи по выбранным фильтрам не найдены.
             </div>
           )}
-          {filteredTasks.map((task) => (
+          {filteredTasks.length > 0 && filteredTasks.length <= VIRTUAL_THRESHOLD && (
+            filteredTasks.map((task) => (
+              <div
+                key={task.id}
+                className="w-full rounded-lg border bg-card p-4 hover:shadow-sm transition-shadow"
+              >
+                {renderTaskContent(task)}
+              </div>
+            ))
+          )}
+          {filteredTasks.length > VIRTUAL_THRESHOLD && (
             <div
-              key={task.id}
-              className="w-full rounded-lg border bg-card p-4 hover:shadow-sm transition-shadow"
+              ref={taskListRef}
+              className="overflow-y-auto rounded-lg"
+              style={{ height: '65vh', maxHeight: '700px' }}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={selectedTaskIds.includes(task.id)}
-                    onChange={() => handleToggleTaskSelection(task.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-4 w-4"
-                  />
-                  <button
-                    onClick={() => handleTaskClick(task)}
-                    className="text-left hover:text-primary transition-colors"
-                  >
-                    <span className="font-medium text-sm">{task.title}</span>
-                  </button>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[task.priority]}`}
-                  >
-                    {task.priority}
-                  </span>
-                  {task.is_escalation && (
-                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-800">
-                      эскалация
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {task.assignee && (
-                    <span className="text-xs text-muted-foreground">{task.assignee.name}</span>
-                  )}
-                  <select
-                    value={task.status}
-                    onChange={(e) => handleQuickStatusChange(task, e.target.value)}
-                    className="text-xs border rounded px-2 py-1 bg-background"
-                  >
-                    <option value="todo">{STATUS_LABELS.todo}</option>
-                    <option value="in_progress">{STATUS_LABELS.in_progress}</option>
-                    <option value="review">{STATUS_LABELS.review}</option>
-                    <option value="done">{STATUS_LABELS.done}</option>
-                  </select>
-                </div>
+              <div style={{ height: taskVirtualizer.getTotalSize(), position: 'relative' }}>
+                {taskVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const task = filteredTasks[virtualRow.index]
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      data-index={virtualRow.index}
+                      ref={taskVirtualizer.measureElement}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualRow.start}px)`,
+                        paddingBottom: '12px',
+                      }}
+                    >
+                      <div className="w-full rounded-lg border bg-card p-4 hover:shadow-sm transition-shadow">
+                        {renderTaskContent(task)}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-              <div className="mt-2">
-                <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary"
-                    style={{ width: `${Math.max(0, Math.min(100, task.progress_percent ?? 0))}%` }}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Прогресс: {task.progress_percent ?? 0}%{task.next_step ? ` · Следующий шаг: ${task.next_step}` : ''}
-                </p>
-              </div>
-              {task.end_date && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Дедлайн: {new Date(task.end_date).toLocaleDateString()}
-                </p>
-              )}
             </div>
-          ))}
+          )}
         </div>
       ) : view === 'members' ? (
         <MembersPanel projectId={id!} />

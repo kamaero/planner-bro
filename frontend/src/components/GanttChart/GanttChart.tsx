@@ -3,6 +3,8 @@ import 'gantt-task-react/dist/index.css'
 import type { GanttTask } from '@/types'
 import { useState } from 'react'
 
+const GANTT_TASK_LIMIT = 150
+
 interface GanttChartProps {
   tasks: GanttTask[]
   onTaskClick?: (task: GanttTask) => void
@@ -33,10 +35,16 @@ export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
     )
   }
 
-  const ganttTasks = toGanttTasks(tasks)
+  const displayTasks = tasks.slice(0, GANTT_TASK_LIMIT)
+  const ganttTasks = toGanttTasks(displayTasks)
 
   return (
     <div>
+      {tasks.length > GANTT_TASK_LIMIT && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-2 text-sm text-amber-800 dark:text-amber-300">
+          Показано {GANTT_TASK_LIMIT} из {tasks.length} задач с датами. Используйте фильтры в списке задач для детального просмотра.
+        </div>
+      )}
       <div className="flex gap-2 mb-3">
         {(['Day', 'Week', 'Month'] as const).map((mode) => (
           <button
