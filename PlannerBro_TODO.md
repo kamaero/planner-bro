@@ -63,5 +63,9 @@
    - /health возвращает ws_connections count.
    - Остаток: метрики доставки событий (Prometheus/Grafana).
 
-14. UX/perf для больших проектов
-   - Виртуализация списков, дробление чанков, оптимизация Gantt на 500+ задач.
+14. ✅ UX/perf для больших проектов (2026-02-25)
+   - Code splitting (vite.config.ts manualChunks): app-чанк 851 KB → 135 KB.
+     Vendor-чанки: react, radix, recharts, gantt, query — кешируются независимо.
+   - Виртуализация (@tanstack/react-virtual v3): при > 40 задач включается
+     virtual scroll (65vh контейнер, estimateSize=110px, overscan=5).
+   - Gantt лимит 150 задач с amber-предупреждением если превышено.
