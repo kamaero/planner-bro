@@ -72,7 +72,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
     { to: '/team', label: 'Команда', icon: Users },
     {
-      to: '/excalidraw/#room=plannerbro_team_whiteboard,DitTeamWhiteboard2026',
+      to: '/excalidraw/#room=plannerbro_team_whiteboard,plannerbro_room_key_22',
       label: 'Excalidraw',
       icon: PencilRuler,
       external: true,
