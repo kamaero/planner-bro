@@ -220,36 +220,50 @@ async def generate_task_drafts_from_text(
     content = _extract_llm_content(data, provider=provider)
     parsed = _safe_json_loads(content)
 
-    tasks: list[dict[str, Any]] = []
+    strict_tasks: list[dict[str, Any]] = []
+    relaxed_tasks: list[dict[str, Any]] = []
     seen_titles: set[str] = set()
+
+    def _build_task(item: dict[str, Any], source_quote: str | None, confidence_cap: int | None = None) -> dict[str, Any]:
+        confidence = _normalize_int(item.get("confidence"), default=60, min_value=0, max_value=100)
+        if confidence_cap is not None:
+            confidence = min(confidence, confidence_cap)
+        return {
+            "title": str(item.get("title", "")).strip()[:500],
+            "description": (str(item.get("description")).strip()[:5000] if item.get("description") else None),
+            "priority": _normalize_priority(item.get("priority")),
+            "end_date": _normalize_date(item.get("end_date")),
+            "estimated_hours": _normalize_int(item.get("estimated_hours"), default=0, min_value=0, max_value=200)
+            or None,
+            "assignee_hint": (str(item.get("assignee_hint")).strip()[:255] if item.get("assignee_hint") else None),
+            "progress_percent": _normalize_int(item.get("progress_percent"), default=0, min_value=0, max_value=100),
+            "next_step": (str(item.get("next_step")).strip()[:500] if item.get("next_step") else None),
+            "source_quote": source_quote,
+            "confidence": confidence,
+            "raw_payload": item,
+        }
+
     for item in parsed.get("tasks", []):
         title = str(item.get("title", "")).strip()
         if not title:
             continue
         if _looks_like_document_header(title, project_name):
             continue
+        if len(title) > 500:
+            title = title[:500]
         source_quote = (str(item.get("source_quote")).strip()[:2000] if item.get("source_quote") else None)
-        if not source_quote or not _quote_exists_in_text(source_quote, text):
-            continue
         title_key = _normalize_spaces(title)
         if title_key in seen_titles:
             continue
         seen_titles.add(title_key)
+        if source_quote and _quote_exists_in_text(source_quote, text):
+            strict_tasks.append(_build_task(item, source_quote=source_quote))
+        elif source_quote:
+            relaxed_tasks.append(_build_task(item, source_quote=source_quote, confidence_cap=55))
+        else:
+            relaxed_tasks.append(_build_task(item, source_quote=None, confidence_cap=45))
 
-        tasks.append(
-            {
-                "title": title[:500],
-                "description": (str(item.get("description")).strip()[:5000] if item.get("description") else None),
-                "priority": _normalize_priority(item.get("priority")),
-                "end_date": _normalize_date(item.get("end_date")),
-                "estimated_hours": _normalize_int(item.get("estimated_hours"), default=0, min_value=0, max_value=200)
-                or None,
-                "assignee_hint": (str(item.get("assignee_hint")).strip()[:255] if item.get("assignee_hint") else None),
-                "progress_percent": _normalize_int(item.get("progress_percent"), default=0, min_value=0, max_value=100),
-                "next_step": (str(item.get("next_step")).strip()[:500] if item.get("next_step") else None),
-                "source_quote": source_quote,
-                "confidence": _normalize_int(item.get("confidence"), default=60, min_value=0, max_value=100),
-                "raw_payload": item,
-            }
-        )
-    return tasks
+    # Strict mode first; if all tasks were filtered out, fallback to relaxed mode to avoid empty result.
+    if strict_tasks:
+        return strict_tasks[:40]
+    return relaxed_tasks[:20]
