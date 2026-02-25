@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -73,6 +74,39 @@ def _normalize_int(value: Any, default: int, min_value: int, max_value: int) -> 
     return parsed
 
 
+def _normalize_spaces(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().lower()
+
+
+def _quote_exists_in_text(quote: str, source_text: str) -> bool:
+    if not quote.strip():
+        return False
+    normalized_quote = _normalize_spaces(quote)
+    normalized_text = _normalize_spaces(source_text)
+    return normalized_quote in normalized_text
+
+
+def _looks_like_document_header(title: str, project_name: str) -> bool:
+    t = _normalize_spaces(title)
+    p = _normalize_spaces(project_name)
+    if not t:
+        return True
+    if len(t) < 8:
+        return True
+    if t == p or t in p or p in t:
+        return True
+    bad_markers = (
+        "план мероприятий",
+        "план-график",
+        "приказ",
+        "протокол",
+        "служебная записка",
+        "решение",
+        "приложение",
+    )
+    return any(marker in t for marker in bad_markers)
+
+
 def _resolve_ai_provider() -> tuple[str, str, str, str]:
     if settings.DEEPSEEK_API_KEY:
         return (
@@ -128,7 +162,13 @@ async def generate_task_drafts_from_text(
     provider, api_key, base_url, model = _resolve_ai_provider()
 
     prompt = (
-        "Ты помощник PM в ИТ-отделе. Извлеки только задачи, которые относятся к IT.\n"
+        "Ты помощник PM в ИТ-отделе. Извлеки только реальные ИТ-задачи из документа.\n"
+        "КРИТИЧНО: нельзя придумывать задачи. Бери только то, что явно написано в тексте.\n"
+        "Нельзя возвращать заголовки документа, названия разделов, общие фразы без действия.\n"
+        "Задача должна быть формулировкой действия (что сделать), а не темой документа.\n"
+        "Если в задаче указан ответственный отдел/подразделение, запиши его в assignee_hint.\n"
+        "source_quote обязана быть дословной короткой цитатой из текста, подтверждающей задачу.\n"
+        "Если нет цитаты — такую задачу не возвращай.\n"
         "Верни только JSON без комментариев в формате:\n"
         "{\n"
         '  "tasks": [\n'
@@ -146,6 +186,7 @@ async def generate_task_drafts_from_text(
         "    }\n"
         "  ]\n"
         "}\n"
+        "Включай не более 40 задач.\n"
         f"Проект: {project_name}\n"
         f"Участники команды (подсказки): {', '.join(member_hints) if member_hints else 'не указаны'}\n"
         "Текст документа:\n"
@@ -180,10 +221,21 @@ async def generate_task_drafts_from_text(
     parsed = _safe_json_loads(content)
 
     tasks: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
     for item in parsed.get("tasks", []):
         title = str(item.get("title", "")).strip()
         if not title:
             continue
+        if _looks_like_document_header(title, project_name):
+            continue
+        source_quote = (str(item.get("source_quote")).strip()[:2000] if item.get("source_quote") else None)
+        if not source_quote or not _quote_exists_in_text(source_quote, text):
+            continue
+        title_key = _normalize_spaces(title)
+        if title_key in seen_titles:
+            continue
+        seen_titles.add(title_key)
+
         tasks.append(
             {
                 "title": title[:500],
@@ -195,7 +247,7 @@ async def generate_task_drafts_from_text(
                 "assignee_hint": (str(item.get("assignee_hint")).strip()[:255] if item.get("assignee_hint") else None),
                 "progress_percent": _normalize_int(item.get("progress_percent"), default=0, min_value=0, max_value=100),
                 "next_step": (str(item.get("next_step")).strip()[:500] if item.get("next_step") else None),
-                "source_quote": (str(item.get("source_quote")).strip()[:2000] if item.get("source_quote") else None),
+                "source_quote": source_quote,
                 "confidence": _normalize_int(item.get("confidence"), default=60, min_value=0, max_value=100),
                 "raw_payload": item,
             }
