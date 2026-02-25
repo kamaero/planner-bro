@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   Users,
   BarChart2,
+  PencilRuler,
   Moon,
   Sun,
   LogOut,
@@ -70,6 +71,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { to: '/', label: 'Проекты', icon: LayoutDashboard },
     { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
     { to: '/team', label: 'Команда', icon: Users },
+    {
+      to: '/excalidraw/#room=plannerbro_team_whiteboard,DitTeamWhiteboard2026',
+      label: 'Excalidraw',
+      icon: PencilRuler,
+      external: true,
+    },
   ]
 
   useEffect(() => {
@@ -106,19 +113,27 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="px-3 space-y-1">
           {navItems.map((item) => {
+            const itemPath = item.external ? item.to.split('#')[0] : item.to
             const active =
-              item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)
+              itemPath === '/' ? location.pathname === '/' : location.pathname.startsWith(itemPath)
             const Icon = item.icon
+            const className = `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              active
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+            }`
+
+            if (item.external) {
+              return (
+                <a key={item.to} href={item.to} className={className}>
+                  <Icon className="w-4 h-4" />
+                  {item.label}
+                </a>
+              )
+            }
+
             return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  active
-                    ? 'bg-accent text-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                }`}
-              >
+              <Link key={item.to} to={item.to} className={className}>
                 <Icon className="w-4 h-4" />
                 {item.label}
               </Link>
