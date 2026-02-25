@@ -29,14 +29,6 @@ export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [containerWidth, setContainerWidth] = useState(0)
 
-  if (tasks.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
-        Нет задач с датами для отображения на диаграмме Ганта.
-      </div>
-    )
-  }
-
   const displayTasks = tasks.slice(0, GANTT_TASK_LIMIT)
   const ganttTasks = toGanttTasks(displayTasks)
   const timeColumnCount = useMemo(() => {
@@ -80,6 +72,14 @@ export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
 
     return () => observer.disconnect()
   }, [])
+
+  if (tasks.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+        Нет задач с датами для отображения на диаграмме Ганта.
+      </div>
+    )
+  }
 
   return (
     <div ref={containerRef}>
