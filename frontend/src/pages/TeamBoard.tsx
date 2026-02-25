@@ -1,6 +1,13 @@
 import { Button } from '@/components/ui/button'
 
-const TEAM_BOARD_URL = '/excalidraw/#room=plannerbro_team_whiteboard,plannerbro_room_key_22'
+const TEAM_ROOM_ID = 'plannerbro_team_whiteboard'
+const TEAM_ROOM_KEY = 'plannerbro_room_key_22'
+
+function buildTeamBoardUrl() {
+  const url = new URL('/excalidraw/', window.location.origin)
+  url.hash = `room=${TEAM_ROOM_ID},${TEAM_ROOM_KEY}`
+  return url.toString()
+}
 
 export function TeamBoard() {
   return (
@@ -13,7 +20,7 @@ export function TeamBoard() {
         <div className="flex flex-wrap gap-3">
           <Button
             onClick={() => {
-              window.location.href = TEAM_BOARD_URL
+              window.location.assign(buildTeamBoardUrl())
             }}
           >
             Открыть общую доску
@@ -21,7 +28,7 @@ export function TeamBoard() {
           <Button
             variant="outline"
             onClick={() => {
-              window.open(TEAM_BOARD_URL, '_blank', 'noopener,noreferrer')
+              window.open(buildTeamBoardUrl(), '_blank', 'noopener,noreferrer')
             }}
           >
             Открыть в новой вкладке
