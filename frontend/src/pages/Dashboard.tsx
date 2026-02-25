@@ -433,13 +433,13 @@ export function Dashboard() {
   const doneProjects = doneProjectsList.length
 
   // ── activity chart ──
+  const currentYear = new Date().getFullYear()
   const activityData = useMemo(() => {
-    const now = new Date()
     const months: { monthKey: string; label: string; count: number }[] = []
-    for (let i = 8; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    for (let month = 0; month < 12; month++) {
+      const d = new Date(currentYear, month, 1)
       months.push({
-        monthKey: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+        monthKey: `${currentYear}-${String(month + 1).padStart(2, '0')}`,
         label: d.toLocaleString('ru', { month: 'short' }),
         count: 0,
       })
@@ -450,7 +450,7 @@ export function Dashboard() {
       if (bucket) bucket.count++
     })
     return months
-  }, [tasks])
+  }, [tasks, currentYear])
 
   // ── status stats ──
   const statusStats = useMemo(
@@ -839,7 +839,7 @@ export function Dashboard() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="space-y-6 xl:col-span-2">
-          <SectionCard title="Динамика задач за 9 месяцев">
+          <SectionCard title={`Динамика задач — ${currentYear} год`}>
             <ActivityChart data={activityData} />
           </SectionCard>
           <SectionCard
