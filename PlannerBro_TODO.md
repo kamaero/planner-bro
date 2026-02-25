@@ -43,17 +43,25 @@
 
 ## P1 (устойчивость и эксплуатация)
 
-11. Эксплуатация и безопасность
-   - Бэкапы Postgres, healthchecks, алерты, журналирование ошибок.
-   - Регламент обновлений и откатов.
+11. ✅ Эксплуатация и безопасность (2026-02-25)
+   - scripts/backup-postgres.sh — pg_dump + gzip + ротация 7 дней.
+     Для cron на VPS: `0 3 * * * bash /opt/planner-bro/scripts/backup-postgres.sh --local >> /var/log/planner-backup.log 2>&1`
+   - GET /health проверяет DB (SELECT 1) и Redis (PING); возвращает "ok"/"degraded" + ws_connections.
+   - docker-compose.prod.yml: healthcheck для backend (python urllib); celery_worker/beat ждут service_healthy.
+   - Структурированный logging.basicConfig (WARNING) в main.py.
+   - Остаток: настроить cron на VPS, алерты (Sentry/Grafana) — отдельная задача.
 
-12. Нотификации (единый контракт событий)
-   - Унифицировать типы событий backend/web/mobile.
-   - Синхронизация read/seen и снижение шума.
+12. ✅ Нотификации — единый контракт событий (2026-02-25)
+   - backend/app/services/events.py — единый источник event-констант.
+   - frontend/src/api/events.ts — зеркало констант для TS (WS_EVENTS).
+   - notification_service.py, ai_ingestion.py, useWebSocket.ts — используют константы.
+   - Остаток: синхронизация read/seen, снижение шума уведомлений.
 
-13. Realtime устойчивость
-   - Надёжный reconnect/heartbeat и очистка “мертвых” соединений.
-   - Метрики по доставке событий.
+13. ✅ Realtime устойчивость (2026-02-25)
+   - websocket_manager: _last_ping per connection, record_ping(), cleanup_stale(90s).
+   - main.py: фоновый цикл cleanup каждые 60 с, логирует удалённые соединения.
+   - /health возвращает ws_connections count.
+   - Остаток: метрики доставки событий (Prometheus/Grafana).
 
 14. UX/perf для больших проектов
    - Виртуализация списков, дробление чанков, оптимизация Gantt на 500+ задач.
