@@ -15,6 +15,7 @@ import {
   useDeleteProjectFile,
   useImportMSProjectTasks,
   useAIJobs,
+  useStartAIProcessing,
   useAIDrafts,
   useApproveAIDraft,
   useApproveAIDraftsBulk,
@@ -83,6 +84,7 @@ export function ProjectDetail() {
   const { data: users = [] } = useUsers()
   const { data: files = [] } = useProjectFiles(id!)
   const { data: aiJobs = [] } = useAIJobs(id!)
+  const startAIProcessing = useStartAIProcessing()
   const { data: aiDrafts = [] } = useAIDrafts(id!, 'pending')
   const createTask = useCreateTask()
   const updateProject = useUpdateProject()
@@ -473,6 +475,14 @@ export function ProjectDetail() {
     })
     return map
   }, [aiJobs])
+
+  const getAIStatusMeta = (status?: string) => {
+    if (status === 'processing') return { label: 'В обработке', percent: 60, bar: 'bg-blue-500' }
+    if (status === 'completed') return { label: 'Готово', percent: 100, bar: 'bg-emerald-500' }
+    if (status === 'failed') return { label: 'Ошибка', percent: 100, bar: 'bg-red-500' }
+    if (status === 'queued') return { label: 'В очереди', percent: 15, bar: 'bg-amber-500' }
+    return { label: 'Нет задачи AI', percent: 0, bar: 'bg-muted-foreground' }
+  }
 
   const handleApproveDraft = async (draftId: string) => {
     await approveAIDraft.mutateAsync({ projectId: id!, draftId })
@@ -1282,6 +1292,23 @@ export function ProjectDetail() {
                   key={file.id}
                   className="flex items-center justify-between rounded-lg border bg-card px-4 py-3"
                 >
+                  {(() => {
+                    const aiJob = latestJobByFile[file.id]
+                    const meta = getAIStatusMeta(aiJob?.status)
+                    const canRun = canImport && aiJob?.status !== 'processing'
+                    const actionLabel =
+                      !aiJob
+                        ? 'Запустить ИИ'
+                        : aiJob.status === 'failed'
+                          ? 'Повторить ИИ'
+                          : aiJob.status === 'completed'
+                            ? 'Запустить заново'
+                            : aiJob.status === 'queued'
+                              ? 'Запустить сейчас'
+                              : 'Обновляется...'
+
+                    return (
+                      <>
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{file.filename}</p>
                     <p className="text-xs text-muted-foreground">
@@ -1289,19 +1316,32 @@ export function ProjectDetail() {
                       {new Date(file.created_at).toLocaleDateString()} ·{' '}
                       {file.uploaded_by?.name ?? 'Неизвестно'}
                     </p>
-                    {latestJobByFile[file.id] && (
-                      <p className="text-xs mt-1 text-muted-foreground">
-                        AI: {latestJobByFile[file.id].status}
-                        {latestJobByFile[file.id].status === 'completed'
-                          ? ` · черновиков: ${latestJobByFile[file.id].drafts_count}`
-                          : ''}
-                        {latestJobByFile[file.id].status === 'failed' && latestJobByFile[file.id].error_message
-                          ? ` · ${latestJobByFile[file.id].error_message}`
-                          : ''}
+                    <p className="text-xs mt-1 text-muted-foreground">
+                      AI: {meta.label}
+                      {aiJob?.status === 'completed' ? ` · черновиков: ${aiJob.drafts_count}` : ''}
+                      {aiJob?.status === 'failed' && aiJob.error_message ? ` · ${aiJob.error_message}` : ''}
+                    </p>
+                    <div className="mt-1 h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${meta.bar} transition-all duration-300`}
+                        style={{ width: `${meta.percent}%` }}
+                      />
+                    </div>
+                    {aiJob?.status === 'queued' && (
+                      <p className="text-[11px] mt-1 text-amber-700">
+                        Файл в очереди. Нажмите «Запустить сейчас», если хотите обработать немедленно.
                       </p>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => startAIProcessing.mutate({ projectId: id!, fileId: file.id })}
+                      disabled={!canRun || startAIProcessing.isPending}
+                    >
+                      {startAIProcessing.isPending ? 'Запуск...' : actionLabel}
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => handleDownload(file)}>
                       <Download className="w-4 h-4 mr-1" />
                       Скачать
@@ -1318,6 +1358,9 @@ export function ProjectDetail() {
                       </Button>
                     )}
                   </div>
+                      </>
+                    )
+                  })()}
                 </div>
               ))}
             </div>

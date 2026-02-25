@@ -477,6 +477,41 @@ async def list_ai_jobs(
     return result.scalars().all()
 
 
+@router.post("/{project_id}/files/{file_id}/ai-process", response_model=AIIngestionJobOut, status_code=202)
+async def start_ai_processing_for_file(
+    project_id: str,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_import_permission(current_user)
+    await _require_project_access(project_id, current_user, db)
+
+    file_record = (
+        await db.execute(
+            select(ProjectFile).where(
+                ProjectFile.id == file_id,
+                ProjectFile.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    job = AIIngestionJob(
+        project_id=project_id,
+        project_file_id=file_id,
+        created_by_id=current_user.id,
+        status="queued",
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    process_file_for_ai.delay(job.id)
+    return job
+
+
 @router.get("/{project_id}/ai-drafts", response_model=list[AITaskDraftOut])
 async def list_ai_drafts(
     project_id: str,

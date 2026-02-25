@@ -189,6 +189,8 @@ export const api = {
   // AI drafts
   listAIJobs: (projectId: string) =>
     apiClient.get(`/projects/${projectId}/ai-jobs`).then((r) => r.data),
+  startAIProcessingForFile: (projectId: string, fileId: string) =>
+    apiClient.post(`/projects/${projectId}/files/${fileId}/ai-process`).then((r) => r.data),
   listAIDrafts: (projectId: string, params?: { file_id?: string; status_filter?: string }) =>
     apiClient.get(`/projects/${projectId}/ai-drafts`, { params }).then((r) => r.data),
   approveAIDraft: (projectId: string, draftId: string) =>

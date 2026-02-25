@@ -187,6 +187,17 @@ export function useAIJobs(projectId: string) {
   })
 }
 
+export function useStartAIProcessing() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, fileId }: { projectId: string; fileId: string }) =>
+      api.startAIProcessingForFile(projectId, fileId),
+    onSuccess: (_, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['ai-jobs', projectId] })
+    },
+  })
+}
+
 export function useAIDrafts(projectId: string, statusFilter = 'pending') {
   return useQuery<AITaskDraft[]>({
     queryKey: ['ai-drafts', projectId, statusFilter],
