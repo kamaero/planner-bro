@@ -35,12 +35,17 @@ def check_telegram_commands():
     asyncio.run(_async_check_telegram_commands())
 
 
-async def _is_authorized(user_id: str, chat_id: str) -> bool:
+async def _is_authorized(user_id: str, chat_id: str, command: str) -> bool:
     explicit = _admin_user_ids()
-    if explicit:
-        return user_id in explicit
     admins = await get_chat_admin_user_ids(chat_id)
-    return user_id in admins
+
+    if command in {"/start", "/stop"}:
+        if explicit:
+            return user_id in explicit
+        return user_id in admins
+
+    # /stats: all chat admins (and explicit IDs as override)
+    return user_id in admins or user_id in explicit
 
 
 def _normalize_command(text: str) -> str:
@@ -84,11 +89,11 @@ async def _async_check_telegram_commands() -> None:
             sender_name = sender.get("first_name") or sender.get("username") or sender_id
             if not sender_id:
                 continue
-            if not await _is_authorized(sender_id, chat_id):
+            if not await _is_authorized(sender_id, chat_id, command):
                 await send_chat_message(
                     chat_id,
                     f"⛔ Команда {escape_html(command)} отклонена. "
-                    f"Пользователь {escape_html(str(sender_name))} не имеет прав админа бота.",
+                    f"Пользователь {escape_html(str(sender_name))} не имеет прав для этой команды.",
                 )
                 continue
 
