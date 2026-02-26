@@ -15,6 +15,7 @@ _DURATION_RE = re.compile(
 @dataclass
 class ParsedMSProjectTask:
     uid: str
+    outline_number: str | None
     title: str
     description: str | None
     start_date: date | None
@@ -154,10 +155,6 @@ def parse_ms_project_xml(content: bytes) -> MSProjectParseResult:
             skipped_count += 1
             continue
 
-        if _find_child_text(node, "Active") == "0":
-            skipped_count += 1
-            continue
-
         outline_level_raw = _find_child_text(node, "OutlineLevel")
         try:
             outline_level = int(outline_level_raw) if outline_level_raw else 1
@@ -178,6 +175,7 @@ def parse_ms_project_xml(content: bytes) -> MSProjectParseResult:
         parsed_tasks.append(
             ParsedMSProjectTask(
                 uid=uid,
+                outline_number=_find_child_text(node, "OutlineNumber"),
                 title=title.strip(),
                 description=_find_child_text(node, "Notes"),
                 start_date=start_date,

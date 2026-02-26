@@ -12,7 +12,7 @@ from app.core.security import get_current_user
 from app.core.config import settings
 from app.models.user import User
 from app.models.project import Project, ProjectMember, ProjectFile, default_completion_checklist
-from app.models.task import Task, TaskEvent
+from app.models.task import Task, TaskEvent, TaskComment
 from app.models.ai import AIIngestionJob, AITaskDraft
 from app.models.deadline_change import DeadlineChange
 from app.schemas.project import (
@@ -476,10 +476,13 @@ async def import_tasks_from_ms_project(
     parent_links: list[tuple[Task, str]] = []
     for item in parsed.tasks:
         status = "done" if item.progress_percent >= 100 else ("in_progress" if item.progress_percent > 0 else "todo")
+        title = item.title
+        if item.outline_number and not title.startswith(f"{item.outline_number} "):
+            title = f"{item.outline_number} {title}"
         task = Task(
             project_id=project_id,
-            title=item.title,
-            description=item.description,
+            title=title,
+            description=None,
             status=status,
             priority=item.priority,
             progress_percent=item.progress_percent,
@@ -495,9 +498,25 @@ async def import_tasks_from_ms_project(
                 task_id=task.id,
                 actor_id=current_user.id,
                 event_type="task_imported_from_ms_project",
-                payload=f"ms_project_uid={item.uid}",
+                payload=f"ms_project_uid={item.uid};outline={item.outline_number or ''}",
             )
         )
+        if item.description:
+            db.add(
+                TaskComment(
+                    task_id=task.id,
+                    author_id=current_user.id,
+                    body=f"Импортированный комментарий из MS Project:\n{item.description}",
+                )
+            )
+            db.add(
+                TaskEvent(
+                    task_id=task.id,
+                    actor_id=current_user.id,
+                    event_type="comment_added",
+                    payload="source=ms_project_notes",
+                )
+            )
         created_by_uid[item.uid] = task
         if item.parent_uid:
             parent_links.append((task, item.parent_uid))
@@ -879,4 +898,3 @@ async def list_project_deadline_history(
         .order_by(DeadlineChange.created_at.desc())
     )
     return result.scalars().all()
-

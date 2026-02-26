@@ -75,6 +75,14 @@ function formatFileSize(size: number) {
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
+function parseImportedTaskOrder(title: string): number[] | null {
+  const match = title.match(/^(\d+(?:\.\d+)*)\s+/)
+  if (!match) return null
+  const values = match[1].split('.').map((part) => Number.parseInt(part, 10))
+  if (values.some((v) => !Number.isFinite(v))) return null
+  return values
+}
+
 export function ProjectDetail() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -102,7 +110,7 @@ export function ProjectDetail() {
   const rejectAIDraft = useRejectAIDraft()
   const currentUser = useAuthStore((s) => s.user)
 
-  const [view, setView] = useState<'gantt' | 'list' | 'members' | 'files'>('gantt')
+  const [view, setView] = useState<'gantt' | 'list' | 'members' | 'files'>('list')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
@@ -165,7 +173,7 @@ export function ProjectDetail() {
   const canBulkEdit = currentUser?.role === 'admin' || !!currentUser?.can_bulk_edit
 
   const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => {
+    const filtered = tasks.filter((task) => {
       const searchOk =
         !taskSearch.trim() ||
         task.title.toLowerCase().includes(taskSearch.toLowerCase()) ||
@@ -181,6 +189,24 @@ export function ProjectDetail() {
 
       return searchOk && statusOk && assigneeOk
     })
+    const withIndex = filtered.map((task, idx) => ({ task, idx }))
+    withIndex.sort((a, b) => {
+      const ao = parseImportedTaskOrder(a.task.title)
+      const bo = parseImportedTaskOrder(b.task.title)
+      if (ao && bo) {
+        const maxLen = Math.max(ao.length, bo.length)
+        for (let i = 0; i < maxLen; i += 1) {
+          const av = ao[i] ?? 0
+          const bv = bo[i] ?? 0
+          if (av !== bv) return av - bv
+        }
+        return a.idx - b.idx
+      }
+      if (ao && !bo) return -1
+      if (!ao && bo) return 1
+      return a.idx - b.idx
+    })
+    return withIndex.map((entry) => entry.task)
   }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter])
 
   const selectedVisibleCount = filteredTasks.filter((t) => selectedTaskIds.includes(t.id)).length
@@ -241,6 +267,12 @@ export function ProjectDetail() {
     setSelectedTask(task)
     setDrawerOpen(true)
   }, [location.search, tasks])
+
+  useEffect(() => {
+    if (!selectedTask) return
+    const updated = tasks.find((t) => t.id === selectedTask.id)
+    if (updated) setSelectedTask(updated)
+  }, [tasks, selectedTask])
 
   useEffect(() => {
     const ids = new Set(aiDrafts.map((d) => d.id))
@@ -461,27 +493,16 @@ export function ProjectDetail() {
     const result = await importMSProjectTasks.mutateAsync({ projectId: id!, file: msProjectFile })
     setMsProjectImportResult(result)
     setMsProjectFile(null)
+    setView('list')
   }
 
   const handleQuickStatusChange = async (task: Task, status: string) => {
-    const suggestedProgress = status === 'done' ? 100 : task.progress_percent ?? 0
-    const progressInput = window.prompt('Прогресс задачи (0-100)', String(suggestedProgress))
-    if (progressInput === null) return
-    const progress = Number.parseInt(progressInput, 10)
-    if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
-      window.alert('Прогресс должен быть числом от 0 до 100.')
-      return
-    }
-    const nextStepInput = window.prompt(
-      'Следующий шаг (можно оставить пустым)',
-      task.next_step ?? ''
-    )
-    if (nextStepInput === null) return
+    const progress = status === 'done' ? 100 : task.progress_percent ?? 0
     await updateTaskStatus.mutateAsync({
       taskId: task.id,
       status,
       progress_percent: progress,
-      next_step: nextStepInput.trim() || null,
+      next_step: task.next_step ?? null,
     })
   }
 

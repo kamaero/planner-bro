@@ -258,12 +258,12 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[95vw] max-w-4xl h-[88vh]">
           <DialogHeader>
             <DialogTitle>{task.title}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto pr-1 h-full">
             {/* Priority & Status */}
             <div className="flex items-center gap-2 flex-wrap">
               <span
