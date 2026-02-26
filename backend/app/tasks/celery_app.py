@@ -40,9 +40,9 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.telegram_summary_checker.send_critical_tasks_summary",
         "schedule": crontab(minute=0, hour=5),
     },
-    "telegram-commands-poll-every-minute": {
+    "telegram-commands-poll-every-30s": {
         "task": "app.tasks.telegram_commands_checker.check_telegram_commands",
-        "schedule": crontab(minute="*"),
+        "schedule": 30.0,
     },
 }
 
