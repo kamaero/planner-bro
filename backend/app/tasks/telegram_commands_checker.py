@@ -12,6 +12,7 @@ from app.services.telegram_service import (
 )
 from app.tasks.celery_app import celery_app
 from app.tasks.telegram_summary_checker import send_critical_tasks_summary, send_projects_summary
+from redis import asyncio as redis_async
 
 
 def _is_enabled() -> bool:
@@ -47,6 +48,10 @@ def _normalize_command(text: str) -> str:
     if "@" in first:
         first = first.split("@", 1)[0]
     return first
+
+
+def _redis() -> redis_async.Redis:
+    return redis_async.from_url(settings.CELERY_BROKER_URL, decode_responses=True)
 
 
 async def _async_check_telegram_commands() -> None:
@@ -98,16 +103,20 @@ async def _async_check_telegram_commands() -> None:
                 continue
 
             if command == "/stats":
-                await send_chat_message(chat_id, "📊 Формирую текущую сводку PlannerBro...")
+                redis = _redis()
+                lock_key = f"telegram:stats:cooldown:{chat_id}"
+                is_allowed = await redis.set(lock_key, "1", ex=60, nx=True)
+                if not is_allowed:
+                    continue
+                await send_chat_message(chat_id, "📊 Готовлю сводку...")
                 send_projects_summary.delay(compact=True, force=True)
                 send_critical_tasks_summary.delay(compact=True, force=True)
         except Exception as exc:
-            try:
-                await send_chat_message(
-                    chat_id,
-                    f"⚠️ Ошибка обработки команды: {escape_html(str(exc))[:300]}",
-                )
-            except Exception:
-                pass
+            err = str(exc).lower()
+            if "429" not in err and "too many requests" not in err:
+                try:
+                    await send_chat_message(chat_id, "⚠️ Команда не выполнена из-за временной ошибки.")
+                except Exception:
+                    pass
         finally:
             await set_updates_offset(update_id + 1)

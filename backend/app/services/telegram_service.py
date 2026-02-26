@@ -1,3 +1,4 @@
+import asyncio
 import html
 
 import httpx
@@ -30,9 +31,21 @@ async def _request(method: str, payload: dict) -> dict:
     if not _enabled():
         return {}
     async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.post(_api_url(method), json=payload)
-        response.raise_for_status()
-        return response.json()
+        for attempt in range(2):
+            response = await client.post(_api_url(method), json=payload)
+            if response.status_code != 429:
+                response.raise_for_status()
+                return response.json()
+            if attempt == 1:
+                response.raise_for_status()
+            retry_after = 1
+            try:
+                body = response.json()
+                retry_after = int(body.get("parameters", {}).get("retry_after", 1))
+            except Exception:
+                retry_after = 1
+            await asyncio.sleep(max(1, min(retry_after, 30)))
+    return {}
 
 
 async def send_telegram_message(text: str) -> None:
