@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.database import engine, AsyncSessionLocal
 from app.core.firebase import init_firebase
 from app.core.security import decode_token
-from app.api.v1 import auth, projects, tasks, users, notifications
+from app.api.v1 import auth, projects, tasks, users, notifications, vault
 from app.services.websocket_manager import ws_manager
 
 logging.basicConfig(
@@ -62,6 +62,7 @@ app.include_router(projects.router, prefix="/api/v1")
 app.include_router(tasks.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(notifications.router, prefix="/api/v1")
+app.include_router(vault.router, prefix="/api/v1")
 
 
 @app.get("/health")

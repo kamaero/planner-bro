@@ -248,4 +248,24 @@ export const api = {
     apiClient.post(`/projects/${projectId}/ai-drafts/approve-bulk`, { draft_ids: draftIds }).then((r) => r.data),
   rejectAIDraft: (projectId: string, draftId: string) =>
     apiClient.post(`/projects/${projectId}/ai-drafts/${draftId}/reject`).then((r) => r.data),
+
+  // Vault (encrypted team file storage)
+  listVaultFiles: (folder?: string) =>
+    apiClient.get('/vault/files', { params: folder ? { folder } : {} }).then((r) => r.data),
+  uploadVaultFile: (file: File, folder?: string, description?: string) => {
+    const form = new FormData()
+    form.append('upload', file)
+    const params: Record<string, string> = {}
+    if (folder) params.folder = folder
+    if (description) params.description = description
+    return apiClient
+      .post('/vault/files', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params,
+      })
+      .then((r) => r.data)
+  },
+  getVaultDownloadToken: (fileId: string) =>
+    apiClient.get(`/vault/files/${fileId}/token`).then((r) => r.data),
+  deleteVaultFile: (fileId: string) => apiClient.delete(`/vault/files/${fileId}`),
 }

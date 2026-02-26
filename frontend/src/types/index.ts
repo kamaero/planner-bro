@@ -223,6 +223,25 @@ export interface DeadlineChange {
   changed_by?: User
 }
 
+export interface VaultFile {
+  id: string
+  name: string
+  description?: string | null
+  content_type?: string | null
+  size: number
+  folder?: string | null
+  uploaded_by_id?: string | null
+  uploaded_by?: User | null
+  created_at: string
+  updated_at: string
+}
+
+export interface VaultDownloadToken {
+  token: string
+  expires_in_seconds: number
+  download_url: string
+}
+
 export interface DeadlineStats {
   total_shifts: number
   tasks_with_shifts: number

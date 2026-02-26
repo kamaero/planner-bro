@@ -62,6 +62,10 @@ class Settings(BaseSettings):
 
     PROJECT_FILES_DIR: str = "uploads/projects"
 
+    # Secure team vault (encrypted file storage)
+    VAULT_FILES_DIR: str = "uploads/vault"
+    VAULT_ENCRYPTION_KEY: str = ""  # 64-char hex (32-byte key); falls back to SHA-256(SECRET_KEY)
+
     # AI ingestion (DeepSeek direct preferred; OpenRouter fallback)
     DEEPSEEK_API_KEY: str = ""
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"

@@ -9,6 +9,7 @@ import { ProjectDetail } from '@/pages/ProjectDetail'
 import { Team } from '@/pages/Team'
 import { TeamBoard } from '@/pages/TeamBoard'
 import { Analytics } from '@/pages/Analytics'
+import { TeamStorage } from '@/pages/TeamStorage'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -19,6 +20,7 @@ import {
   Users,
   BarChart2,
   PencilRuler,
+  Lock,
   Moon,
   Sun,
   LogOut,
@@ -73,6 +75,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
     { to: '/team', label: 'Команда', icon: Users },
     { to: '/team-board', label: 'Доска команды', icon: PencilRuler },
+    { to: '/storage', label: 'Хранилище', icon: Lock },
   ]
 
   useEffect(() => {
@@ -319,6 +322,16 @@ export function App() {
           <AuthGuard>
             <AppLayout>
               <TeamBoard />
+            </AppLayout>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/storage"
+        element={
+          <AuthGuard>
+            <AppLayout>
+              <TeamStorage />
             </AppLayout>
           </AuthGuard>
         }

@@ -1,5 +1,9 @@
 import asyncio
+import logging
+import os
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -16,6 +20,16 @@ from app.tasks.celery_app import celery_app
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _delete_source_file(path: str) -> None:
+    """Delete the uploaded file from disk after text extraction — security + disk hygiene."""
+    try:
+        if path and os.path.exists(path):
+            os.unlink(path)
+            logger.info("Deleted source file after AI extraction: %s", path)
+    except OSError as exc:
+        logger.warning("Could not delete source file %s: %s", path, exc)
 
 
 def _match_assignee_id(assignee_hint: str | None, members: list[User]) -> str | None:
@@ -79,6 +93,8 @@ async def _async_process_file_for_ai(job_id: str):
 
         try:
             text = extract_text_for_ai(file_record.storage_path, file_record.content_type)
+            # File content is now in memory — wipe it from disk immediately
+            _delete_source_file(file_record.storage_path)
             drafts = await generate_task_drafts_from_text(text, project.name, member_hints)
 
             existing_drafts = (
