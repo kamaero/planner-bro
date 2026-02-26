@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, Enum as SAEnum, Boolean
+from sqlalchemy import String, DateTime, Enum as SAEnum, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -12,6 +12,13 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     work_email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    position_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    manager_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    department_id: Mapped[str | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     google_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
@@ -49,3 +56,8 @@ class User(Base):
     task_comments: Mapped[list["TaskComment"]] = relationship(
         "TaskComment", back_populates="author"
     )
+    manager: Mapped["User | None"] = relationship(
+        "User", remote_side="User.id", back_populates="subordinates"
+    )
+    subordinates: Mapped[list["User"]] = relationship("User", back_populates="manager")
+    department: Mapped["Department | None"] = relationship("Department", back_populates="users")

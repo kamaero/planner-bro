@@ -25,7 +25,7 @@ async def get_gantt_data(db: AsyncSession, project_id: str) -> GanttData:
     result = await db.execute(
         select(Task)
         .where(Task.project_id == project_id)
-        .options(selectinload(Task.assignee))
+        .options(selectinload(Task.assignee), selectinload(Task.predecessor_links))
     )
     tasks = result.scalars().all()
 
@@ -64,6 +64,10 @@ async def get_gantt_data(db: AsyncSession, project_id: str) -> GanttData:
         progress_map = {"todo": 0.0, "in_progress": 0.3, "review": 0.7, "done": 1.0}
         progress = progress_map.get(t.status, 0.0)
 
+        dependency_ids = [link.predecessor_task_id for link in t.predecessor_links]
+        if t.parent_task_id and t.parent_task_id not in dependency_ids:
+            dependency_ids.append(t.parent_task_id)
+
         gantt_tasks.append(
             GanttTask(
                 id=t.id,
@@ -71,7 +75,7 @@ async def get_gantt_data(db: AsyncSession, project_id: str) -> GanttData:
                 start=start.isoformat(),
                 end=end.isoformat(),
                 progress=progress,
-                dependencies=[t.parent_task_id] if t.parent_task_id else [],
+                dependencies=dependency_ids,
                 type="task",
                 project=project_id,
                 assignee=t.assignee.name if t.assignee else None,

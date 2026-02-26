@@ -14,6 +14,7 @@ import type {
   TaskBulkUpdateResult,
   DeadlineChange,
   DeadlineStats,
+  TaskDependency,
 } from '@/types'
 
 export function useProjects() {
@@ -168,6 +169,40 @@ export function useTaskCheckIn() {
       qc.invalidateQueries({ queryKey: ['task-comments', taskId] })
       qc.invalidateQueries({ queryKey: ['task-events', taskId] })
       qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+}
+
+export function useTaskDependencies(taskId?: string) {
+  return useQuery<TaskDependency[]>({
+    queryKey: ['task-dependencies', taskId],
+    queryFn: () => api.listTaskDependencies(taskId!),
+    enabled: !!taskId,
+  })
+}
+
+export function useAddTaskDependency() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, predecessorTaskId }: { taskId: string; predecessorTaskId: string }) =>
+      api.addTaskDependency(taskId, predecessorTaskId),
+    onSuccess: (_, { taskId }) => {
+      qc.invalidateQueries({ queryKey: ['task-dependencies', taskId] })
+      qc.invalidateQueries({ queryKey: ['task-events', taskId] })
+      qc.invalidateQueries({ queryKey: ['gantt'] })
+    },
+  })
+}
+
+export function useRemoveTaskDependency() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, predecessorTaskId }: { taskId: string; predecessorTaskId: string }) =>
+      api.removeTaskDependency(taskId, predecessorTaskId),
+    onSuccess: (_, { taskId }) => {
+      qc.invalidateQueries({ queryKey: ['task-dependencies', taskId] })
+      qc.invalidateQueries({ queryKey: ['task-events', taskId] })
+      qc.invalidateQueries({ queryKey: ['gantt'] })
     },
   })
 }

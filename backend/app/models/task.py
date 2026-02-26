@@ -77,6 +77,18 @@ class Task(Base):
     events: Mapped[list["TaskEvent"]] = relationship(
         "TaskEvent", back_populates="task", cascade="all, delete-orphan"
     )
+    predecessor_links: Mapped[list["TaskDependency"]] = relationship(
+        "TaskDependency",
+        foreign_keys="TaskDependency.successor_task_id",
+        back_populates="successor_task",
+        cascade="all, delete-orphan",
+    )
+    successor_links: Mapped[list["TaskDependency"]] = relationship(
+        "TaskDependency",
+        foreign_keys="TaskDependency.predecessor_task_id",
+        back_populates="predecessor_task",
+        cascade="all, delete-orphan",
+    )
 
 
 class TaskComment(Base):
@@ -116,3 +128,27 @@ class TaskEvent(Base):
     )
 
     task: Mapped["Task"] = relationship("Task", back_populates="events")
+
+
+class TaskDependency(Base):
+    __tablename__ = "task_dependencies"
+
+    predecessor_task_id: Mapped[str] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True
+    )
+    successor_task_id: Mapped[str] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_by_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    predecessor_task: Mapped["Task"] = relationship(
+        "Task", foreign_keys=[predecessor_task_id], back_populates="successor_links"
+    )
+    successor_task: Mapped["Task"] = relationship(
+        "Task", foreign_keys=[successor_task_id], back_populates="predecessor_links"
+    )

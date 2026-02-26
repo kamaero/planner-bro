@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.security import hash_password
 from app.models.user import User
+from app.models.department import Department
 from app.models.project import Project, ProjectMember
 from app.models.task import Task
 from app.schemas.user import (
@@ -19,6 +20,9 @@ from app.schemas.user import (
     UserPermissionsUpdate,
     ReminderSettingsUpdate,
     ResetPasswordResponse,
+    DepartmentCreate,
+    DepartmentUpdate,
+    DepartmentOut,
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -42,6 +46,16 @@ def _can_manage_team(user: User) -> bool:
 def _require_team_manager(user: User) -> None:
     if not _can_manage_team(user):
         raise HTTPException(status_code=403, detail="No permission to manage team accounts")
+
+
+def _can_manage_subordinate(actor: User, target: User) -> bool:
+    if actor.role == "admin" or _can_manage_team(actor):
+        return True
+    return target.manager_id == actor.id and actor.role in ("manager", "admin")
+
+
+def _can_create_subordinate(actor: User) -> bool:
+    return actor.role in ("admin", "manager") or _can_manage_team(actor)
 
 
 def _default_permissions_for_role(role: str) -> dict[str, bool]:
@@ -83,7 +97,8 @@ async def create_user_by_admin(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_team_manager(current_user)
+    if not _can_create_subordinate(current_user):
+        raise HTTPException(status_code=403, detail="No permission to create team accounts")
     normalized_email = _normalize_email(data.email)
     normalized_work_email = _normalize_optional_email(data.work_email)
 
@@ -110,6 +125,8 @@ async def create_user_by_admin(
             raise HTTPException(status_code=400, detail="Work email already registered")
     if current_user.role != "admin" and data.role == "admin":
         raise HTTPException(status_code=403, detail="Only admin can create admin accounts")
+    if current_user.role not in ("admin",) and data.manager_id and data.manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only create direct subordinates")
 
     permissions = _default_permissions_for_role(data.role)
     if current_user.role == "admin":
@@ -127,6 +144,9 @@ async def create_user_by_admin(
         email=normalized_email,
         work_email=normalized_work_email,
         name=data.name,
+        position_title=data.position_title,
+        manager_id=data.manager_id or (current_user.id if current_user.role != "admin" else None),
+        department_id=data.department_id,
         password_hash=hash_password(data.password),
         role=data.role,
         is_active=True,
@@ -185,7 +205,6 @@ async def reset_user_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_team_manager(current_user)
     if current_user.id == user_id:
         raise HTTPException(
             status_code=400,
@@ -194,6 +213,8 @@ async def reset_user_password(
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
+    if not _can_manage_subordinate(current_user, user):
+        raise HTTPException(status_code=403, detail="No permission to reset password for this user")
     temporary_password = _generate_temporary_password()
     user.password_hash = hash_password(temporary_password)
     await db.commit()
@@ -206,13 +227,14 @@ async def deactivate_user(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_team_manager(current_user)
     if current_user.id == user_id:
         raise HTTPException(status_code=400, detail="You cannot deactivate your own account")
 
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
+    if not _can_manage_subordinate(current_user, user):
+        raise HTTPException(status_code=403, detail="No permission to deactivate this user")
 
     owns_projects = (
         await db.execute(select(Project.id).where(Project.owner_id == user_id).limit(1))
@@ -241,10 +263,11 @@ async def update_user_permissions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_team_manager(current_user)
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
+    if not _can_manage_subordinate(current_user, user):
+        raise HTTPException(status_code=403, detail="No permission to update this user")
     if current_user.role != "admin" and user.role == "admin":
         raise HTTPException(status_code=403, detail="Only admin can update admin permissions")
 
@@ -280,6 +303,8 @@ async def update_user_permissions(
             if conflict.scalar_one_or_none():
                 raise HTTPException(status_code=400, detail="Work email already registered")
         payload["work_email"] = normalized_work_email
+    if "manager_id" in payload and payload["manager_id"] == user.id:
+        raise HTTPException(status_code=400, detail="User cannot be their own manager")
 
     for field, value in payload.items():
         if field == "role":
@@ -347,3 +372,112 @@ async def get_user(
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+@router.get("/org/departments", response_model=list[DepartmentOut])
+async def list_departments(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Department).order_by(Department.name.asc()))
+    return result.scalars().all()
+
+
+@router.post("/org/departments", response_model=DepartmentOut, status_code=201)
+async def create_department(
+    data: DepartmentCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _can_manage_team(current_user):
+        raise HTTPException(status_code=403, detail="No permission to manage departments")
+    dep = Department(
+        name=data.name.strip(),
+        parent_id=data.parent_id,
+        head_user_id=data.head_user_id,
+    )
+    db.add(dep)
+    await db.commit()
+    await db.refresh(dep)
+    return dep
+
+
+@router.patch("/org/departments/{department_id}", response_model=DepartmentOut)
+async def update_department(
+    department_id: str,
+    data: DepartmentUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _can_manage_team(current_user):
+        raise HTTPException(status_code=403, detail="No permission to manage departments")
+    dep = (await db.execute(select(Department).where(Department.id == department_id))).scalar_one_or_none()
+    if not dep:
+        raise HTTPException(status_code=404, detail="Department not found")
+    payload = data.model_dump(exclude_unset=True)
+    if payload.get("parent_id") == dep.id:
+        raise HTTPException(status_code=400, detail="Department cannot be parent of itself")
+    for field, value in payload.items():
+        if field == "name" and isinstance(value, str):
+            value = value.strip()
+        setattr(dep, field, value)
+    await db.commit()
+    await db.refresh(dep)
+    return dep
+
+
+@router.delete("/org/departments/{department_id}", status_code=204)
+async def delete_department(
+    department_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _can_manage_team(current_user):
+        raise HTTPException(status_code=403, detail="No permission to manage departments")
+    dep = (await db.execute(select(Department).where(Department.id == department_id))).scalar_one_or_none()
+    if not dep:
+        raise HTTPException(status_code=404, detail="Department not found")
+    has_children = (
+        await db.execute(select(Department.id).where(Department.parent_id == department_id).limit(1))
+    ).scalar_one_or_none()
+    has_users = (
+        await db.execute(select(User.id).where(User.department_id == department_id, User.is_active == True).limit(1))
+    ).scalar_one_or_none()  # noqa: E712
+    if has_children or has_users:
+        raise HTTPException(status_code=400, detail="Department is not empty")
+    await db.delete(dep)
+    await db.commit()
+
+
+@router.get("/org/tree")
+async def get_org_tree(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    users = (
+        await db.execute(select(User).where(User.is_active == True).order_by(User.name.asc()))  # noqa: E712
+    ).scalars().all()
+    deps = (await db.execute(select(Department).order_by(Department.name.asc()))).scalars().all()
+    return {
+        "departments": [
+            {
+                "id": d.id,
+                "name": d.name,
+                "parent_id": d.parent_id,
+                "head_user_id": d.head_user_id,
+            }
+            for d in deps
+        ],
+        "users": [
+            {
+                "id": u.id,
+                "name": u.name,
+                "email": u.email,
+                "role": u.role,
+                "manager_id": u.manager_id,
+                "department_id": u.department_id,
+                "position_title": u.position_title,
+            }
+            for u in users
+        ],
+    }

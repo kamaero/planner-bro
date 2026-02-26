@@ -121,3 +121,15 @@ class TaskCheckInCreate(BaseModel):
     blockers: Optional[str] = Field(default=None, max_length=1000)
     next_check_in_due_at: Optional[datetime] = None
     need_manager_help: bool = False
+
+
+class TaskDependencyCreate(BaseModel):
+    predecessor_task_id: str
+
+
+class TaskDependencyOut(BaseModel):
+    predecessor_task_id: str
+    successor_task_id: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

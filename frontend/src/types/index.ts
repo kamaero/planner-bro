@@ -3,6 +3,9 @@ export interface User {
   email: string
   work_email?: string | null
   name: string
+  position_title?: string | null
+  manager_id?: string | null
+  department_id?: string | null
   role: 'admin' | 'manager' | 'developer'
   can_manage_team: boolean
   can_delete: boolean
@@ -58,11 +61,26 @@ export interface Task {
   last_check_in_at?: string
   next_check_in_due_at?: string
   last_check_in_note?: string
+  dependencies?: TaskDependency[]
   repeat_every_days?: number
   created_by_id: string
   estimated_hours?: number
   created_at: string
   updated_at: string
+}
+
+export interface TaskDependency {
+  predecessor_task_id: string
+  successor_task_id: string
+  created_at: string
+}
+
+export interface Department {
+  id: string
+  name: string
+  parent_id?: string | null
+  head_user_id?: string | null
+  created_at: string
 }
 
 export interface GanttTask {

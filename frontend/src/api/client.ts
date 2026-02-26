@@ -79,7 +79,18 @@ export const api = {
 
   // Users
   getMe: () => apiClient.get('/users/me').then((r) => r.data),
-  createUser: (data: { email: string; work_email?: string; name: string; password: string; role?: string }) =>
+  createUser: (
+    data: {
+      email: string
+      work_email?: string
+      name: string
+      password: string
+      role?: string
+      position_title?: string
+      manager_id?: string
+      department_id?: string
+    }
+  ) =>
     apiClient.post('/users/', data).then((r) => r.data),
   updateMe: (data: Partial<{ name: string; avatar_url: string }>) =>
     apiClient.put('/users/me', data).then((r) => r.data),
@@ -93,6 +104,9 @@ export const api = {
     data: Partial<{
       role: 'admin' | 'manager' | 'developer'
       work_email: string | null
+      position_title: string | null
+      manager_id: string | null
+      department_id: string | null
       can_manage_team: boolean
       can_delete: boolean
       can_import: boolean
@@ -101,6 +115,15 @@ export const api = {
   ) => apiClient.patch(`/users/${userId}/permissions`, data).then((r) => r.data),
   deactivateUser: (userId: string) => apiClient.delete(`/users/${userId}`),
   searchUsers: (q: string) => apiClient.get('/users/search', { params: { q } }).then((r) => r.data),
+  listDepartments: () => apiClient.get('/users/org/departments').then((r) => r.data),
+  createDepartment: (data: { name: string; parent_id?: string | null; head_user_id?: string | null }) =>
+    apiClient.post('/users/org/departments', data).then((r) => r.data),
+  updateDepartment: (
+    id: string,
+    data: Partial<{ name: string; parent_id: string | null; head_user_id: string | null }>
+  ) => apiClient.patch(`/users/org/departments/${id}`, data).then((r) => r.data),
+  deleteDepartment: (id: string) => apiClient.delete(`/users/org/departments/${id}`),
+  getOrgTree: () => apiClient.get('/users/org/tree').then((r) => r.data),
   globalSearch: (q: string) =>
     apiClient.get('/users/global/search', { params: { q } }).then((r) => r.data),
 
@@ -169,6 +192,12 @@ export const api = {
       need_manager_help?: boolean
     }
   ) => apiClient.post(`/tasks/${taskId}/check-in`, data).then((r) => r.data),
+  listTaskDependencies: (taskId: string) =>
+    apiClient.get(`/tasks/${taskId}/dependencies`).then((r) => r.data),
+  addTaskDependency: (taskId: string, predecessorTaskId: string) =>
+    apiClient.post(`/tasks/${taskId}/dependencies`, { predecessor_task_id: predecessorTaskId }).then((r) => r.data),
+  removeTaskDependency: (taskId: string, predecessorTaskId: string) =>
+    apiClient.delete(`/tasks/${taskId}/dependencies/${predecessorTaskId}`),
   bulkUpdateTasks: (
     projectId: string,
     data: {

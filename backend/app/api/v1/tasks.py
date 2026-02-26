@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.task import Task, TaskComment, TaskEvent
+from app.models.task import Task, TaskComment, TaskEvent, TaskDependency
 from app.models.project import Project, ProjectMember
 from app.models.deadline_change import DeadlineChange
 from app.schemas.task import (
@@ -21,6 +21,8 @@ from app.schemas.task import (
     TaskCommentOut,
     TaskEventOut,
     TaskCheckInCreate,
+    TaskDependencyCreate,
+    TaskDependencyOut,
 )
 from app.schemas.deadline_change import DeadlineChangeOut
 from app.services.task_service import get_tasks_for_project, get_task_by_id
@@ -167,10 +169,52 @@ async def _mark_escalation_response(task: Task, actor_id: str, db: AsyncSession)
         await _log_task_event(db, task.id, actor_id, "escalation_first_response")
 
 
+async def _ensure_predecessors_done(task: Task, target_status: str, db: AsyncSession) -> None:
+    if target_status in ("todo", "done"):
+        return
+    deps = (
+        await db.execute(
+            select(TaskDependency.predecessor_task_id).where(TaskDependency.successor_task_id == task.id)
+        )
+    ).all()
+    predecessor_ids = [row[0] for row in deps]
+    if not predecessor_ids:
+        return
+    not_done = (
+        await db.execute(
+            select(Task.title).where(Task.id.in_(predecessor_ids), Task.status != "done")
+        )
+    ).scalars().all()
+    if not_done:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Нельзя начать задачу до завершения зависимостей: {', '.join(not_done[:3])}",
+        )
+
+
 def _plan_next_check_in(task: Task, base_dt: datetime) -> datetime | None:
     if task.status == "done":
         return None
     return compute_next_check_in_due_at(task, from_dt=base_dt)
+
+
+async def _has_dependency_path(
+    db: AsyncSession, start_task_id: str, target_task_id: str
+) -> bool:
+    visited: set[str] = set()
+    queue: list[str] = [start_task_id]
+    while queue:
+        current = queue.pop(0)
+        if current == target_task_id:
+            return True
+        if current in visited:
+            continue
+        visited.add(current)
+        next_rows = await db.execute(
+            select(TaskDependency.successor_task_id).where(TaskDependency.predecessor_task_id == current)
+        )
+        queue.extend([row[0] for row in next_rows.all() if row[0] not in visited])
+    return False
 
 
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskOut])
@@ -358,6 +402,108 @@ async def update_task(
     return result.scalar_one()
 
 
+@router.get("/tasks/{task_id}/dependencies", response_model=list[TaskDependencyOut])
+async def list_task_dependencies(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    task = await get_task_by_id(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await _require_task_editor(task, current_user, db)
+    result = await db.execute(
+        select(TaskDependency)
+        .where(TaskDependency.successor_task_id == task_id)
+        .order_by(TaskDependency.created_at.asc())
+    )
+    return result.scalars().all()
+
+
+@router.post("/tasks/{task_id}/dependencies", response_model=TaskDependencyOut, status_code=201)
+async def add_task_dependency(
+    task_id: str,
+    data: TaskDependencyCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    successor = await get_task_by_id(db, task_id)
+    if not successor:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await _require_task_editor(successor, current_user, db)
+
+    predecessor = await get_task_by_id(db, data.predecessor_task_id)
+    if not predecessor:
+        raise HTTPException(status_code=404, detail="Predecessor task not found")
+    if predecessor.project_id != successor.project_id:
+        raise HTTPException(status_code=400, detail="Dependencies must be inside one project")
+    if predecessor.id == successor.id:
+        raise HTTPException(status_code=400, detail="Task cannot depend on itself")
+
+    exists = (
+        await db.execute(
+            select(TaskDependency).where(
+                TaskDependency.predecessor_task_id == predecessor.id,
+                TaskDependency.successor_task_id == successor.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if exists:
+        return exists
+
+    if await _has_dependency_path(db, successor.id, predecessor.id):
+        raise HTTPException(status_code=400, detail="Dependency cycle is not allowed")
+
+    dep = TaskDependency(
+        predecessor_task_id=predecessor.id,
+        successor_task_id=successor.id,
+        created_by_id=current_user.id,
+    )
+    db.add(dep)
+    await _log_task_event(
+        db,
+        successor.id,
+        current_user.id,
+        "dependency_added",
+        f"{predecessor.id}->{successor.id}",
+    )
+    await db.commit()
+    await db.refresh(dep)
+    return dep
+
+
+@router.delete("/tasks/{task_id}/dependencies/{predecessor_task_id}", status_code=204)
+async def remove_task_dependency(
+    task_id: str,
+    predecessor_task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    successor = await get_task_by_id(db, task_id)
+    if not successor:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await _require_task_editor(successor, current_user, db)
+    dep = (
+        await db.execute(
+            select(TaskDependency).where(
+                TaskDependency.successor_task_id == task_id,
+                TaskDependency.predecessor_task_id == predecessor_task_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not dep:
+        raise HTTPException(status_code=404, detail="Dependency not found")
+    await db.delete(dep)
+    await _log_task_event(
+        db,
+        successor.id,
+        current_user.id,
+        "dependency_removed",
+        f"{predecessor_task_id}->{task_id}",
+    )
+    await db.commit()
+
+
 @router.post("/projects/{project_id}/tasks/bulk", response_model=TaskBulkUpdateResult)
 async def bulk_update_tasks(
     project_id: str,
@@ -423,6 +569,9 @@ async def bulk_update_tasks(
         old_status = task.status
         old_assignee = task.assigned_to_id
         changed = False
+
+        if "status" in payload:
+            await _ensure_predecessors_done(task, payload["status"], db)
 
         for field, value in payload.items():
             if getattr(task, field) != value:
@@ -508,6 +657,7 @@ async def update_task_status(
     valid_statuses = {"todo", "in_progress", "review", "done"}
     if data.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    await _ensure_predecessors_done(task, data.status, db)
 
     now = _now_utc()
     task.status = data.status

@@ -6,6 +6,10 @@ import {
   useDeleteTask,
   useUpdateTask,
   useTaskCheckIn,
+  useTasks,
+  useTaskDependencies,
+  useAddTaskDependency,
+  useRemoveTaskDependency,
   useTaskComments,
   useAddTaskComment,
   useTaskEvents,
@@ -81,6 +85,10 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const deleteTask = useDeleteTask()
   const updateTask = useUpdateTask()
   const checkInTask = useTaskCheckIn()
+  const { data: projectTasks = [] } = useTasks(projectId)
+  const { data: dependencies = [] } = useTaskDependencies(task?.id)
+  const addDependency = useAddTaskDependency()
+  const removeDependency = useRemoveTaskDependency()
   const addComment = useAddTaskComment()
   const { data: users = [] } = useUsers()
   const [startDate, setStartDate] = useState('')
@@ -102,6 +110,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [checkInBlockers, setCheckInBlockers] = useState('')
   const [checkInNextDueDate, setCheckInNextDueDate] = useState('')
   const [needManagerHelp, setNeedManagerHelp] = useState(false)
+  const [newDependencyTaskId, setNewDependencyTaskId] = useState('')
 
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
@@ -126,6 +135,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       task.next_check_in_due_at ? new Date(task.next_check_in_due_at).toISOString().slice(0, 16) : ''
     )
     setNeedManagerHelp(false)
+    setNewDependencyTaskId('')
   }, [task])
 
   if (!task) return null
@@ -255,6 +265,19 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     setNeedManagerHelp(false)
   }
 
+  const handleAddDependency = async () => {
+    if (!newDependencyTaskId) return
+    await addDependency.mutateAsync({
+      taskId: task.id,
+      predecessorTaskId: newDependencyTaskId,
+    })
+    setNewDependencyTaskId('')
+  }
+
+  const handleRemoveDependency = async (predecessorTaskId: string) => {
+    await removeDependency.mutateAsync({ taskId: task.id, predecessorTaskId })
+  }
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -382,6 +405,58 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               >
                 {checkInTask.isPending ? 'Сохранение...' : 'Отметиться (Check-in)'}
               </Button>
+            </div>
+
+            <div className="rounded-lg border p-3 space-y-2">
+              <p className="text-sm font-medium">Связанные задачи (зависимости)</p>
+              <p className="text-xs text-muted-foreground">
+                Текущая задача не стартует, пока не завершатся выбранные предшественники.
+              </p>
+              <div className="flex items-center gap-2">
+                <select
+                  value={newDependencyTaskId}
+                  onChange={(e) => setNewDependencyTaskId(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
+                >
+                  <option value="">Выберите предшественника</option>
+                  {projectTasks
+                    .filter((t) => t.id !== task.id)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title}
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleAddDependency}
+                  disabled={!newDependencyTaskId || addDependency.isPending}
+                >
+                  Добавить
+                </Button>
+              </div>
+              <div className="space-y-1">
+                {dependencies.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Связей пока нет.</p>
+                )}
+                {dependencies.map((dep) => {
+                  const predecessor = projectTasks.find((t) => t.id === dep.predecessor_task_id)
+                  return (
+                    <div key={`${dep.predecessor_task_id}-${dep.successor_task_id}`} className="flex items-center justify-between text-sm border rounded px-2 py-1">
+                      <span>{predecessor?.title ?? dep.predecessor_task_id}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleRemoveDependency(dep.predecessor_task_id)}
+                        disabled={removeDependency.isPending}
+                      >
+                        Разорвать
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
 
             {/* Meta */}
