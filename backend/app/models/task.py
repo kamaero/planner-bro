@@ -45,6 +45,9 @@ class Task(Base):
     escalation_overdue_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    last_check_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_check_in_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_check_in_note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     repeat_every_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False

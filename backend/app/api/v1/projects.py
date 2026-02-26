@@ -22,7 +22,12 @@ from app.schemas.project import (
 from app.schemas.ai import AIIngestionJobOut, AITaskDraftOut, AITaskDraftBulkApproveRequest
 from app.schemas.deadline_change import DeadlineChangeOut, DeadlineStats
 from app.services.project_service import get_projects_for_user, get_gantt_data
-from app.services.notification_service import notify_project_updated, notify_new_task, notify_task_assigned
+from app.services.notification_service import (
+    notify_project_updated,
+    notify_new_task,
+    notify_task_assigned,
+    notify_project_assigned,
+)
 from app.services.ms_project_import_service import parse_ms_project_xml
 from app.tasks.ai_ingestion import process_file_for_ai
 
@@ -315,6 +320,13 @@ async def update_project(
             target_member.role = "owner"
         else:
             db.add(ProjectMember(project_id=project_id, user_id=owner_id, role="owner"))
+        await notify_project_assigned(
+            db,
+            project_id=project_id,
+            project_name=project.name,
+            user_id=owner_id,
+            assigned_role="owner",
+        )
     await db.commit()
     result = await db.execute(
         select(Project).where(Project.id == project_id).options(selectinload(Project.owner))
@@ -766,7 +778,7 @@ async def add_member(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db, require_manager=True)
+    project = await _require_project_access(project_id, current_user, db, require_manager=True)
     requester_member = await _get_member(project_id, current_user.id, db)
     if data.role == "owner":
         raise HTTPException(status_code=400, detail="Use project owner transfer instead")
@@ -784,6 +796,13 @@ async def add_member(
     member = ProjectMember(project_id=project_id, user_id=data.user_id, role=data.role)
     db.add(member)
     await db.commit()
+    await notify_project_assigned(
+        db,
+        project_id=project_id,
+        project_name=project.name,
+        user_id=data.user_id,
+        assigned_role=data.role,
+    )
     return {"message": "Member added"}
 
 
@@ -795,7 +814,7 @@ async def update_member_role(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db, require_manager=True)
+    project = await _require_project_access(project_id, current_user, db, require_manager=True)
     requester_member = await _get_member(project_id, current_user.id, db)
     member = await _get_member(project_id, user_id, db)
     if not member:
@@ -810,6 +829,13 @@ async def update_member_role(
 
     member.role = data.role
     await db.commit()
+    await notify_project_assigned(
+        db,
+        project_id=project_id,
+        project_name=project.name,
+        user_id=user_id,
+        assigned_role=data.role,
+    )
     return {"message": "Member role updated"}
 
 
@@ -853,5 +879,4 @@ async def list_project_deadline_history(
         .order_by(DeadlineChange.created_at.desc())
     )
     return result.scalars().all()
-
 

@@ -32,6 +32,13 @@ services:
       timeout: 3s
       retries: 5
 
+  mailpit:
+    image: axllent/mailpit:v1.28
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   backend:
     build:
       context: ./backend
@@ -43,6 +50,11 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_USE_TLS: "false"
+      SMTP_USE_STARTTLS: "false"
+      EMAILS_FROM: notifications@plannerbro.local
     volumes:
       - ./backend:/app
     ports:
@@ -52,6 +64,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
@@ -67,10 +81,16 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_USE_TLS: "false"
+      SMTP_USE_STARTTLS: "false"
+      EMAILS_FROM: notifications@plannerbro.local
     volumes:
       - ./backend:/app
     depends_on:
       - backend
+      - mailpit
     command: celery -A app.tasks.celery_app worker --loglevel=info
 
   celery_beat:
@@ -84,10 +104,16 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_USE_TLS: "false"
+      SMTP_USE_STARTTLS: "false"
+      EMAILS_FROM: notifications@plannerbro.local
     volumes:
       - ./backend:/app
     depends_on:
       - backend
+      - mailpit
     command: celery -A app.tasks.celery_app beat --loglevel=info
 
   frontend:

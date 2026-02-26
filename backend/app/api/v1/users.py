@@ -28,6 +28,13 @@ def _normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def _normalize_optional_email(email: str | None) -> str | None:
+    if email is None:
+        return None
+    cleaned = email.strip().lower()
+    return cleaned or None
+
+
 def _can_manage_team(user: User) -> bool:
     return user.role == "admin" or bool(user.can_manage_team)
 
@@ -78,9 +85,29 @@ async def create_user_by_admin(
 ):
     _require_team_manager(current_user)
     normalized_email = _normalize_email(data.email)
-    existing = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
+    normalized_work_email = _normalize_optional_email(data.work_email)
+
+    existing = await db.execute(
+        select(User).where(
+            or_(
+                func.lower(User.email) == normalized_email,
+                func.lower(User.work_email) == normalized_email,
+            )
+        )
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
+    if normalized_work_email:
+        existing_work_email = await db.execute(
+            select(User).where(
+                or_(
+                    func.lower(User.email) == normalized_work_email,
+                    func.lower(User.work_email) == normalized_work_email,
+                )
+            )
+        )
+        if existing_work_email.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Work email already registered")
     if current_user.role != "admin" and data.role == "admin":
         raise HTTPException(status_code=403, detail="Only admin can create admin accounts")
 
@@ -98,6 +125,7 @@ async def create_user_by_admin(
 
     user = User(
         email=normalized_email,
+        work_email=normalized_work_email,
         name=data.name,
         password_hash=hash_password(data.password),
         role=data.role,
@@ -220,7 +248,7 @@ async def update_user_permissions(
     if current_user.role != "admin" and user.role == "admin":
         raise HTTPException(status_code=403, detail="Only admin can update admin permissions")
 
-    payload = data.model_dump(exclude_none=True)
+    payload = data.model_dump(exclude_unset=True)
     if not payload:
         return user
 
@@ -236,6 +264,22 @@ async def update_user_permissions(
 
     if current_user.id == user.id and payload.get("can_manage_team") is False:
         raise HTTPException(status_code=400, detail="You cannot remove your own team management permission")
+
+    if "work_email" in payload:
+        normalized_work_email = _normalize_optional_email(payload.get("work_email"))
+        if normalized_work_email:
+            conflict = await db.execute(
+                select(User.id).where(
+                    User.id != user.id,
+                    or_(
+                        func.lower(User.email) == normalized_work_email,
+                        func.lower(User.work_email) == normalized_work_email,
+                    ),
+                )
+            )
+            if conflict.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Work email already registered")
+        payload["work_email"] = normalized_work_email
 
     for field, value in payload.items():
         if field == "role":

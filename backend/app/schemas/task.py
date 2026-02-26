@@ -80,6 +80,9 @@ class TaskOut(TaskBase):
     project_id: str
     created_by_id: str
     assignee: Optional[UserOut] = None
+    last_check_in_at: Optional[datetime] = None
+    next_check_in_due_at: Optional[datetime] = None
+    last_check_in_note: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -111,3 +114,10 @@ class TaskEventOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class TaskCheckInCreate(BaseModel):
+    summary: str = Field(min_length=1, max_length=1000)
+    blockers: Optional[str] = Field(default=None, max_length=1000)
+    next_check_in_due_at: Optional[datetime] = None
+    need_manager_help: bool = False

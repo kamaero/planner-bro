@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production"
     ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    APP_WEB_URL: str = "http://localhost:3000"
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://planner:planner@localhost:5432/plannerdb"
@@ -38,7 +39,26 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = False
+    SMTP_USE_STARTTLS: bool = True
     EMAILS_FROM: str = "noreply@planner-bro.com"
+
+    # Team status reminders
+    TEAM_STATUS_REMINDER_ENABLED: bool = True
+    TEAM_STATUS_REMINDER_OVERDUE_DAYS: int = 2
+    TEAM_STATUS_REMINDER_SOON_DAYS: int = 5
+    TEAM_STATUS_REMINDER_REGULAR_DAYS: int = 14
+    TEAM_STATUS_REMINDER_SOON_DEADLINE_WINDOW_DAYS: int = 7
+    MANAGEMENT_AUDIT_ENABLED: bool = True
+    MANAGEMENT_AUDIT_EMAIL: str = "aerokamero@gmail.com"
+
+    # Task check-in cadence
+    CHECK_IN_SOON_DEADLINE_WINDOW_DAYS: int = 7
+    CHECK_IN_HOURS_DEFAULT: int = 168
+    CHECK_IN_HOURS_SOON_DEADLINE: int = 48
+    CHECK_IN_HOURS_HIGH_PRIORITY: int = 48
+    CHECK_IN_HOURS_ESCALATION: int = 24
+    CHECK_IN_HOURS_CONTROL_SKI_URGENT: int = 24
 
     PROJECT_FILES_DIR: str = "uploads/projects"
 

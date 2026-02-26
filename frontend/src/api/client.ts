@@ -79,7 +79,7 @@ export const api = {
 
   // Users
   getMe: () => apiClient.get('/users/me').then((r) => r.data),
-  createUser: (data: { email: string; name: string; password: string; role?: string }) =>
+  createUser: (data: { email: string; work_email?: string; name: string; password: string; role?: string }) =>
     apiClient.post('/users/', data).then((r) => r.data),
   updateMe: (data: Partial<{ name: string; avatar_url: string }>) =>
     apiClient.put('/users/me', data).then((r) => r.data),
@@ -92,6 +92,7 @@ export const api = {
     userId: string,
     data: Partial<{
       role: 'admin' | 'manager' | 'developer'
+      work_email: string | null
       can_manage_team: boolean
       can_delete: boolean
       can_import: boolean
@@ -159,6 +160,15 @@ export const api = {
     taskId: string,
     data: { status: string; progress_percent?: number; next_step?: string | null }
   ) => apiClient.patch(`/tasks/${taskId}/status`, data).then((r) => r.data),
+  checkInTask: (
+    taskId: string,
+    data: {
+      summary: string
+      blockers?: string | null
+      next_check_in_due_at?: string | null
+      need_manager_help?: boolean
+    }
+  ) => apiClient.post(`/tasks/${taskId}/check-in`, data).then((r) => r.data),
   bulkUpdateTasks: (
     projectId: string,
     data: {

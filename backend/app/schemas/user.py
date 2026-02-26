@@ -5,6 +5,7 @@ from typing import Optional
 
 class UserBase(BaseModel):
     email: EmailStr
+    work_email: Optional[EmailStr] = None
     name: str
     role: str = "developer"
     can_manage_team: Optional[bool] = None
@@ -42,6 +43,7 @@ class UserProfile(UserOut):
 
 class UserPermissionsUpdate(BaseModel):
     role: Optional[str] = None
+    work_email: Optional[EmailStr] = None
     can_manage_team: Optional[bool] = None
     can_delete: Optional[bool] = None
     can_import: Optional[bool] = None

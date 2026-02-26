@@ -10,6 +10,7 @@ export const WS_EVENTS = {
   ESCALATION_SLA_BREACHED: 'escalation_sla_breached',
   AI_DRAFTS_READY: 'ai_drafts_ready',
   AI_DRAFTS_FAILED: 'ai_drafts_failed',
+  TEAM_STATUS_REMINDER: 'team_status_reminder',
 } as const
 
 export type WsEventType = (typeof WS_EVENTS)[keyof typeof WS_EVENTS]

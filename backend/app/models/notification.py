@@ -21,6 +21,7 @@ class Notification(Base):
             "task_updated",
             "project_updated",
             "new_task",
+            "team_status_reminder",
             name="notification_type",
         ),
         nullable=False,

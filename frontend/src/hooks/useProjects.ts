@@ -139,6 +139,39 @@ export function useUpdateTaskStatus() {
   })
 }
 
+export function useTaskCheckIn() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      taskId,
+      summary,
+      blockers,
+      next_check_in_due_at,
+      need_manager_help,
+    }: {
+      taskId: string
+      summary: string
+      blockers?: string | null
+      next_check_in_due_at?: string | null
+      need_manager_help?: boolean
+    }) =>
+      api.checkInTask(taskId, {
+        summary,
+        blockers,
+        next_check_in_due_at,
+        need_manager_help,
+      }),
+    onSuccess: (updatedTask: Task, { taskId }) => {
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['gantt'] })
+      qc.invalidateQueries({ queryKey: ['critical-path', updatedTask.project_id] })
+      qc.invalidateQueries({ queryKey: ['task-comments', taskId] })
+      qc.invalidateQueries({ queryKey: ['task-events', taskId] })
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+}
+
 export function useProjectFiles(projectId: string) {
   return useQuery<ProjectFile[]>({
     queryKey: ['project-files', projectId],

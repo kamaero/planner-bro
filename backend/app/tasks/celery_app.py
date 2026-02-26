@@ -17,12 +17,22 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.escalation_sla_checker.check_escalation_sla",
         "schedule": crontab(minute="*/10"),
     },
+    "check-status-updates-daily": {
+        "task": "app.tasks.status_update_reminder_checker.check_status_update_reminders",
+        "schedule": crontab(minute=0, hour=9),
+    },
+    "management-audit-daily": {
+        "task": "app.tasks.management_audit_checker.check_management_gaps",
+        "schedule": crontab(minute=30, hour=9),
+    },
 }
 
 celery_app.conf.timezone = "UTC"
 celery_app.conf.imports = (
     "app.tasks.deadline_checker",
     "app.tasks.escalation_sla_checker",
+    "app.tasks.status_update_reminder_checker",
+    "app.tasks.management_audit_checker",
     "app.tasks.ai_ingestion",
 )
 celery_app.autodiscover_tasks(["app.tasks"])

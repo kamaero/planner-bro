@@ -20,10 +20,17 @@ from app.schemas.task import (
     TaskCommentCreate,
     TaskCommentOut,
     TaskEventOut,
+    TaskCheckInCreate,
 )
 from app.schemas.deadline_change import DeadlineChangeOut
 from app.services.task_service import get_tasks_for_project, get_task_by_id
-from app.services.notification_service import notify_task_assigned, notify_task_updated, notify_new_task
+from app.services.notification_service import (
+    notify_task_assigned,
+    notify_task_updated,
+    notify_new_task,
+    notify_check_in_help_requested,
+)
+from app.services.check_in_policy import compute_next_check_in_due_at
 
 router = APIRouter(tags=["tasks"])
 
@@ -160,6 +167,12 @@ async def _mark_escalation_response(task: Task, actor_id: str, db: AsyncSession)
         await _log_task_event(db, task.id, actor_id, "escalation_first_response")
 
 
+def _plan_next_check_in(task: Task, base_dt: datetime) -> datetime | None:
+    if task.status == "done":
+        return None
+    return compute_next_check_in_due_at(task, from_dt=base_dt)
+
+
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskOut])
 async def list_tasks(
     project_id: str,
@@ -194,6 +207,7 @@ async def create_task(
     if payload.get("assigned_to_id"):
         await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], db)
     task = Task(**payload, project_id=project_id, created_by_id=current_user.id)
+    task.next_check_in_due_at = _plan_next_check_in(task, _now_utc())
     db.add(task)
     await db.flush()
     await _log_task_event(
@@ -277,6 +291,11 @@ async def update_task(
 
     for field, value in payload.items():
         setattr(task, field, value)
+
+    if task.status == "done":
+        task.next_check_in_due_at = None
+    elif old_status == "done" and task.status != "done":
+        task.next_check_in_due_at = _plan_next_check_in(task, _now_utc())
 
     # Record deadline change if end_date actually changed
     if new_end_date is not None and new_end_date != old_end_date and deadline_change_reason:
@@ -490,6 +509,7 @@ async def update_task_status(
     if data.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
 
+    now = _now_utc()
     task.status = data.status
     if data.progress_percent is not None:
         task.progress_percent = data.progress_percent
@@ -497,6 +517,9 @@ async def update_task_status(
         task.progress_percent = 100
     if data.next_step is not None:
         task.next_step = data.next_step.strip() or None
+    task.last_check_in_at = now
+    task.last_check_in_note = "Статус обновлен"
+    task.next_check_in_due_at = _plan_next_check_in(task, now)
     await _log_task_event(db, task.id, current_user.id, "status_changed", data.status)
     if data.progress_percent is not None:
         await _log_task_event(
@@ -549,6 +572,68 @@ async def update_task_status(
     await notify_task_updated(db, task, current_user.id)
     await db.commit()
     await db.refresh(task)
+
+    result = await db.execute(
+        select(Task).where(Task.id == task.id).options(selectinload(Task.assignee))
+    )
+    return result.scalar_one()
+
+
+@router.post("/tasks/{task_id}/check-in", response_model=TaskOut)
+async def check_in_task(
+    task_id: str,
+    data: TaskCheckInCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    task = await get_task_by_id(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await _require_task_editor(task, current_user, db)
+
+    now = _now_utc()
+    summary = data.summary.strip()
+    blockers = data.blockers.strip() if data.blockers else None
+
+    task.last_check_in_at = now
+    task.last_check_in_note = summary
+    if task.status == "done":
+        task.next_check_in_due_at = None
+    elif data.next_check_in_due_at:
+        task.next_check_in_due_at = data.next_check_in_due_at
+    else:
+        task.next_check_in_due_at = _plan_next_check_in(task, now)
+
+    comment_lines = [f"CHECK-IN: {summary}"]
+    if blockers:
+        comment_lines.append(f"Blockers: {blockers}")
+    comment_lines.append(
+        f"Next check-in due: {task.next_check_in_due_at.isoformat() if task.next_check_in_due_at else 'n/a'}"
+    )
+    if data.need_manager_help:
+        comment_lines.append("Manager help requested: yes")
+    comment = TaskComment(task_id=task.id, author_id=current_user.id, body="\n".join(comment_lines))
+    db.add(comment)
+
+    await _log_task_event(
+        db,
+        task.id,
+        current_user.id,
+        "check_in_recorded",
+        f"help={'1' if data.need_manager_help else '0'}",
+    )
+    await _mark_escalation_response(task, current_user.id, db)
+    await db.commit()
+
+    if data.need_manager_help:
+        await notify_check_in_help_requested(
+            db,
+            task=task,
+            actor_id=current_user.id,
+            actor_name=current_user.name,
+            summary=summary,
+            blockers=blockers,
+        )
 
     result = await db.execute(
         select(Task).where(Task.id == task.id).options(selectinload(Task.assignee))

@@ -126,6 +126,7 @@ Key endpoints:
 - `GET  /api/v1/tasks/escalations/inbox` — escalated tasks assigned to current user
 - `GET/POST /api/v1/tasks/{task_id}/comments` — task discussion thread
 - `GET /api/v1/tasks/{task_id}/events` — task activity log
+- `POST /api/v1/tasks/{task_id}/check-in` — quick check-in without status change
 - `GET /api/v1/users/global/search?q=...` — global search (projects/tasks/users)
 - `PUT /api/v1/users/me/reminders` — per-user deadline reminder days (e.g. `1,3,7`)
 - `WS   /ws?token={access_token}` — real-time events
@@ -140,6 +141,10 @@ Copy `.env.example` to `.env` and set:
 | `GOOGLE_CLIENT_ID/SECRET` | From Google Cloud Console |
 | `FIREBASE_CREDENTIALS_PATH` | Path to Firebase service account JSON |
 | `SMTP_*` | SMTP settings for deadline email notifications |
+| `APP_WEB_URL` | Base web URL used to build deep-links in email notifications |
+| `TEAM_STATUS_REMINDER_*` | Team status reminder policy (enabled + cadence windows) |
+| `CHECK_IN_*` | Automatic next check-in planning cadence by task criticality |
+| `MANAGEMENT_AUDIT_*` | Daily audit email for projects/tasks without manager/admin |
 | `VITE_GOOGLE_CLIENT_ID` | Used by frontend for Google OAuth button |
 
 ## Recent Improvements
@@ -172,3 +177,12 @@ Copy `.env.example` to `.env` and set:
   project completion is now guarded by a mandatory completion checklist.
 - Notifications:
   less noise for assignees and deduplication for repeated deadline checks.
+- Team operations and check-ins:
+  users now have work email (`work_email`), status reminders use deep-links to tasks,
+  and tasks support explicit check-in flow (`summary`, `blockers`, `next check-in due`).
+- Assignment communication:
+  project member assignments/role updates and task assignments now trigger email notice
+  with direct link to project/task.
+- Management audit:
+  daily checker sends report to configured leadership email when project/task has no
+  active manager/admin coverage.

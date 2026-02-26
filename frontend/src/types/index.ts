@@ -1,6 +1,7 @@
 export interface User {
   id: string
   email: string
+  work_email?: string | null
   name: string
   role: 'admin' | 'manager' | 'developer'
   can_manage_team: boolean
@@ -54,6 +55,9 @@ export interface Task {
   escalation_due_at?: string
   escalation_first_response_at?: string
   escalation_overdue_at?: string
+  last_check_in_at?: string
+  next_check_in_due_at?: string
+  last_check_in_note?: string
   repeat_every_days?: number
   created_by_id: string
   estimated_hours?: number

@@ -14,10 +14,10 @@ export function Team() {
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
   const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({})
   const [permissionDrafts, setPermissionDrafts] = useState<
-    Record<string, Pick<User, 'role' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'>>
+    Record<string, Pick<User, 'role' | 'work_email' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'>>
   >({})
 
-  const [invite, setInvite] = useState({ name: '', email: '', role: 'developer', password: '' })
+  const [invite, setInvite] = useState({ name: '', email: '', work_email: '', role: 'developer', password: '' })
   const [inviting, setInviting] = useState(false)
   const [inviteSuccess, setInviteSuccess] = useState('')
   const [inviteError, setInviteError] = useState('')
@@ -30,10 +30,11 @@ export function Team() {
     try {
       const data = await api.listUsers()
       setUsers(data)
-      const drafts: Record<string, Pick<User, 'role' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'>> = {}
+      const drafts: Record<string, Pick<User, 'role' | 'work_email' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'>> = {}
       data.forEach((user: User) => {
         drafts[user.id] = {
           role: user.role,
+          work_email: user.work_email ?? null,
           can_manage_team: user.can_manage_team,
           can_delete: user.can_delete,
           can_import: user.can_import,
@@ -61,11 +62,12 @@ export function Team() {
       await api.createUser({
         name: invite.name,
         email: invite.email,
+        work_email: invite.work_email || undefined,
         password: invite.password,
         role: invite.role,
       })
       setInviteSuccess(`Аккаунт создан: ${invite.email}`)
-      setInvite({ name: '', email: '', role: 'developer', password: '' })
+      setInvite({ name: '', email: '', work_email: '', role: 'developer', password: '' })
       await loadUsers()
     } catch (err: any) {
       setInviteError(err?.response?.data?.detail ?? 'Не удалось создать аккаунт')
@@ -115,7 +117,7 @@ export function Team() {
 
   const handlePermissionChange = (
     userId: string,
-    field: 'role' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit',
+    field: 'role' | 'work_email' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit',
     value: string | boolean
   ) => {
     setPermissionDrafts((prev) => ({
@@ -123,13 +125,14 @@ export function Team() {
       [userId]: {
         ...(prev[userId] ?? {
           role: 'developer',
+          work_email: null,
           can_manage_team: false,
           can_delete: false,
           can_import: false,
           can_bulk_edit: false,
         }),
         [field]: value,
-      } as Pick<User, 'role' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'>,
+      } as Pick<User, 'role' | 'work_email' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'>,
     }))
   }
 
@@ -138,6 +141,7 @@ export function Team() {
     if (!draft) return false
     return (
       draft.role !== user.role ||
+      (draft.work_email ?? '') !== (user.work_email ?? '') ||
       draft.can_manage_team !== user.can_manage_team ||
       draft.can_delete !== user.can_delete ||
       draft.can_import !== user.can_import ||
@@ -152,12 +156,16 @@ export function Team() {
     setBusyUserId(user.id)
     setError('')
     try {
-      const updated = await api.updateUserPermissions(user.id, draft)
+      const updated = await api.updateUserPermissions(user.id, {
+        ...draft,
+        work_email: draft.work_email?.trim() ? draft.work_email.trim() : null,
+      })
       setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)))
       setPermissionDrafts((prev) => ({
         ...prev,
         [user.id]: {
           role: updated.role,
+          work_email: updated.work_email ?? null,
           can_manage_team: updated.can_manage_team,
           can_delete: updated.can_delete,
           can_import: updated.can_import,
@@ -196,6 +204,9 @@ export function Team() {
                   {user.name} - {user.email}
                 </p>
                 <p className="text-xs text-muted-foreground">
+                  Корпоративная почта: {user.work_email || 'не указана'}
+                </p>
+                <p className="text-xs text-muted-foreground">
                   Роль: {permissionDrafts[user.id]?.role ?? user.role}
                 </p>
                 {tempPasswords[user.id] && (
@@ -218,6 +229,14 @@ export function Team() {
                     <option value="manager">manager</option>
                     {currentUser?.role === 'admin' && <option value="admin">admin</option>}
                   </select>
+                  <Input
+                    type="email"
+                    placeholder="corp@company.com"
+                    value={permissionDrafts[user.id]?.work_email ?? ''}
+                    onChange={(e) => handlePermissionChange(user.id, 'work_email', e.target.value)}
+                    disabled={!canManageTeam || busyUserId === user.id}
+                    className="h-8 w-56"
+                  />
                   <label className="flex items-center gap-1">
                     <input
                       type="checkbox"
@@ -267,7 +286,7 @@ export function Team() {
                   onClick={() => handleSavePermissions(user)}
                   disabled={!canManageTeam || busyUserId === user.id || !isPermissionChanged(user)}
                 >
-                  Сохранить права
+                  Сохранить карточку
                 </Button>
                 <Button
                   size="sm"
@@ -314,6 +333,15 @@ export function Team() {
               value={invite.email}
               onChange={(e) => setInvite((f) => ({ ...f, email: e.target.value }))}
               required
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Корпоративный email (для будней)</Label>
+            <Input
+              type="email"
+              placeholder="ivan@company.com"
+              value={invite.work_email}
+              onChange={(e) => setInvite((f) => ({ ...f, work_email: e.target.value }))}
             />
           </div>
           <div className="space-y-1">

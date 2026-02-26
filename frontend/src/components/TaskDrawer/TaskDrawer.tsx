@@ -5,6 +5,7 @@ import {
   useUpdateTaskStatus,
   useDeleteTask,
   useUpdateTask,
+  useTaskCheckIn,
   useTaskComments,
   useAddTaskComment,
   useTaskEvents,
@@ -38,6 +39,7 @@ function formatTaskEvent(eventType: string, payload?: string | null) {
   if (eventType === 'task_created_from_recurrence') return 'Создано повторение задачи'
   if (eventType === 'comment_added') return 'Добавлен комментарий'
   if (eventType === 'escalation_first_response') return 'Отмечена первая реакция по эскалации'
+  if (eventType === 'check_in_recorded') return 'Выполнен check-in'
 
   if (eventType === 'status_changed') {
     if (!payload) return 'Статус обновлен'
@@ -78,6 +80,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const updateStatus = useUpdateTaskStatus()
   const deleteTask = useDeleteTask()
   const updateTask = useUpdateTask()
+  const checkInTask = useTaskCheckIn()
   const addComment = useAddTaskComment()
   const { data: users = [] } = useUsers()
   const [startDate, setStartDate] = useState('')
@@ -95,6 +98,10 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [showDeadlineReasonModal, setShowDeadlineReasonModal] = useState(false)
   const [pendingEndDate, setPendingEndDate] = useState('')
   const [showDeadlineHistory, setShowDeadlineHistory] = useState(false)
+  const [checkInSummary, setCheckInSummary] = useState('')
+  const [checkInBlockers, setCheckInBlockers] = useState('')
+  const [checkInNextDueDate, setCheckInNextDueDate] = useState('')
+  const [needManagerHelp, setNeedManagerHelp] = useState(false)
 
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
@@ -113,6 +120,12 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     setIsEscalation(!!task.is_escalation)
     setEscalationFor(task.escalation_for ?? '')
     setEscalationSlaHours(String(task.escalation_sla_hours ?? 24))
+    setCheckInSummary('')
+    setCheckInBlockers('')
+    setCheckInNextDueDate(
+      task.next_check_in_due_at ? new Date(task.next_check_in_due_at).toISOString().slice(0, 16) : ''
+    )
+    setNeedManagerHelp(false)
   }, [task])
 
   if (!task) return null
@@ -223,6 +236,25 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     setCommentBody('')
   }
 
+  const handleCheckIn = async () => {
+    if (!checkInSummary.trim()) {
+      window.alert('Укажите короткий итог по задаче.')
+      return
+    }
+    await checkInTask.mutateAsync({
+      taskId: task.id,
+      summary: checkInSummary.trim(),
+      blockers: checkInBlockers.trim() || null,
+      next_check_in_due_at: checkInNextDueDate
+        ? new Date(checkInNextDueDate).toISOString()
+        : null,
+      need_manager_help: needManagerHelp,
+    })
+    setCheckInSummary('')
+    setCheckInBlockers('')
+    setNeedManagerHelp(false)
+  }
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -304,6 +336,53 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
             {task.description && (
               <p className="text-sm text-muted-foreground">{task.description}</p>
             )}
+
+            <div className="rounded-lg border p-3 space-y-2">
+              <p className="text-sm font-medium">Check-in (без смены статуса)</p>
+              <p className="text-xs text-muted-foreground">
+                Последний check-in: {task.last_check_in_at ? new Date(task.last_check_in_at).toLocaleString('ru-RU') : 'нет'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Следующий due: {task.next_check_in_due_at ? new Date(task.next_check_in_due_at).toLocaleString('ru-RU') : 'не назначен'}
+              </p>
+              <input
+                value={checkInSummary}
+                onChange={(e) => setCheckInSummary(e.target.value)}
+                className="w-full text-sm border rounded px-2 py-1 bg-background"
+                placeholder="Коротко: что продвинулось с прошлого check-in"
+              />
+              <input
+                value={checkInBlockers}
+                onChange={(e) => setCheckInBlockers(e.target.value)}
+                className="w-full text-sm border rounded px-2 py-1 bg-background"
+                placeholder="Блокеры (необязательно)"
+              />
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground">Следующий check-in до</label>
+                <input
+                  type="datetime-local"
+                  value={checkInNextDueDate}
+                  onChange={(e) => setCheckInNextDueDate(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-background"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={needManagerHelp}
+                  onChange={(e) => setNeedManagerHelp(e.target.checked)}
+                />
+                Нужна помощь менеджера
+              </label>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCheckIn}
+                disabled={checkInTask.isPending}
+              >
+                {checkInTask.isPending ? 'Сохранение...' : 'Отметиться (Check-in)'}
+              </Button>
+            </div>
 
             {/* Meta */}
             <div className="space-y-2 text-sm">
