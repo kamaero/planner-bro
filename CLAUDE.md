@@ -116,7 +116,12 @@ Encrypted file storage at `/storage` route. Security model:
 - Vault files are stored in `VAULT_FILES_DIR` (default `uploads/vault`), mounted as a persistent volume in production.
 
 ### Online presence
-`GET /users/online/presence` reads `ws_manager._user_sockets.keys()` (in-memory, no DB) and returns `[{id, name}]` for users with active WebSocket connections. The sidebar polls this every 30 s and shows a green dot list.
+`GET /users/online/presence` reads `ws_manager._user_sockets.keys()` (in-memory, no DB) and returns `[{id, name}]` for users with active WebSocket connections.  
+Sidebar behavior:
+- Full active team list (from `GET /users/`) is shown in the lower panel.
+- Green dot = online, red dot = offline.
+- Presence is polled every 30s.
+- Below team presence, sidebar shows "Активность системы" from `GET /notifications/activity/email` (latest SMTP dispatch events: `sent`/`failed`/`skipped`).
 
 ### Authorization model
 - JWT access token in `Authorization: Bearer` header. `get_current_user` dependency validates it.
@@ -134,7 +139,7 @@ Encrypted file storage at `/storage` route. Security model:
 - **`pages/ProjectDetail.tsx`** — project editing (name/status/dates/owner) and a Files tab for uploading and managing attachments.
 - **`pages/TeamStorage.tsx`** — encrypted vault UI: folder tabs, file list, upload panel (with optional description), download via signed token (`window.open`), delete gated by `can_delete`/`admin`.
 - **`pages/Team.tsx`** — team management. Users can edit their own display name inline in their card (calls `PUT /users/me`). Admins/managers manage roles, org structure, departments.
-- **`App.tsx`** sidebar — polls `GET /users/online/presence` every 30 s; shows green dot + name list under nav items.
+- **`App.tsx`** sidebar — lower section includes current user card, full team presence list (online/offline dots), and system email activity monitor.
 
 ### Flutter mobile (`mobile/lib/`)
 - **`core/api_client.dart`** — singleton `apiClient` (Dio). Token stored in `flutter_secure_storage`. On 401, attempts refresh then replays; on failure calls `logout()` (clears storage).
@@ -147,7 +152,14 @@ Every task/project mutation → `notification_service.py` → simultaneously:
 1. INSERT into `notifications` table (in-app feed)
 2. `send_push_to_multiple()` → Firebase Admin SDK → FCM
 3. `ws_manager.broadcast_to_project()` → open WebSocket connections
-4. (deadline_missed only) `aiosmtplib` email
+4. `aiosmtplib` email for relevant events (assignment, reminders, audits, deadline/escalation scenarios where configured)
+
+Email dispatch observability:
+- `email_dispatch_logs` table stores every send attempt/result:
+  - `status`: `sent` | `failed` | `skipped`
+  - `source`: event source (`task_assigned`, `team_status_reminder`, `management_gap_report`, etc.)
+  - masked recipient projection is returned by API
+- API endpoint: `GET /notifications/activity/email`
 
 Celery Beat triggers `check_deadlines` at `:00` every hour, which scans for tasks with `end_date == today+1`, `today+3`, or `< today` and calls `notify_deadline()`.
 
@@ -158,7 +170,7 @@ All settings come from `.env` via `backend/app/core/config.py` (Pydantic Setting
 Required before features work:
 - **Google OAuth**: `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` + `VITE_GOOGLE_CLIENT_ID`
 - **Push notifications**: `firebase-credentials.json` at `FIREBASE_CREDENTIALS_PATH` (Firebase gracefully skips if file is absent)
-- **Email**: `SMTP_USER` + `SMTP_PASSWORD` (only deadline_missed events send email)
+- **Email**: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAILS_FROM` (used by assignment/reminder/audit notifications; dispatches tracked in `email_dispatch_logs`)
 - **Project files storage**: `PROJECT_FILES_DIR` points to a writable directory. In production, mount this directory as a persistent volume.
 - **Vault storage**: `VAULT_FILES_DIR` (default `uploads/vault`) — persistent volume in production. `VAULT_ENCRYPTION_KEY` — 64-char hex string (32-byte AES master key). Generate: `python3 -c "import os; print(os.urandom(32).hex())"`. Falls back to `SHA-256(SECRET_KEY)` with a warning if unset.
 - **Telegram summaries**: `TELEGRAM_BOT_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_TIMEZONE` (default `Asia/Yekaterinburg`), optional `TELEGRAM_ADMIN_USER_IDS` (comma-separated IDs; if empty, only Telegram chat admins can execute commands).
@@ -216,6 +228,9 @@ Migration chain (`backend/alembic/versions/`):
 | 0014 | `org_and_task_dependencies.py` | `departments` table; `position_title`, `manager_id`, `department_id` on users; task dependencies |
 | 0015 | `vault.py` | `vault_files` table for encrypted team storage |
 | 0016 | `project_departments.py` | `project_departments` table for manual project-to-department assignment |
+| 0017 | `task_assignees.py` | many-to-many assignees (`task_assignees`) + migration from `assigned_to_id` |
+| 0018 | `task_status_planning.py` | adds `planning` value to `task_status` enum (default task status) |
+| 0019 | `email_dispatch_logs.py` | `email_dispatch_logs` table for SMTP activity monitor in sidebar |
 
 Alembic runs automatically on container start via the `command:` in `docker-compose.yml`.
 

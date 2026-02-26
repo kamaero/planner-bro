@@ -1,203 +1,89 @@
-# planner-bro
+# PlannerBro
 
-IT Project Management System for small teams (10–15 people).
+PlannerBro is an IT project execution system for department teams.  
+Core goal: daily management discipline without micromanagement, with transparent status, deadlines, and accountability.
 
-## Stack
+## What It Solves
+
+- Daily project/task control for managers and team leads.
+- Unified work area for projects, tasks, statuses, comments, dependencies, and deadlines.
+- Operational reminders through in-app notifications, email, and Telegram summaries.
+- Visibility of "what is happening right now" through online presence and background activity monitor.
+
+## Core Capabilities
+
+- Project and task management with status/progress workflow.
+- Department-based dashboard (`Дэшборд IT`) with tabs by department and personal scope (`Мои проекты и задачи`).
+- Gantt + LIST views, task sorting, bulk operations, and task dependencies (critical path support).
+- Org structure and team administration (departments, heads, manager/subordinate hierarchy, permissions).
+- Smart ingestion pipeline for source files and draft approval flow.
+- Encrypted team storage (Vault).
+- Reminder engine:
+  - flexible check-in cadence,
+  - extra rule for `control_ski=true` (daily reminders 5 days before deadline),
+  - manager audit for projects/tasks without manager/admin assignment.
+- Notification channels:
+  - in-app notifications + WebSocket realtime,
+  - email with deep links to project/task,
+  - Telegram bot summaries (`/start`, `/stop`, `/stats`) with schedule support.
+- Sidebar collaboration tools:
+  - full team presence list (green=online, red=offline),
+  - system activity monitor for SMTP dispatches (`sent/failed/skipped`).
+
+## Technology Stack
 
 | Layer | Tech |
 |---|---|
-| Backend | FastAPI (Python 3.12) + PostgreSQL 16 + Redis 7 |
-| Frontend | React 18 + TypeScript + Vite + Tailwind + gantt-task-react |
-| Mobile | Flutter 3.x + Riverpod 2 |
-| Push | Firebase Cloud Messaging (Android + Web) |
-| Auth | JWT (access 15min / refresh 7d) + Google OAuth2 |
-| Background | Celery Beat (deadline checker every hour) |
-| Infra | Docker + Nginx + Let's Encrypt |
+| Backend | FastAPI (Python 3.12), SQLAlchemy, Alembic |
+| Database | PostgreSQL 16 |
+| Queue/Scheduler | Celery + Celery Beat + Redis 7 |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query |
+| Mobile | Flutter 3.x + Riverpod |
+| Realtime | WebSocket |
+| Notifications | FCM, SMTP, Telegram Bot API |
+| Infra | Docker, Nginx, Let's Encrypt |
 
 ## Quick Start (Development)
 
 ```bash
-# 1. Copy and configure environment
 cp .env.example .env
-
-# 2. Start all services
 docker-compose up --build
-
-# Access:
-# Web UI   → http://localhost:80
-# API docs → http://localhost:8000/docs
-# API      → http://localhost:8000/api/v1/
 ```
 
-## Running Backend Locally (without Docker)
+- Web UI: `http://localhost:80`
+- API docs: `http://localhost:8000/docs`
+
+## Production Deploy
+
+Preferred:
 
 ```bash
-cd backend
-pip install -r requirements.txt
-
-# Start PostgreSQL and Redis separately, then:
-alembic upgrade head
-uvicorn app.main:app --reload
-```
-
-## Running Frontend Locally
-
-```bash
-cd frontend
-npm install
-npm run dev
-# → http://localhost:5173
-```
-
-## Running Flutter Mobile
-
-```bash
-cd mobile
-flutter pub get
-
-# Android emulator or device:
-flutter run
-```
-
-**Requirements before running mobile:**
-- Add your `google-services.json` to `mobile/android/app/`
-- Set `API_BASE_URL` dart-define to point to your backend
-
-```bash
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
-```
-
-## Production Deployment (VPS)
-
-```bash
-# 1. Get SSL certificate (Let's Encrypt)
-certbot certonly --standalone -d yourdomain.com
-cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem nginx/ssl/
-cp /etc/letsencrypt/live/yourdomain.com/privkey.pem nginx/ssl/
-
-# 2. Edit nginx/nginx.conf — replace server_name with your domain
-
-# 3. Copy .env.example → .env.prod, fill in production values
-
-# 4. First run on VPS (backend/infra)
-docker compose -f docker-compose.prod.yml up -d --build
-
-# 5. Next deploys from local machine (sync backend/infra + sync frontend dist)
 ./scripts/deploy-prod.sh
+```
 
-# Optional: deploy backend only
+Backend only:
+
+```bash
 SKIP_FRONTEND=1 ./scripts/deploy-prod.sh
 ```
 
-## Architecture
+## Key Config Areas (`.env`)
 
-```
-Browser / Flutter App
-        │
-        ▼
-     Nginx (80/443)
-     ┌────────┬────────────────┐
-     │        │                │
-  /api/v1   /ws          / (frontend)
-     │        │
-     ▼        ▼
-  FastAPI (uvicorn)
-     │
-     ├── PostgreSQL (data)
-     ├── Redis (cache + Celery broker)
-     ├── Celery Worker (notifications)
-     ├── Celery Beat (deadline checker)
-     └── Firebase Admin (push notifications)
-```
+- Auth and security: `SECRET_KEY`, OAuth settings.
+- Notifications: `SMTP_*`, `APP_WEB_URL`, `TEAM_STATUS_REMINDER_*`, `MANAGEMENT_AUDIT_*`.
+- Telegram: `TELEGRAM_BOT_*`, `TELEGRAM_ADMIN_USER_IDS`.
+- Vault encryption: `VAULT_ENCRYPTION_KEY`, `VAULT_FILES_DIR`.
 
-## API Endpoints
+## API Highlights
 
-See full interactive docs at `http://localhost:8000/docs` after starting the backend.
+- `GET /api/v1/projects/dashboard/departments` — dashboard by departments.
+- `GET /api/v1/users/online/presence` — online users.
+- `GET /api/v1/notifications` — in-app notifications.
+- `GET /api/v1/notifications/activity/email` — SMTP activity feed for sidebar monitor.
+- `WS /ws?token=...` — realtime invalidation/events.
 
-Key endpoints:
-- `POST /api/v1/auth/register` — create account
-- `POST /api/v1/auth/login` — get JWT tokens
-- `POST /api/v1/auth/refresh` — rotate refresh token pair
-- `POST /api/v1/auth/logout` — revoke current refresh token
-- `GET  /api/v1/projects/` — list user's projects
-- `GET  /api/v1/projects/dashboard/departments` — grouped project dashboard by department
-- `PATCH /api/v1/projects/{id}/members/{user_id}` — update member role (`member`/`manager`)
-- `GET  /api/v1/projects/{id}/gantt` — Gantt-compatible task data
-- `GET  /api/v1/projects/{id}/critical-path` — critical path based on task dependencies
-- `GET  /api/v1/tasks/escalations/inbox` — escalated tasks assigned to current user
-- `GET/POST /api/v1/tasks/{task_id}/comments` — task discussion thread
-- `GET /api/v1/tasks/{task_id}/events` — task activity log
-- `POST /api/v1/tasks/{task_id}/check-in` — quick check-in without status change
-- `GET /api/v1/users/global/search?q=...` — global search (projects/tasks/users)
-- `PUT /api/v1/users/me/reminders` — per-user deadline reminder days (e.g. `1,3,7`)
-- `WS   /ws?token={access_token}` — real-time events
+## Additional Docs
 
-## Configuration
-
-Copy `.env.example` to `.env` and set:
-
-| Variable | Description |
-|---|---|
-| `SECRET_KEY` | JWT signing key — use a long random string in production |
-| `GOOGLE_CLIENT_ID/SECRET` | From Google Cloud Console |
-| `FIREBASE_CREDENTIALS_PATH` | Path to Firebase service account JSON |
-| `SMTP_*` | SMTP settings for deadline email notifications |
-| `APP_WEB_URL` | Base web URL used to build deep-links in email notifications |
-| `TEAM_STATUS_REMINDER_*` | Team status reminder policy (enabled + cadence windows) |
-| `CHECK_IN_*` | Automatic next check-in planning cadence by task criticality |
-| `MANAGEMENT_AUDIT_*` | Daily audit email for projects/tasks without manager/admin |
-| `TELEGRAM_BOT_*` | Telegram bot summaries (projects + critical tasks) |
-| `TELEGRAM_ADMIN_USER_IDS` | Optional Telegram user IDs allowed to run `/start`, `/stop`, `/stats` |
-| `VITE_GOOGLE_CLIENT_ID` | Used by frontend for Google OAuth button |
-
-## Recent Improvements
-
-- Session bootstrap on web app reload:
-  if only `refreshToken` is present, frontend restores `accessToken` and user profile automatically.
-- Secure refresh flow:
-  refresh token rotation + revoke on logout (Redis-based).
-- Project control model:
-  only owner/admin can transfer ownership or grant manager role.
-- Members management:
-  role update directly in UI + backend guard rails.
-- Task workflow UX:
-  task list now supports search, status/assignee filters, multi-select, and bulk actions.
-- Escalation workflow:
-  deputies can mark tasks as escalation and route blockers to manager inbox.
-- Templates and recurring work:
-  project creation supports templates; tasks support repeat interval in days.
-- Task collaboration:
-  comments + activity history are available directly in task drawer.
-- Search and reporting:
-  global header search and analytics CSV export with date/project filters.
-- Dependencies:
-  task dependency selection + critical path block in project view.
-- Escalation SLA:
-  escalation tasks now support reaction SLA (hours), first-response tracking, and auto-overdue marking.
-- Bottlenecks dashboard:
-  dashboard highlights blocked tasks (dependency blockers) and overdue escalations.
-- Definition of Done:
-  project completion is now guarded by a mandatory completion checklist.
-- Notifications:
-  less noise for assignees and deduplication for repeated deadline checks.
-- Team operations and check-ins:
-  users now have work email (`work_email`), status reminders use deep-links to tasks,
-  and tasks support explicit check-in flow (`summary`, `blockers`, `next check-in due`).
-- Assignment communication:
-  project member assignments/role updates and task assignments now trigger email notice
-  with direct link to project/task.
-- Management audit:
-  daily checker sends report to configured leadership email when project/task has no
-  active manager/admin coverage.
-- Department dashboard:
-  projects can be manually linked to multiple departments (`department_ids`) and
-  dashboard tabs also auto-include projects where department head or subordinates are assigned.
-- Telegram bot summaries:
-  Celery Beat posts into a Telegram group when bot is enabled:
-  projects summary on Monday 08:00 and Friday 16:00 (Asia/Yekaterinburg),
-  critical tasks summary daily at 10:00 (Asia/Yekaterinburg).
-  Bot admin commands in group:
-  `/start` (resume scheduled summaries), `/stop` (pause scheduled summaries),
-  `/stats` (force current compact summary now).
-  Summaries include only current items with assignments:
-  active projects with assigned current tasks, and open critical/СКИ tasks with assignee.
+- Development/operator guide: [CLAUDE.md](./CLAUDE.md)
+- Product backlog/TODO: [PlannerBro_TODO.md](./PlannerBro_TODO.md)
+- Short system brief for announcements: [SYSTEM_OVERVIEW_RU.md](./SYSTEM_OVERVIEW_RU.md)
