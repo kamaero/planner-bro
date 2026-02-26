@@ -531,10 +531,31 @@ export function Dashboard() {
             <div className="space-y-2">
               {upcomingDeadlines.length === 0 && <p className="text-xs text-muted-foreground">Нет предстоящих дедлайнов</p>}
               {upcomingDeadlines.map((task) => (
-                <Link key={task.id} to={`/projects/${task.project_id}`} className="block rounded border px-2 py-1.5 text-xs hover:bg-accent">
+                <Link
+                  key={task.id}
+                  to={`/projects/${task.project_id}`}
+                  className={cn(
+                    'block rounded border px-2 py-1.5 text-xs transition-colors',
+                    (() => {
+                      const d = daysUntil(task.end_date)
+                      if (d !== null && d <= 5) {
+                        return 'border-red-400 bg-red-50/80 shadow-[0_0_10px_rgba(239,68,68,0.35)] animate-pulse'
+                      }
+                      if (d !== null && d <= 10) {
+                        return 'border-orange-300 bg-orange-50/70'
+                      }
+                      return 'hover:bg-accent'
+                    })()
+                  )}
+                >
                   <p className="truncate font-medium">{task.title}</p>
                   <p className="text-muted-foreground">
                     {projectMap[task.project_id]?.name ?? 'Проект'} · {formatDate(task.end_date)}
+                    {(() => {
+                      const d = daysUntil(task.end_date)
+                      if (d === null) return ''
+                      return d >= 0 ? ` · ${d} дн.` : ' · просрочено'
+                    })()}
                   </p>
                 </Link>
               ))}
