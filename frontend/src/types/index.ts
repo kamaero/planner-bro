@@ -128,6 +128,7 @@ export interface TaskEvent {
   actor_id?: string
   event_type: string
   payload?: string
+  reason?: string
   created_at: string
 }
 

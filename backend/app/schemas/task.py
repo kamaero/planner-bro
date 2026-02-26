@@ -107,6 +107,7 @@ class TaskEventOut(BaseModel):
     actor_id: Optional[str] = None
     event_type: str
     payload: Optional[str] = None
+    reason: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

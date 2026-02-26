@@ -37,7 +37,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from '@/components/ui/badge'
 import type { Task, GanttTask, ProjectFile, MSProjectImportResult } from '@/types'
 import { useAuthStore } from '@/store/authStore'
-import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2 } from 'lucide-react'
+import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -150,6 +150,7 @@ export function ProjectDetail() {
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([])
   const [showProjectDeadlineModal, setShowProjectDeadlineModal] = useState(false)
   const [pendingProjectFormData, setPendingProjectFormData] = useState<Record<string, unknown> | null>(null)
+  const [showProjectDeadlineHistory, setShowProjectDeadlineHistory] = useState(false)
 
   const { data: projectDeadlineHistory = [] } = useProjectDeadlineHistory(id)
   // shiftsMap is empty here — per-task shift counts are shown inside TaskDrawer
@@ -1055,6 +1056,42 @@ export function ProjectDetail() {
         <div className="mt-3 h-2 w-full bg-muted rounded-full overflow-hidden">
           <div className="h-full bg-primary" style={{ width: `${projectProgress}%` }} />
         </div>
+
+        {projectDeadlineHistory.length > 0 && (
+          <div className="mt-3 rounded border bg-muted/30">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setShowProjectDeadlineHistory(!showProjectDeadlineHistory)}
+            >
+              <span>История переносов дедлайна проекта ({projectDeadlineHistory.length})</span>
+              {showProjectDeadlineHistory ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
+            </button>
+            {showProjectDeadlineHistory && (
+              <div className="px-3 pb-2 space-y-1.5 border-t">
+                {projectDeadlineHistory.map((change) => (
+                  <div key={change.id} className="pt-2 text-xs">
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span>
+                        {new Date(change.created_at).toLocaleDateString('ru-RU')}
+                        {change.changed_by && ` · ${change.changed_by.name}`}
+                      </span>
+                      <span>
+                        {new Date(change.old_date).toLocaleDateString('ru-RU')} →{' '}
+                        {new Date(change.new_date).toLocaleDateString('ru-RU')}
+                      </span>
+                    </div>
+                    <p className="text-foreground mt-0.5 italic">"{change.reason}"</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Description */}

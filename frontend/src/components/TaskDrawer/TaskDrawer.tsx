@@ -51,6 +51,18 @@ function formatTaskEvent(eventType: string, payload?: string | null) {
     if (!payload) return 'Исполнитель изменен'
     return `Изменен исполнитель (${payload})`
   }
+  if (eventType === 'date_changed') {
+    if (!payload) return 'Дата изменена'
+    const colonIdx = payload.indexOf(':')
+    if (colonIdx === -1) return `Дата изменена: ${payload}`
+    const field = payload.slice(0, colonIdx)
+    const change = payload.slice(colonIdx + 1)
+    const arrowIdx = change.indexOf('->')
+    const from = arrowIdx === -1 ? change : change.slice(0, arrowIdx)
+    const to = arrowIdx === -1 ? '' : change.slice(arrowIdx + 2)
+    const label = field === 'end' ? 'Дедлайн' : 'Дата начала'
+    return `${label}: ${from || '—'} → ${to || '—'}`
+  }
 
   return payload ? `${eventType} (${payload})` : eventType
 }
@@ -465,9 +477,12 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   <p className="text-xs text-muted-foreground">Событий пока нет.</p>
                 )}
                 {events.map((e) => (
-                  <p key={e.id} className="text-xs text-muted-foreground">
-                    {new Date(e.created_at).toLocaleString('ru')} · {formatTaskEvent(e.event_type, e.payload)}
-                  </p>
+                  <div key={e.id} className="text-xs text-muted-foreground">
+                    <span>{new Date(e.created_at).toLocaleString('ru')} · {formatTaskEvent(e.event_type, e.payload)}</span>
+                    {e.reason && (
+                      <p className="italic text-foreground/70 mt-0.5">"{e.reason}"</p>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

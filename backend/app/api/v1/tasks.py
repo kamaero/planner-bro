@@ -113,8 +113,9 @@ async def _log_task_event(
     actor_id: str | None,
     event_type: str,
     payload: str | None = None,
+    reason: str | None = None,
 ):
-    db.add(TaskEvent(task_id=task_id, actor_id=actor_id, event_type=event_type, payload=payload))
+    db.add(TaskEvent(task_id=task_id, actor_id=actor_id, event_type=event_type, payload=payload, reason=reason))
     await db.flush()
 
 
@@ -243,6 +244,7 @@ async def update_task(
 
     old_assignee = task.assigned_to_id
     old_status = task.status
+    old_start_date = task.start_date
     old_end_date = task.end_date
     payload = data.model_dump(exclude_none=True)
     deadline_change_reason = payload.pop("deadline_change_reason", None)
@@ -286,6 +288,20 @@ async def update_task(
             new_date=new_end_date,
             reason=deadline_change_reason,
         ))
+
+    # Log date_changed events to task_events
+    new_start_date = payload.get("start_date")
+    if new_start_date is not None and new_start_date != old_start_date:
+        await _log_task_event(
+            db, task.id, current_user.id, "date_changed",
+            f"start:{old_start_date}->{task.start_date}",
+        )
+    if new_end_date is not None and new_end_date != old_end_date:
+        await _log_task_event(
+            db, task.id, current_user.id, "date_changed",
+            f"end:{old_end_date}->{task.end_date}",
+            reason=deadline_change_reason,
+        )
 
     task.priority = _normalize_priority_for_control_ski(task.priority, bool(task.control_ski))
     await db.flush()

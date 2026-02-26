@@ -44,15 +44,38 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
 # 10.0.2.2 is the Android emulator's host loopback address
 ```
 
-### Production deploy
+### Production deploy (rsync from local, recommended)
 ```bash
-# Place Let's Encrypt certs in nginx/ssl/ (fullchain.pem, privkey.pem)
-# Edit nginx/nginx.conf server_name
-# Fill in .env.prod
-# Ensure uploads directory exists for project files
-mkdir -p uploads/projects
-docker-compose -f docker-compose.prod.yml up -d --build
+# Full deploy (backend + frontend):
+./scripts/deploy-prod.sh
+
+# Backend only (faster, skip frontend rebuild):
+SKIP_FRONTEND=1 ./scripts/deploy-prod.sh
+
+# Individual helper scripts:
+./scripts/deploy-prod-backend.sh   # rsync backend + restart containers
+./scripts/deploy-frontend-dist.sh  # build locally, rsync dist/ to VPS nginx
 ```
+
+### Production deploy (manual, on VPS directly)
+```bash
+# First-time setup — clone the repo (requires deploy key, see below):
+cd /opt
+git clone git@github-planner:kamaero/planner-bro.git planner-bro-git
+
+# Subsequent deploys — SSH in and pull:
+ssh root@95.164.92.165
+cd /opt/planner-bro
+git pull
+docker compose -f docker-compose.prod.yml up -d --build backend celery_worker celery_beat nginx
+```
+
+**Deploy key for VPS** (read-only access to the private repo):
+Add this public key to https://github.com/kamaero/planner-bro/settings/keys
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILLfE3OprmuN3OLalz6w3QTUfdtMmkxISQe6Rbcg6lPe planner-bro-vps-deploy
+```
+The VPS SSH config (`/root/.ssh/config`) already has the `github-planner` alias pointing to this key.
 
 ## Architecture
 
@@ -69,11 +92,20 @@ Client (browser / Flutter)
 Layered FastAPI with async SQLAlchemy:
 
 - **`core/`** — cross-cutting: `config.py` (Pydantic Settings from `.env`), `database.py` (async engine + `get_db` dependency), `security.py` (`get_current_user` Bearer dependency, JWT helpers), `firebase.py` (FCM admin SDK, gracefully no-ops if credentials file absent)
-- **`models/`** — SQLAlchemy ORM. All PKs are `str` UUIDs. `ProjectMember` is a composite-PK join table (project_id + user_id). `Task.parent_task_id` is a self-referential FK for subtasks. `ProjectFile` stores uploaded files per project.
+- **`models/`** — SQLAlchemy ORM. All PKs are `str` UUIDs. `ProjectMember` is a composite-PK join table (project_id + user_id). `Task.parent_task_id` is a self-referential FK for subtasks. `ProjectFile` stores uploaded files per project. `DeadlineChange` records every end_date mutation with old/new dates and a mandatory reason.
 - **`schemas/`** — Pydantic request/response models, one file per domain. `GanttTask`/`GanttData` in `project.py` map directly to the `gantt-task-react` Task interface.
 - **`api/v1/`** — thin route handlers. Authorization helpers (`_require_project_access`, `_require_project_member`) are local to each router file. `tasks.py` router has **no prefix** — task routes are split across `/projects/{id}/tasks` and `/tasks/{id}`. Project files live under `/projects/{id}/files` with upload/list/download/delete endpoints.
 - **`services/`** — business logic. `notification_service.py` is the central fan-out point: every mutation calls a `notify_*` function which (1) writes DB records, (2) sends FCM via `firebase.py`, (3) broadcasts a WebSocket event via `ws_manager`.
 - **`tasks/`** — Celery. `celery_app.py` defines the Beat schedule. `deadline_checker.py` uses `asyncio.run()` to call async DB code from a sync Celery task.
+
+### Deadline change audit trail
+Every `end_date` change on a task or project **requires a mandatory reason** (`deadline_change_reason` field in PUT body). Validated at the API level — 422 if missing.
+
+Two parallel records are written on each deadline change:
+1. **`deadline_changes`** table — stores `entity_type` (`task`/`project`), `entity_id`, `old_date`, `new_date`, `reason`, `changed_by_id`. Queried via `GET /tasks/{id}/deadline-history` and `GET /projects/{id}/deadline-history`.
+2. **`task_events`** — a `date_changed` event with `payload="end:old->new"` and `reason` field. Visible in the TaskDrawer "История" list alongside other events.
+
+Frontend: `DeadlineReasonModal` intercepts saves in TaskDrawer and ProjectDetail edit form. Deadline history is displayed as a collapsible section in both places.
 
 ### Authorization model
 - JWT access token in `Authorization: Bearer` header. `get_current_user` dependency validates it.
@@ -148,6 +180,21 @@ Current hardening state on the live server (as of 2026-02-24):
 
 PostgreSQL 16. Async driver: `asyncpg`. Sync driver (Alembic only): `psycopg2`.
 
-Migration files: `backend/alembic/versions/0001_initial.py` (core tables/enums) and `0002_project_files.py` (project file storage). Alembic runs automatically on container start via the `command:` in `docker-compose.yml`.
+Migration chain (`backend/alembic/versions/`):
+| # | File | What it adds |
+|---|------|-------------|
+| 0001 | `initial.py` | Core tables: users, projects, project_members, tasks, task_comments, task_events, notifications, devices |
+| 0002 | `project_files.py` | `project_files` table |
+| 0003 | `task_extensions.py` | Escalation fields on tasks |
+| 0004 | `escalation_sla_and_project_checklist.py` | SLA hours, completion checklist JSONB |
+| 0005 | `task_progress_and_next_step.py` | `progress_percent`, `next_step` |
+| 0006 | `ai_ingestion_and_drafts.py` | `ai_ingestion_jobs`, `ai_task_drafts` |
+| 0007 | `user_is_active.py` | `users.is_active` flag |
+| 0008 | `launch_basis_and_control_ski.py` | `control_ski`, `launch_basis_*` fields |
+| 0009 | `user_permissions.py` | Granular permissions: `can_delete`, `can_import`, `can_bulk_edit` |
+| 0010 | `deadline_changes.py` | `deadline_changes` audit table |
+| 0011 | `task_event_reason.py` | `reason` column on `task_events` |
+
+Alembic runs automatically on container start via the `command:` in `docker-compose.yml`.
 
 Redis uses 3 databases: `/0` = general cache, `/1` = Celery broker, `/2` = Celery result backend.
