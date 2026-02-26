@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(bash scripts/deploy-frontend-dist.sh:*)",
+      "Bash(chmod:*)",
+      "Bash(bash scripts/deploy-prod.sh)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:prod:*)",
+      "Bash(ssh root@95.164.92.165 \"docker exec planner-bro-excalidraw-app-1 find /usr/share/nginx/html -name ''Assistant*.woff2'' 2>/dev/null; echo ''=== fonts/ subdir ===''; docker exec planner-bro-excalidraw-app-1 ls /usr/share/nginx/html/fonts/ 2>/dev/null; echo ''=== Check what URLs JS uses for fonts ===''; docker exec planner-bro-excalidraw-app-1 grep -r ''Assistant'' /usr/share/nginx/html/assets/ 2>/dev/null | head -5 || echo ''not in assets''; docker exec planner-bro-excalidraw-app-1 grep -rl ''fonts/Assistant'' /usr/share/nginx/html/ 2>/dev/null | head -10\")",
+      "Bash(ssh root@95.164.92.165 \"echo ''=== CURRENT NGINX CONF ON VPS ===''; cat /opt/planner-bro/nginx/nginx.conf | head -220; echo ''=== NGINX ERROR LOG \\(last 30 lines\\) ===''; tail -30 /var/log/nginx/error.log 2>/dev/null || docker exec planner-bro-nginx-1 tail -30 /var/log/nginx/error.log 2>/dev/null\")",
+      "Bash(ssh root@95.164.92.165 \"docker exec planner-bro-nginx-1 tail -100 /var/log/nginx/access.log 2>/dev/null | grep -E ''\\(woff|font|esm|excali\\)'' | grep -E ''\\(404|302|0\\)'' | tail -30; echo ''=== ALL FONT HITS ===''; docker exec planner-bro-nginx-1 tail -200 /var/log/nginx/access.log 2>/dev/null | grep -E ''\\(woff|font|esm\\)'' | tail -40\")",
+      "Bash(ssh root@95.164.92.165 \"docker exec planner-bro-nginx-1 tail -50 /var/log/nginx/access.log 2>/dev/null | grep -c ''''\")",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(curl:*)",
+      "Bash(grep:*)",
+      "Bash(git rebase:*)",
+      "Bash(python -c:*)",
+      "Bash(python3:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node_modules/.bin/tsc:*)",
+      "Bash(./scripts/deploy-prod.sh:*)"
+    ]
+  },
+  "outputStyle": "Learning"
+}
