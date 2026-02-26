@@ -60,4 +60,8 @@ class User(Base):
         "User", remote_side="User.id", back_populates="subordinates"
     )
     subordinates: Mapped[list["User"]] = relationship("User", back_populates="manager")
-    department: Mapped["Department | None"] = relationship("Department", back_populates="users")
+    department: Mapped["Department | None"] = relationship(
+        "Department",
+        back_populates="users",
+        foreign_keys=[department_id],
+    )

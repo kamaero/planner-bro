@@ -27,4 +27,8 @@ class Department(Base):
     )
     children: Mapped[list["Department"]] = relationship("Department", back_populates="parent")
     head_user: Mapped["User | None"] = relationship("User", foreign_keys=[head_user_id])
-    users: Mapped[list["User"]] = relationship("User", back_populates="department")
+    users: Mapped[list["User"]] = relationship(
+        "User",
+        back_populates="department",
+        foreign_keys="User.department_id",
+    )
