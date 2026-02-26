@@ -15,8 +15,6 @@ function cn(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(' ')
 }
 
-const DEFAULT_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6']
-
 const PROJECT_TEMPLATES: Record<string, Array<{ title: string; priority: string; daysOffset: number }>> = {
   blank: [],
   launch: [
@@ -90,6 +88,15 @@ function daysUntil(dateValue?: string): number | null {
   const now = new Date()
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0)
   return Math.round((target.getTime() - startToday.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const normalized = hex.replace('#', '').trim()
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return `rgba(99,102,241,${alpha})`
+  const r = Number.parseInt(normalized.slice(0, 2), 16)
+  const g = Number.parseInt(normalized.slice(2, 4), 16)
+  const b = Number.parseInt(normalized.slice(4, 6), 16)
+  return `rgba(${r},${g},${b},${alpha})`
 }
 
 export function Dashboard() {
@@ -224,6 +231,20 @@ export function Dashboard() {
   )
 
   const escalationPulse = escalations.length > 0 && escalationBlinkEnabled
+  const projectProgressById = useMemo(() => {
+    const grouped = new Map<string, { sum: number; count: number }>()
+    tasks.forEach((task) => {
+      const current = grouped.get(task.project_id) ?? { sum: 0, count: 0 }
+      current.sum += task.progress_percent ?? 0
+      current.count += 1
+      grouped.set(task.project_id, current)
+    })
+    const result: Record<string, number> = {}
+    grouped.forEach((value, key) => {
+      result[key] = value.count > 0 ? Math.round(value.sum / value.count) : 0
+    })
+    return result
+  }, [tasks])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -313,16 +334,19 @@ export function Dashboard() {
               </div>
               <div className="space-y-1">
                 <Label>Цвет</Label>
-                <div className="flex gap-2">
-                  {DEFAULT_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => setForm((f) => ({ ...f, color }))}
-                      className={cn('h-7 w-7 rounded-full border-2', form.color === color ? 'border-foreground' : 'border-transparent')}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
+                <div className="flex items-center gap-3">
+                  <Input
+                    type="color"
+                    value={form.color}
+                    onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+                    className="h-9 w-14 cursor-pointer p-1"
+                  />
+                  <Input
+                    value={form.color}
+                    onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+                    placeholder="#RRGGBB"
+                    className="h-9 w-32 font-mono text-xs"
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -458,6 +482,9 @@ export function Dashboard() {
                     return ''
                   })()
                 )}
+                style={{
+                  backgroundImage: `linear-gradient(90deg, ${hexToRgba(project.color ?? '#6366f1', 0.18)} 0%, ${hexToRgba(project.color ?? '#6366f1', 0.18)} ${projectProgressById[project.id] ?? 0}%, rgba(255,255,255,0) ${projectProgressById[project.id] ?? 0}%)`,
+                }}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -465,7 +492,7 @@ export function Dashboard() {
                       {project.name}
                     </Link>
                     <p className="text-xs text-muted-foreground">
-                      {PROJECT_STATUS_LABEL[project.status] ?? project.status} · дедлайн: {formatDate(project.end_date)} · владелец: {project.owner?.name}
+                      {PROJECT_STATUS_LABEL[project.status] ?? project.status} · исполнение: {projectProgressById[project.id] ?? 0}% · дедлайн: {formatDate(project.end_date)} · владелец: {project.owner?.name}
                     </p>
                     {!!project.department_ids?.length && (
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -564,16 +591,18 @@ export function Dashboard() {
           className={cn(escalationPulse && 'border-red-500/90 shadow-[0_0_18px_rgba(239,68,68,0.55)] animate-pulse')}
           action={
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setEscalationBlinkEnabled((v) => !v)}
-                className={cn(
-                  'rounded border px-2 py-0.5 text-[11px]',
-                  escalationBlinkEnabled ? 'border-red-400 text-red-600' : 'text-muted-foreground'
-                )}
-              >
-                {escalationBlinkEnabled ? 'Мигание: Вкл' : 'Мигание: Выкл'}
-              </button>
+              {escalations.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setEscalationBlinkEnabled((v) => !v)}
+                  className={cn(
+                    'rounded border px-2 py-0.5 text-[11px]',
+                    escalationBlinkEnabled ? 'border-red-400 text-red-600' : 'text-muted-foreground'
+                  )}
+                >
+                  {escalationBlinkEnabled ? 'Мигание: Вкл' : 'Мигание: Выкл'}
+                </button>
+              )}
               <Link to="/analytics" className="text-xs text-primary hover:underline">
                 Аналитика →
               </Link>
