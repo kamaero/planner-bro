@@ -50,6 +50,7 @@ class User(Base):
     assigned_tasks: Mapped[list["Task"]] = relationship(
         "Task", foreign_keys="Task.assigned_to_id", back_populates="assignee"
     )
+    assigned_task_links: Mapped[list["TaskAssignee"]] = relationship("TaskAssignee")
     notifications: Mapped[list["Notification"]] = relationship(
         "Notification", back_populates="user"
     )

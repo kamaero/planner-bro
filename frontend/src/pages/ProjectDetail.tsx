@@ -125,6 +125,7 @@ export function ProjectDetail() {
     end_date: '',
     estimated_hours: '',
     assigned_to_id: '',
+    assignee_ids: [] as string[],
     parent_task_id: '',
     is_escalation: false,
     escalation_for: '',
@@ -155,6 +156,7 @@ export function ProjectDetail() {
   const [showProjectDeadlineModal, setShowProjectDeadlineModal] = useState(false)
   const [pendingProjectFormData, setPendingProjectFormData] = useState<Record<string, unknown> | null>(null)
   const [showProjectDeadlineHistory, setShowProjectDeadlineHistory] = useState(false)
+  const [taskRowSize, setTaskRowSize] = useState<'compact' | 'normal' | 'comfortable'>('normal')
 
   const { data: projectDeadlineHistory = [] } = useProjectDeadlineHistory(id)
   // shiftsMap is empty here — per-task shift counts are shown inside TaskDrawer
@@ -399,6 +401,7 @@ export function ProjectDetail() {
         start_date: taskForm.start_date || undefined,
         end_date: taskForm.end_date || undefined,
         assigned_to_id: taskForm.assigned_to_id || undefined,
+        assignee_ids: taskForm.assignee_ids.length > 0 ? taskForm.assignee_ids : undefined,
         parent_task_id: taskForm.parent_task_id || undefined,
         is_escalation: taskForm.is_escalation,
         escalation_for: taskForm.escalation_for || undefined,
@@ -420,6 +423,7 @@ export function ProjectDetail() {
       end_date: '',
       estimated_hours: '',
       assigned_to_id: '',
+      assignee_ids: [],
       parent_task_id: '',
       is_escalation: false,
       escalation_for: '',
@@ -939,17 +943,21 @@ export function ProjectDetail() {
               <div className="space-y-1">
                 <Label>Исполнитель</Label>
                 <select
-                  value={taskForm.assigned_to_id}
-                  onChange={(e) => setTaskForm((f) => ({ ...f, assigned_to_id: e.target.value }))}
-                  className="w-full border rounded px-3 py-2 text-sm bg-background"
+                  multiple
+                  value={taskForm.assignee_ids}
+                  onChange={(e) => {
+                    const values = Array.from(e.target.selectedOptions).map((option) => option.value)
+                    setTaskForm((f) => ({ ...f, assignee_ids: values, assigned_to_id: values[0] ?? '' }))
+                  }}
+                  className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[112px]"
                 >
-                  <option value="">Не назначен</option>
                   {users.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name} ({u.role})
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-muted-foreground">Можно выбрать нескольких исполнителей (Ctrl/Cmd + клик).</p>
               </div>
               <div className="space-y-1">
                 <Label>Зависит от</Label>
@@ -1186,6 +1194,15 @@ export function ProjectDetail() {
               <span className="text-xs text-muted-foreground">
                 Выбрано: {selectedTaskIds.length} / Видимых: {filteredTasks.length}
               </span>
+              <select
+                value={taskRowSize}
+                onChange={(e) => setTaskRowSize(e.target.value as 'compact' | 'normal' | 'comfortable')}
+                className="border rounded px-2 py-1 text-sm bg-background"
+              >
+                <option value="compact">Плотность: компактно</option>
+                <option value="normal">Плотность: обычная</option>
+                <option value="comfortable">Плотность: свободно</option>
+              </select>
               {canManage && canBulkEdit && (
                 <>
                   <Button
@@ -1276,6 +1293,7 @@ export function ProjectDetail() {
               if (task) handleQuickStatusChange(task, status)
             }}
             shiftsMap={shiftsMap}
+            rowSize={taskRowSize}
           />
         </div>
       ) : view === 'members' ? (

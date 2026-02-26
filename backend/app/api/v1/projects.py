@@ -1,5 +1,7 @@
 import uuid
 import hashlib
+import re
+from datetime import date
 from pathlib import Path
 import shutil
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
@@ -43,6 +45,15 @@ from app.services.vault_crypto import encrypt_file
 from app.tasks.ai_ingestion import process_file_for_ai
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+def _extract_task_number(value: str | None) -> str | None:
+    if not value:
+        return None
+    match = re.match(r"^(\d+(?:\.\d+)*)(?:[.)])?\s+", value.strip())
+    if not match:
+        return None
+    return match.group(1)
 
 
 def _normalize_checklist(items: list[dict] | None) -> list[dict]:
@@ -280,17 +291,40 @@ async def get_department_dashboard(
 ):
     del current_user
     departments = (await db.execute(select(Department).order_by(Department.name.asc()))).scalars().all()
-    users = (await db.execute(select(User.id, User.manager_id))).all()
+    users = (await db.execute(select(User.id, User.manager_id, User.department_id))).all()
     projects = (
         await db.execute(select(Project).options(selectinload(Project.owner), selectinload(Project.departments)))
     ).scalars().all()
-    members = (await db.execute(select(ProjectMember.project_id, ProjectMember.user_id))).all()
+    members = (
+        await db.execute(
+            select(ProjectMember.project_id, ProjectMember.user_id, ProjectMember.role)
+            .where(ProjectMember.role != "owner")
+        )
+    ).all()
     manual_links = (await db.execute(select(ProjectDepartment.project_id, ProjectDepartment.department_id))).all()
 
     children_map: dict[str, list[str]] = {}
-    for user_id, manager_id in users:
+    user_department_map: dict[str, str | None] = {}
+    for user_id, manager_id, department_id in users:
+        user_department_map[user_id] = department_id
         if manager_id:
             children_map.setdefault(manager_id, []).append(user_id)
+
+    department_children_map: dict[str, list[str]] = {}
+    for dep in departments:
+        if dep.parent_id:
+            department_children_map.setdefault(dep.parent_id, []).append(dep.id)
+
+    def _collect_department_tree(department_id: str) -> set[str]:
+        collected: set[str] = set()
+        stack = [department_id]
+        while stack:
+            current = stack.pop()
+            if current in collected:
+                continue
+            collected.add(current)
+            stack.extend(department_children_map.get(current, []))
+        return collected
 
     def _collect_subordinates(head_user_id: str | None) -> set[str]:
         if not head_user_id:
@@ -305,12 +339,24 @@ async def get_department_dashboard(
             stack.extend(children_map.get(cur, []))
         return collected
 
-    dept_user_ids: dict[str, set[str]] = {
-        dep.id: _collect_subordinates(dep.head_user_id) for dep in departments
-    }
+    dept_user_ids: dict[str, set[str]] = {}
+    for dep in departments:
+        dept_tree = _collect_department_tree(dep.id)
+        users_in_tree = {
+            user_id
+            for user_id, user_dep_id in user_department_map.items()
+            if user_dep_id in dept_tree
+        }
+        # Keep manager hierarchy support, but do not leak users outside department tree.
+        subordinates_in_tree = {
+            user_id
+            for user_id in _collect_subordinates(dep.head_user_id)
+            if user_department_map.get(user_id) in dept_tree
+        }
+        dept_user_ids[dep.id] = users_in_tree | subordinates_in_tree
 
     project_ids_by_dept: dict[str, set[str]] = {dep.id: set() for dep in departments}
-    for project_id, user_id in members:
+    for project_id, user_id, _role in members:
         for dep in departments:
             if user_id in dept_user_ids.get(dep.id, set()):
                 project_ids_by_dept[dep.id].add(project_id)
@@ -856,36 +902,119 @@ async def _approve_single_ai_draft(
     actor: User,
     db: AsyncSession,
 ) -> Task:
-    task = Task(
-        project_id=project_id,
-        title=draft.title,
-        description=draft.description,
-        status="todo",
-        priority=draft.priority,
-        end_date=draft.end_date,
-        assigned_to_id=draft.assigned_to_id,
-        estimated_hours=draft.estimated_hours,
-        progress_percent=draft.progress_percent,
-        next_step=draft.next_step,
-        created_by_id=actor.id,
-    )
-    db.add(task)
-    await db.flush()
-    db.add(
-        TaskEvent(
-            task_id=task.id,
-            actor_id=actor.id,
-            event_type="task_created_from_ai_draft",
-            payload=f"draft_id={draft.id}",
+    raw_payload = draft.raw_payload or {}
+    draft_task_no = str(raw_payload.get("task_no") or "").strip() or _extract_task_number(draft.title)
+    normalized_title = (draft.title or "").strip().lower()
+    existing_candidates = (
+        await db.execute(
+            select(Task)
+            .where(
+                Task.project_id == project_id,
+                Task.status != "done",
+            )
+            .order_by(Task.updated_at.desc())
+            .limit(500)
         )
-    )
+    ).scalars().all()
+
+    matched_task: Task | None = None
+    for candidate in existing_candidates:
+        candidate_no = _extract_task_number(candidate.title)
+        if draft_task_no and candidate_no == draft_task_no:
+            matched_task = candidate
+            break
+        if normalized_title and candidate.title.strip().lower() == normalized_title:
+            matched_task = candidate
+            break
+
+    is_rollover = matched_task is not None
+    if is_rollover:
+        task = matched_task
+        old_end_date = task.end_date
+        old_assignee = task.assigned_to_id
+        if draft.description:
+            task.description = draft.description
+        task.priority = draft.priority
+        task.estimated_hours = draft.estimated_hours
+        task.next_step = draft.next_step
+        task.assigned_to_id = draft.assigned_to_id
+        if draft.end_date:
+            task.end_date = draft.end_date
+        if task.progress_percent == 0 and draft.progress_percent:
+            task.progress_percent = draft.progress_percent
+
+        if old_end_date and task.end_date and old_end_date != task.end_date:
+            db.add(
+                DeadlineChange(
+                    entity_type="task",
+                    entity_id=task.id,
+                    changed_by_id=actor.id,
+                    old_date=old_end_date,
+                    new_date=task.end_date,
+                    reason="Квартальный перенос при импорте нового плана",
+                )
+            )
+        db.add(
+            TaskEvent(
+                task_id=task.id,
+                actor_id=actor.id,
+                event_type="task_rollover_from_ai_draft",
+                payload=f"draft_id={draft.id};was_overdue={bool(old_end_date and old_end_date < date.today())}",
+            )
+        )
+        if draft.assigned_to_id and draft.assigned_to_id != old_assignee:
+            await notify_task_assigned(db, task, draft.assigned_to_id)
+    else:
+        task = Task(
+            project_id=project_id,
+            title=draft.title,
+            description=draft.description,
+            status="todo",
+            priority=draft.priority,
+            end_date=draft.end_date,
+            assigned_to_id=draft.assigned_to_id,
+            estimated_hours=draft.estimated_hours,
+            progress_percent=draft.progress_percent,
+            next_step=draft.next_step,
+            created_by_id=actor.id,
+        )
+        db.add(task)
+        await db.flush()
+        db.add(
+            TaskEvent(
+                task_id=task.id,
+                actor_id=actor.id,
+                event_type="task_created_from_ai_draft",
+                payload=f"draft_id={draft.id}",
+            )
+        )
+
+    draft_comment = str(raw_payload.get("comment") or "").strip()
+    if draft_comment:
+        db.add(
+            TaskComment(
+                task_id=task.id,
+                author_id=actor.id,
+                body=draft_comment[:4000],
+            )
+        )
+        db.add(
+            TaskEvent(
+                task_id=task.id,
+                actor_id=actor.id,
+                event_type="comment_added_from_import",
+                payload="raw_payload.comment",
+            )
+        )
+
     draft.status = "approved"
     draft.approved_by_id = actor.id
     draft.approved_task_id = task.id
     await db.flush()
-    if task.assigned_to_id:
+    if task.assigned_to_id and not is_rollover:
         await notify_task_assigned(db, task, task.assigned_to_id)
-    await notify_new_task(db, task)
+    if not is_rollover:
+        await notify_new_task(db, task)
     return task
 
 

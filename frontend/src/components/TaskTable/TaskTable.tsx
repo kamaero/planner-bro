@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { Task } from '@/types'
 import { Clock, AlertCircle } from 'lucide-react'
 
@@ -34,10 +35,47 @@ interface TaskTableProps {
   onTaskClick: (task: Task) => void
   onStatusChange?: (taskId: string, status: string) => void
   shiftsMap?: Record<string, number>
+  rowSize?: 'compact' | 'normal' | 'comfortable'
 }
 
-export function TaskTable({ tasks, onTaskClick, onStatusChange, shiftsMap = {} }: TaskTableProps) {
+export function TaskTable({
+  tasks,
+  onTaskClick,
+  onStatusChange,
+  shiftsMap = {},
+  rowSize = 'normal',
+}: TaskTableProps) {
   const today = new Date().toISOString().slice(0, 10)
+  const topRef = useRef<HTMLDivElement | null>(null)
+  const bottomRef = useRef<HTMLDivElement | null>(null)
+  const syncingRef = useRef<'top' | 'bottom' | null>(null)
+
+  useEffect(() => {
+    const top = topRef.current
+    const bottom = bottomRef.current
+    if (!top || !bottom) return
+    const handleTop = () => {
+      if (syncingRef.current === 'bottom') return
+      syncingRef.current = 'top'
+      bottom.scrollLeft = top.scrollLeft
+      syncingRef.current = null
+    }
+    const handleBottom = () => {
+      if (syncingRef.current === 'top') return
+      syncingRef.current = 'bottom'
+      top.scrollLeft = bottom.scrollLeft
+      syncingRef.current = null
+    }
+    top.addEventListener('scroll', handleTop)
+    bottom.addEventListener('scroll', handleBottom)
+    return () => {
+      top.removeEventListener('scroll', handleTop)
+      bottom.removeEventListener('scroll', handleBottom)
+    }
+  }, [])
+
+  const pyClass = rowSize === 'compact' ? 'py-1.5' : rowSize === 'comfortable' ? 'py-3.5' : 'py-2.5'
+  const commentClamp = rowSize === 'compact' ? 'line-clamp-1' : 'line-clamp-2'
 
   if (tasks.length === 0) {
     return (
@@ -48,11 +86,16 @@ export function TaskTable({ tasks, onTaskClick, onStatusChange, shiftsMap = {} }
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border">
-      <table className="w-full text-sm">
+    <div className="rounded-lg border">
+      <div ref={topRef} className="overflow-x-auto border-b bg-muted/20">
+        <div className="h-3 min-w-[1220px]" />
+      </div>
+      <div ref={bottomRef} className="overflow-x-auto">
+      <table className="w-full text-sm min-w-[1220px]">
         <thead>
           <tr className="border-b bg-muted/40 text-muted-foreground text-xs uppercase tracking-wide">
-            <th className="px-4 py-2.5 text-left font-medium w-full">Задача</th>
+            <th className="px-4 py-2.5 text-left font-medium min-w-[340px]">Задача</th>
+            <th className="px-3 py-2.5 text-left font-medium min-w-[280px]">Комментарий</th>
             <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap">Статус</th>
             <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap">Приоритет</th>
             <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap">Исполнитель</th>
@@ -72,14 +115,14 @@ export function TaskTable({ tasks, onTaskClick, onStatusChange, shiftsMap = {} }
                 onClick={() => onTaskClick(task)}
               >
                 {/* Title */}
-                <td className="px-4 py-2.5">
+                <td className={`px-4 ${pyClass}`}>
                   <div className="flex items-start gap-2">
                     <div className="min-w-0">
-                      <p className="font-medium truncate group-hover:text-primary transition-colors">
+                      <p className="font-medium whitespace-normal break-words group-hover:text-primary transition-colors">
                         {task.title}
                       </p>
                       {task.next_step && (
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        <p className={`text-xs text-muted-foreground mt-0.5 ${commentClamp}`}>
                           → {task.next_step}
                         </p>
                       )}
@@ -94,9 +137,18 @@ export function TaskTable({ tasks, onTaskClick, onStatusChange, shiftsMap = {} }
                     )}
                   </div>
                 </td>
+                <td className={`px-3 ${pyClass}`}>
+                  {task.last_comment ? (
+                    <p className={`text-xs text-muted-foreground whitespace-normal break-words ${commentClamp}`}>
+                      {task.last_comment}
+                    </p>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">—</span>
+                  )}
+                </td>
 
                 {/* Status */}
-                <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                <td className={`px-3 ${pyClass}`} onClick={(e) => e.stopPropagation()}>
                   {onStatusChange ? (
                     <select
                       value={task.status}
@@ -116,15 +168,19 @@ export function TaskTable({ tasks, onTaskClick, onStatusChange, shiftsMap = {} }
                 </td>
 
                 {/* Priority */}
-                <td className="px-3 py-2.5">
+                <td className={`px-3 ${pyClass}`}>
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PRIORITY_BADGE[task.priority] ?? ''}`}>
                     {task.control_ski ? 'СКИ' : (PRIORITY_LABELS[task.priority] ?? task.priority)}
                   </span>
                 </td>
 
                 {/* Assignee */}
-                <td className="px-3 py-2.5 whitespace-nowrap">
-                  {task.assignee ? (
+                <td className={`px-3 ${pyClass}`}>
+                  {task.assignees && task.assignees.length > 0 ? (
+                    <span className={`text-sm ${commentClamp} whitespace-normal break-words block`}>
+                      {task.assignees.map((u) => u.name).join(', ')}
+                    </span>
+                  ) : task.assignee ? (
                     <span className="text-sm">{task.assignee.name}</span>
                   ) : (
                     <span className="text-muted-foreground text-xs">—</span>
@@ -132,7 +188,7 @@ export function TaskTable({ tasks, onTaskClick, onStatusChange, shiftsMap = {} }
                 </td>
 
                 {/* Deadline */}
-                <td className="px-3 py-2.5 whitespace-nowrap">
+                <td className={`px-3 ${pyClass} whitespace-nowrap`}>
                   {task.end_date ? (
                     <div className="flex items-center gap-1">
                       {isOverdue && <Clock className="w-3.5 h-3.5 text-red-500 shrink-0" />}
@@ -149,7 +205,7 @@ export function TaskTable({ tasks, onTaskClick, onStatusChange, shiftsMap = {} }
                 </td>
 
                 {/* Progress */}
-                <td className="px-3 py-2.5">
+                <td className={`px-3 ${pyClass}`}>
                   <div className="flex items-center gap-2 min-w-[80px]">
                     <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                       <div
@@ -175,6 +231,7 @@ export function TaskTable({ tasks, onTaskClick, onStatusChange, shiftsMap = {} }
           })}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

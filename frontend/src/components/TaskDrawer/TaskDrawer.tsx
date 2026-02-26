@@ -111,6 +111,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [checkInNextDueDate, setCheckInNextDueDate] = useState('')
   const [needManagerHelp, setNeedManagerHelp] = useState(false)
   const [newDependencyTaskId, setNewDependencyTaskId] = useState('')
+  const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([])
 
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
@@ -136,6 +137,11 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     )
     setNeedManagerHelp(false)
     setNewDependencyTaskId('')
+    setSelectedAssigneeIds(task.assignee_ids && task.assignee_ids.length > 0
+      ? task.assignee_ids
+      : task.assigned_to_id
+        ? [task.assigned_to_id]
+        : [])
   }, [task])
 
   if (!task) return null
@@ -180,10 +186,14 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     })
   }
 
-  const handleAssigneeChange = (assignedToId: string) => {
+  const handleAssigneeChange = (assigneeIds: string[]) => {
+    setSelectedAssigneeIds(assigneeIds)
     updateTask.mutate({
       taskId: task.id,
-      data: { assigned_to_id: assignedToId || null },
+      data: {
+        assignee_ids: assigneeIds,
+        assigned_to_id: assigneeIds[0] || null,
+      },
     })
   }
 
@@ -196,8 +206,8 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
 
   const handleSaveDates = async () => {
     const endDateChanged = endDate !== (task.end_date ?? '')
-    if (endDateChanged) {
-      // Need reason for changing end_date
+    const canRequireReason = Boolean(task.end_date)
+    if (endDateChanged && canRequireReason) {
       setPendingEndDate(endDate)
       setShowDeadlineReasonModal(true)
       return
@@ -465,11 +475,15 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-muted-foreground shrink-0" />
                 <select
-                  value={task.assigned_to_id ?? ''}
-                  onChange={(e) => handleAssigneeChange(e.target.value)}
-                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
+                  multiple
+                  value={selectedAssigneeIds}
+                  onChange={(e) =>
+                    handleAssigneeChange(
+                      Array.from(e.target.selectedOptions).map((option) => option.value)
+                    )
+                  }
+                  className="text-sm border rounded px-2 py-1 bg-background flex-1 min-h-[96px]"
                 >
-                  <option value="">Не назначен</option>
                   {users.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name} ({u.role})
@@ -477,6 +491,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   ))}
                 </select>
               </div>
+              <p className="text-xs text-muted-foreground">Можно выбрать нескольких исполнителей (Ctrl/Cmd + клик).</p>
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <CalendarDays className="w-4 h-4" />
@@ -632,7 +647,12 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 )}
                 {events.map((e) => (
                   <div key={e.id} className="text-xs text-muted-foreground">
-                    <span>{new Date(e.created_at).toLocaleString('ru')} · {formatTaskEvent(e.event_type, e.payload)}</span>
+                    <span>
+                      {new Date(e.created_at).toLocaleString('ru')}
+                      {e.actor?.name ? ` · ${e.actor.name}` : ''}
+                      {' · '}
+                      {formatTaskEvent(e.event_type, e.payload)}
+                    </span>
                     {e.reason && (
                       <p className="italic text-foreground/70 mt-0.5">"{e.reason}"</p>
                     )}

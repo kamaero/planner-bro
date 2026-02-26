@@ -15,6 +15,7 @@ class TaskBase(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     assigned_to_id: Optional[str] = None
+    assignee_ids: list[str] = Field(default_factory=list)
     parent_task_id: Optional[str] = None
     estimated_hours: Optional[int] = None
     is_escalation: bool = False
@@ -41,6 +42,7 @@ class TaskUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     assigned_to_id: Optional[str] = None
+    assignee_ids: Optional[list[str]] = None
     estimated_hours: Optional[int] = None
     parent_task_id: Optional[str] = None
     is_escalation: Optional[bool] = None
@@ -65,6 +67,7 @@ class TaskBulkUpdateRequest(BaseModel):
     priority: Optional[str] = None
     control_ski: Optional[bool] = None
     assigned_to_id: Optional[str] = None
+    assignee_ids: Optional[list[str]] = None
     delete: bool = False
 
 
@@ -80,6 +83,8 @@ class TaskOut(TaskBase):
     project_id: str
     created_by_id: str
     assignee: Optional[UserOut] = None
+    assignees: list[UserOut] = Field(default_factory=list)
+    last_comment: Optional[str] = None
     last_check_in_at: Optional[datetime] = None
     next_check_in_due_at: Optional[datetime] = None
     last_check_in_note: Optional[str] = None
@@ -112,6 +117,7 @@ class TaskEventOut(BaseModel):
     payload: Optional[str] = None
     reason: Optional[str] = None
     created_at: datetime
+    actor: Optional[UserOut] = None
 
     model_config = {"from_attributes": True}
 

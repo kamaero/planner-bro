@@ -70,6 +70,9 @@ class Task(Base):
     assignee: Mapped["User | None"] = relationship(
         "User", foreign_keys=[assigned_to_id], back_populates="assigned_tasks"
     )
+    assignees: Mapped[list["TaskAssignee"]] = relationship(
+        "TaskAssignee", back_populates="task", cascade="all, delete-orphan"
+    )
     creator: Mapped["User"] = relationship("User", foreign_keys=[created_by_id])
     comments: Mapped[list["TaskComment"]] = relationship(
         "TaskComment", back_populates="task", cascade="all, delete-orphan"
@@ -128,6 +131,7 @@ class TaskEvent(Base):
     )
 
     task: Mapped["Task"] = relationship("Task", back_populates="events")
+    actor: Mapped["User | None"] = relationship("User", foreign_keys=[actor_id])
 
 
 class TaskDependency(Base):
@@ -152,3 +156,20 @@ class TaskDependency(Base):
     successor_task: Mapped["Task"] = relationship(
         "Task", foreign_keys=[successor_task_id], back_populates="predecessor_links"
     )
+
+
+class TaskAssignee(Base):
+    __tablename__ = "task_assignees"
+
+    task_id: Mapped[str] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    task: Mapped["Task"] = relationship("Task", back_populates="assignees")
+    user: Mapped["User"] = relationship("User")

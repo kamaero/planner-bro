@@ -348,21 +348,18 @@ def _extract_tasks_from_fixed_plan_table(source_text: str) -> list[dict[str, Any
         if not desc or len(desc) < 12:
             continue
         task_no = str(row.get("task_no") or "").strip()
-        numbered_title = f"{task_no} {desc}".strip() if task_no else desc
-        title = numbered_title[:180]
-        if len(desc) > 180:
-            title = f"{title}..."
+        title = f"{task_no} {desc}".strip()[:500] if task_no else desc[:500]
 
         priority_map = {"1": "critical", "2": "high", "3": "medium"}
         p_raw = str(row.get("priority_raw") or "").strip()
         priority = priority_map.get(p_raw, "medium")
 
         comment = " ".join(str(row.get("comment", "")).split()).strip()
-        if comment:
-            description = f"{desc}\n\nКомментарий: {comment}"[:5000]
-        else:
-            description = desc
+        description = desc[:5000]
         quote = desc[:500]
+        payload = dict(row)
+        if comment:
+            payload["comment"] = comment
         tasks.append(
             {
                 "title": title,
@@ -375,7 +372,7 @@ def _extract_tasks_from_fixed_plan_table(source_text: str) -> list[dict[str, Any
                 "next_step": None,
                 "source_quote": quote,
                 "confidence": 95,
-                "raw_payload": row,
+                "raw_payload": payload,
             }
         )
 

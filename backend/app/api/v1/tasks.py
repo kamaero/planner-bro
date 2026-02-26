@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.task import Task, TaskComment, TaskEvent, TaskDependency
+from app.models.task import Task, TaskComment, TaskEvent, TaskDependency, TaskAssignee
 from app.models.project import Project, ProjectMember
 from app.models.deadline_change import DeadlineChange
 from app.schemas.task import (
@@ -106,10 +106,55 @@ async def _ensure_member_for_assignee(project_id: str, assignee_id: str, db: Asy
         await db.flush()
 
 
+async def _sync_task_assignees(
+    task: Task,
+    assignee_ids: list[str] | None,
+    project_id: str,
+    db: AsyncSession,
+) -> None:
+    if assignee_ids is None:
+        return
+    normalized = [uid.strip() for uid in assignee_ids if uid and uid.strip()]
+    unique_ids = list(dict.fromkeys(normalized))
+    for uid in unique_ids:
+        await _ensure_member_for_assignee(project_id, uid, db)
+
+    existing_rows = (
+        await db.execute(select(TaskAssignee).where(TaskAssignee.task_id == task.id))
+    ).scalars().all()
+    existing_by_user = {row.user_id: row for row in existing_rows}
+    desired_ids = set(unique_ids)
+
+    for row in existing_rows:
+        if row.user_id not in desired_ids:
+            await db.delete(row)
+
+    for uid in unique_ids:
+        if uid not in existing_by_user:
+            db.add(TaskAssignee(task_id=task.id, user_id=uid))
+
+    task.assigned_to_id = unique_ids[0] if unique_ids else None
+
+
+def _serialize_assignee_ids(task: Task) -> list[str]:
+    if task.assignees:
+        return [link.user_id for link in task.assignees]
+    return [task.assigned_to_id] if task.assigned_to_id else []
+
+
+def _serialize_assignees(task: Task) -> list[User]:
+    if task.assignees:
+        return [link.user for link in task.assignees if link.user]
+    return [task.assignee] if task.assignee else []
+
+
 async def _require_task_editor(task: Task, user: User, db: AsyncSession) -> None:
     if user.role == "admin":
         return
-    if task.assigned_to_id == user.id:
+    assignee_ids = {task.assigned_to_id} if task.assigned_to_id else set()
+    if task.assignees:
+        assignee_ids |= {link.user_id for link in task.assignees}
+    if user.id in assignee_ids:
         return
     if await _is_project_member(task.project_id, user, db):
         return
@@ -236,6 +281,9 @@ async def create_task(
 ):
     await _require_project_member(project_id, current_user, db)
     payload = data.model_dump()
+    assignee_ids = payload.pop("assignee_ids", None) if "assignee_ids" in data.model_fields_set else None
+    if assignee_ids is not None:
+        payload["assigned_to_id"] = assignee_ids[0] if assignee_ids else None
     _prepare_escalation_fields(payload)
     payload["priority"] = _normalize_priority_for_control_ski(
         payload.get("priority", "medium"),
@@ -261,19 +309,26 @@ async def create_task(
         "task_created",
         f"is_escalation={task.is_escalation};assignee={task.assigned_to_id or ''}",
     )
+    if assignee_ids is not None:
+        await _sync_task_assignees(task, assignee_ids, project_id, db)
 
     # Notify assignee
-    if task.assigned_to_id:
-        await notify_task_assigned(db, task, task.assigned_to_id)
+    for uid in _serialize_assignee_ids(task):
+        await notify_task_assigned(db, task, uid)
 
     await notify_new_task(db, task)
     await db.commit()
     await db.refresh(task)
 
     result = await db.execute(
-        select(Task).where(Task.id == task.id).options(selectinload(Task.assignee))
+        select(Task)
+        .where(Task.id == task.id)
+        .options(selectinload(Task.assignee), selectinload(Task.assignees).selectinload(TaskAssignee.user))
     )
-    return result.scalar_one()
+    loaded = result.scalar_one()
+    setattr(loaded, "assignee_ids", _serialize_assignee_ids(loaded))
+    setattr(loaded, "assignees", _serialize_assignees(loaded))
+    return loaded
 
 
 @router.get("/tasks/{task_id}", response_model=TaskOut)
@@ -306,12 +361,15 @@ async def update_task(
     old_end_date = task.end_date
     # Keep explicitly passed nulls (e.g. clearing dates/assignee) but ignore fields not sent by client.
     payload = data.model_dump(exclude_unset=True)
+    assignee_ids = payload.pop("assignee_ids", None)
+    if assignee_ids is not None:
+        payload["assigned_to_id"] = assignee_ids[0] if assignee_ids else None
     deadline_change_reason = payload.pop("deadline_change_reason", None)
 
     # Validate deadline change requires a reason
     end_date_provided = "end_date" in payload
     new_end_date = payload.get("end_date")
-    if end_date_provided and new_end_date != old_end_date:
+    if end_date_provided and old_end_date is not None and new_end_date != old_end_date:
         if not deadline_change_reason:
             raise HTTPException(status_code=422, detail="Укажите причину изменения дедлайна")
 
@@ -344,7 +402,7 @@ async def update_task(
         task.next_check_in_due_at = _plan_next_check_in(task, _now_utc())
 
     # Record deadline change if end_date actually changed
-    if end_date_provided and new_end_date != old_end_date and deadline_change_reason:
+    if end_date_provided and old_end_date is not None and new_end_date != old_end_date and deadline_change_reason:
         db.add(DeadlineChange(
             entity_type="task",
             entity_id=task.id,
@@ -374,16 +432,20 @@ async def update_task(
 
     if "assigned_to_id" in payload and task.assigned_to_id:
         await _ensure_member_for_assignee(task.project_id, task.assigned_to_id, db)
+    await _sync_task_assignees(task, assignee_ids, task.project_id, db)
 
     # Notify new assignee
-    if task.assigned_to_id and task.assigned_to_id != old_assignee:
-        await notify_task_assigned(db, task, task.assigned_to_id)
+    new_assignee_ids = set(_serialize_assignee_ids(task))
+    old_assignee_ids = {old_assignee} if old_assignee else set()
+    for uid in sorted(new_assignee_ids - old_assignee_ids):
+        await notify_task_assigned(db, task, uid)
+    if new_assignee_ids != old_assignee_ids:
         await _log_task_event(
             db,
             task.id,
             current_user.id,
             "assignee_changed",
-            f"{old_assignee or ''}->{task.assigned_to_id}",
+            f"{old_assignee or ''}->{','.join(sorted(new_assignee_ids))}",
         )
     if task.status != old_status:
         await _log_task_event(
@@ -400,9 +462,14 @@ async def update_task(
     await db.refresh(task)
 
     result = await db.execute(
-        select(Task).where(Task.id == task.id).options(selectinload(Task.assignee))
+        select(Task)
+        .where(Task.id == task.id)
+        .options(selectinload(Task.assignee), selectinload(Task.assignees).selectinload(TaskAssignee.user))
     )
-    return result.scalar_one()
+    loaded = result.scalar_one()
+    setattr(loaded, "assignee_ids", _serialize_assignee_ids(loaded))
+    setattr(loaded, "assignees", _serialize_assignees(loaded))
+    return loaded
 
 
 @router.get("/tasks/{task_id}/dependencies", response_model=list[TaskDependencyOut])
@@ -543,6 +610,10 @@ async def bulk_update_tasks(
             raise HTTPException(
                 status_code=400, detail=f"Invalid priority. Must be one of: {valid_priorities}"
             )
+    assignee_ids = payload.pop("assignee_ids", None)
+    if assignee_ids is not None:
+        payload["assigned_to_id"] = assignee_ids[0] if assignee_ids else None
+
     if "assigned_to_id" in payload and payload["assigned_to_id"]:
         await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], db)
 
@@ -580,6 +651,9 @@ async def bulk_update_tasks(
             if getattr(task, field) != value:
                 setattr(task, field, value)
                 changed = True
+        if assignee_ids is not None:
+            await _sync_task_assignees(task, assignee_ids, project_id, db)
+            changed = True
 
         if payload.get("status") == "done" and task.progress_percent != 100:
             task.progress_percent = 100
@@ -612,8 +686,8 @@ async def bulk_update_tasks(
                 "assignee_changed",
                 f"{old_assignee or ''}->{task.assigned_to_id or ''}",
             )
-            if task.assigned_to_id:
-                await notify_task_assigned(db, task, task.assigned_to_id)
+            for uid in _serialize_assignee_ids(task):
+                await notify_task_assigned(db, task, uid)
 
         await _log_task_event(
             db,
@@ -727,9 +801,14 @@ async def update_task_status(
     await db.refresh(task)
 
     result = await db.execute(
-        select(Task).where(Task.id == task.id).options(selectinload(Task.assignee))
+        select(Task)
+        .where(Task.id == task.id)
+        .options(selectinload(Task.assignee), selectinload(Task.assignees).selectinload(TaskAssignee.user))
     )
-    return result.scalar_one()
+    loaded = result.scalar_one()
+    setattr(loaded, "assignee_ids", _serialize_assignee_ids(loaded))
+    setattr(loaded, "assignees", _serialize_assignees(loaded))
+    return loaded
 
 
 @router.post("/tasks/{task_id}/check-in", response_model=TaskOut)
@@ -789,9 +868,14 @@ async def check_in_task(
         )
 
     result = await db.execute(
-        select(Task).where(Task.id == task.id).options(selectinload(Task.assignee))
+        select(Task)
+        .where(Task.id == task.id)
+        .options(selectinload(Task.assignee), selectinload(Task.assignees).selectinload(TaskAssignee.user))
     )
-    return result.scalar_one()
+    loaded = result.scalar_one()
+    setattr(loaded, "assignee_ids", _serialize_assignee_ids(loaded))
+    setattr(loaded, "assignees", _serialize_assignees(loaded))
+    return loaded
 
 
 @router.get("/tasks/escalations/inbox", response_model=list[TaskOut])
@@ -806,10 +890,14 @@ async def escalation_inbox(
             Task.assigned_to_id == current_user.id,
             Task.status != "done",
         )
-        .options(selectinload(Task.assignee))
+        .options(selectinload(Task.assignee), selectinload(Task.assignees).selectinload(TaskAssignee.user))
         .order_by(Task.created_at.desc())
     )
-    return result.scalars().all()
+    tasks = result.scalars().all()
+    for task in tasks:
+        setattr(task, "assignee_ids", _serialize_assignee_ids(task))
+        setattr(task, "assignees", _serialize_assignees(task))
+    return tasks
 
 
 @router.get("/projects/{project_id}/critical-path")
@@ -917,6 +1005,7 @@ async def list_task_events(
     result = await db.execute(
         select(TaskEvent)
         .where(TaskEvent.task_id == task_id)
+        .options(selectinload(TaskEvent.actor))
         .order_by(TaskEvent.created_at.desc())
         .limit(100)
     )

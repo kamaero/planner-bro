@@ -52,7 +52,10 @@ export interface Task {
   start_date?: string
   end_date?: string
   assigned_to_id?: string
+  assignee_ids?: string[]
   assignee?: User
+  assignees?: User[]
+  last_comment?: string
   is_escalation?: boolean
   escalation_for?: string
   escalation_sla_hours?: number
@@ -153,6 +156,7 @@ export interface TaskEvent {
   payload?: string
   reason?: string
   created_at: string
+  actor?: User
 }
 
 export interface TaskBulkUpdateResult {

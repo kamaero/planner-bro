@@ -1,7 +1,7 @@
 from app.models.user import User
 from app.models.department import Department
 from app.models.project import Project, ProjectMember, ProjectFile, ProjectDepartment
-from app.models.task import Task, TaskComment, TaskEvent, TaskDependency
+from app.models.task import Task, TaskComment, TaskEvent, TaskDependency, TaskAssignee
 from app.models.notification import Notification
 from app.models.ai import AIIngestionJob, AITaskDraft
 from app.models.deadline_change import DeadlineChange
@@ -17,6 +17,7 @@ __all__ = [
     "TaskComment",
     "TaskEvent",
     "TaskDependency",
+    "TaskAssignee",
     "Notification",
     "AIIngestionJob",
     "AITaskDraft",
