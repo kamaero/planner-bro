@@ -7,6 +7,7 @@ from sqlalchemy import select, or_, delete, func
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.services.websocket_manager import ws_manager
 from app.core.security import hash_password, verify_password
 from app.models.user import User
 from app.models.department import Department
@@ -380,6 +381,21 @@ async def global_search(
         "tasks": [{"id": t.id, "title": t.title, "project_id": t.project_id, "status": t.status} for t in tasks],
         "users": [{"id": u.id, "name": u.name, "email": u.email} for u in users],
     }
+
+
+@router.get("/online/presence")
+async def list_online_users(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return users who currently have an active WebSocket connection."""
+    online_ids = list(ws_manager._user_sockets.keys())
+    if not online_ids:
+        return []
+    result = await db.execute(
+        select(User.id, User.name).where(User.id.in_(online_ids), User.is_active == True)  # noqa: E712
+    )
+    return [{"id": row.id, "name": row.name} for row in result.all()]
 
 
 @router.get("/{user_id}", response_model=UserOut)

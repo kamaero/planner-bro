@@ -117,6 +117,7 @@ export const api = {
   ) => apiClient.patch(`/users/${userId}/permissions`, data).then((r) => r.data),
   deactivateUser: (userId: string) => apiClient.delete(`/users/${userId}`),
   searchUsers: (q: string) => apiClient.get('/users/search', { params: { q } }).then((r) => r.data),
+  getOnlineUsers: () => apiClient.get('/users/online/presence').then((r) => r.data as { id: string; name: string }[]),
   listDepartments: () => apiClient.get('/users/org/departments').then((r) => r.data),
   createDepartment: (data: { name: string; parent_id?: string | null; head_user_id?: string | null }) =>
     apiClient.post('/users/org/departments', data).then((r) => r.data),

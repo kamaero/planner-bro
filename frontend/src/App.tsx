@@ -14,6 +14,7 @@ import { NotificationBell } from '@/components/NotificationBell/NotificationBell
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -57,6 +58,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     users: Array<{ id: string; name: string; email: string }>
   } | null>(null)
   useWebSocket()
+
+  const { data: onlineUsers = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['online-users'],
+    queryFn: api.getOnlineUsers,
+    refetchInterval: 30_000,
+  })
 
   const handleLogout = async () => {
     if (refreshToken) {
@@ -129,6 +136,23 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             )
           })}
         </nav>
+
+        {onlineUsers.length > 0 && (
+          <div className="px-4 mt-6">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
+              Онлайн · {onlineUsers.length}
+            </p>
+            <div className="space-y-1">
+              {onlineUsers.map((u) => (
+                <div key={u.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
+                  <span className="truncate">{u.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mt-auto px-4 py-4 border-t flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{user?.name}</p>
