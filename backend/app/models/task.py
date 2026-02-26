@@ -70,7 +70,7 @@ class Task(Base):
     assignee: Mapped["User | None"] = relationship(
         "User", foreign_keys=[assigned_to_id], back_populates="assigned_tasks"
     )
-    assignees: Mapped[list["TaskAssignee"]] = relationship(
+    assignee_links: Mapped[list["TaskAssignee"]] = relationship(
         "TaskAssignee", back_populates="task", cascade="all, delete-orphan"
     )
     creator: Mapped["User"] = relationship("User", foreign_keys=[created_by_id])
@@ -92,6 +92,18 @@ class Task(Base):
         back_populates="predecessor_task",
         cascade="all, delete-orphan",
     )
+
+    @property
+    def assignee_ids(self) -> list[str]:
+        if self.assignee_links:
+            return [link.user_id for link in self.assignee_links]
+        return [self.assigned_to_id] if self.assigned_to_id else []
+
+    @property
+    def assignees(self) -> list["User"]:
+        if self.assignee_links:
+            return [link.user for link in self.assignee_links if link.user]
+        return [self.assignee] if self.assignee else []
 
 
 class TaskComment(Base):
@@ -171,5 +183,5 @@ class TaskAssignee(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    task: Mapped["Task"] = relationship("Task", back_populates="assignees")
+    task: Mapped["Task"] = relationship("Task", back_populates="assignee_links")
     user: Mapped["User"] = relationship("User")

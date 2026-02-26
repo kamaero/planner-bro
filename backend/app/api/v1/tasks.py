@@ -137,23 +137,17 @@ async def _sync_task_assignees(
 
 
 def _serialize_assignee_ids(task: Task) -> list[str]:
-    if task.assignees:
-        return [link.user_id for link in task.assignees]
+    if task.assignee_links:
+        return [link.user_id for link in task.assignee_links]
     return [task.assigned_to_id] if task.assigned_to_id else []
-
-
-def _serialize_assignees(task: Task) -> list[User]:
-    if task.assignees:
-        return [link.user for link in task.assignees if link.user]
-    return [task.assignee] if task.assignee else []
 
 
 async def _require_task_editor(task: Task, user: User, db: AsyncSession) -> None:
     if user.role == "admin":
         return
     assignee_ids = {task.assigned_to_id} if task.assigned_to_id else set()
-    if task.assignees:
-        assignee_ids |= {link.user_id for link in task.assignees}
+    if task.assignee_links:
+        assignee_ids |= {link.user_id for link in task.assignee_links}
     if user.id in assignee_ids:
         return
     if await _is_project_member(task.project_id, user, db):
@@ -323,12 +317,9 @@ async def create_task(
     result = await db.execute(
         select(Task)
         .where(Task.id == task.id)
-        .options(selectinload(Task.assignee), selectinload(Task.assignees).selectinload(TaskAssignee.user))
+        .options(selectinload(Task.assignee), selectinload(Task.assignee_links).selectinload(TaskAssignee.user))
     )
-    loaded = result.scalar_one()
-    setattr(loaded, "assignee_ids", _serialize_assignee_ids(loaded))
-    setattr(loaded, "assignees", _serialize_assignees(loaded))
-    return loaded
+    return result.scalar_one()
 
 
 @router.get("/tasks/{task_id}", response_model=TaskOut)
@@ -464,12 +455,9 @@ async def update_task(
     result = await db.execute(
         select(Task)
         .where(Task.id == task.id)
-        .options(selectinload(Task.assignee), selectinload(Task.assignees).selectinload(TaskAssignee.user))
+        .options(selectinload(Task.assignee), selectinload(Task.assignee_links).selectinload(TaskAssignee.user))
     )
-    loaded = result.scalar_one()
-    setattr(loaded, "assignee_ids", _serialize_assignee_ids(loaded))
-    setattr(loaded, "assignees", _serialize_assignees(loaded))
-    return loaded
+    return result.scalar_one()
 
 
 @router.get("/tasks/{task_id}/dependencies", response_model=list[TaskDependencyOut])
@@ -803,12 +791,9 @@ async def update_task_status(
     result = await db.execute(
         select(Task)
         .where(Task.id == task.id)
-        .options(selectinload(Task.assignee), selectinload(Task.assignees).selectinload(TaskAssignee.user))
+        .options(selectinload(Task.assignee), selectinload(Task.assignee_links).selectinload(TaskAssignee.user))
     )
-    loaded = result.scalar_one()
-    setattr(loaded, "assignee_ids", _serialize_assignee_ids(loaded))
-    setattr(loaded, "assignees", _serialize_assignees(loaded))
-    return loaded
+    return result.scalar_one()
 
 
 @router.post("/tasks/{task_id}/check-in", response_model=TaskOut)
@@ -870,12 +855,9 @@ async def check_in_task(
     result = await db.execute(
         select(Task)
         .where(Task.id == task.id)
-        .options(selectinload(Task.assignee), selectinload(Task.assignees).selectinload(TaskAssignee.user))
+        .options(selectinload(Task.assignee), selectinload(Task.assignee_links).selectinload(TaskAssignee.user))
     )
-    loaded = result.scalar_one()
-    setattr(loaded, "assignee_ids", _serialize_assignee_ids(loaded))
-    setattr(loaded, "assignees", _serialize_assignees(loaded))
-    return loaded
+    return result.scalar_one()
 
 
 @router.get("/tasks/escalations/inbox", response_model=list[TaskOut])
@@ -890,13 +872,10 @@ async def escalation_inbox(
             Task.assigned_to_id == current_user.id,
             Task.status != "done",
         )
-        .options(selectinload(Task.assignee), selectinload(Task.assignees).selectinload(TaskAssignee.user))
+        .options(selectinload(Task.assignee), selectinload(Task.assignee_links).selectinload(TaskAssignee.user))
         .order_by(Task.created_at.desc())
     )
     tasks = result.scalars().all()
-    for task in tasks:
-        setattr(task, "assignee_ids", _serialize_assignee_ids(task))
-        setattr(task, "assignees", _serialize_assignees(task))
     return tasks
 
 
