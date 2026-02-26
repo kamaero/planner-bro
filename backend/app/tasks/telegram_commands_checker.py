@@ -11,10 +11,7 @@ from app.services.telegram_service import (
     set_updates_offset,
 )
 from app.tasks.celery_app import celery_app
-from app.tasks.telegram_summary_checker import (
-    _async_send_critical_tasks_summary,
-    _async_send_projects_summary,
-)
+from app.tasks.telegram_summary_checker import send_critical_tasks_summary, send_projects_summary
 
 
 def _is_enabled() -> bool:
@@ -62,51 +59,55 @@ async def _async_check_telegram_commands() -> None:
     if not updates:
         return
 
-    max_update_id = offset
     for upd in updates:
         update_id = int(upd.get("update_id", 0))
-        if update_id > max_update_id:
-            max_update_id = update_id
+        try:
+            message = upd.get("message") or upd.get("edited_message")
+            if not message:
+                continue
+            chat = message.get("chat") or {}
+            if str(chat.get("id")) != chat_id:
+                continue
 
-        message = upd.get("message") or upd.get("edited_message")
-        if not message:
-            continue
-        chat = message.get("chat") or {}
-        if str(chat.get("id")) != chat_id:
-            continue
+            text = message.get("text") or ""
+            command = _normalize_command(text)
+            if command not in {"/start", "/stop", "/stats"}:
+                continue
 
-        text = message.get("text") or ""
-        command = _normalize_command(text)
-        if command not in {"/start", "/stop", "/stats"}:
-            continue
+            sender = message.get("from") or {}
+            sender_id = str(sender.get("id", ""))
+            sender_name = sender.get("first_name") or sender.get("username") or sender_id
+            if not sender_id:
+                continue
+            if not await _is_authorized(sender_id, chat_id):
+                await send_chat_message(
+                    chat_id,
+                    f"⛔ Команда {escape_html(command)} отклонена. "
+                    f"Пользователь {escape_html(str(sender_name))} не имеет прав админа бота.",
+                )
+                continue
 
-        sender = message.get("from") or {}
-        sender_id = str(sender.get("id", ""))
-        sender_name = sender.get("first_name") or sender.get("username") or sender_id
-        if not sender_id:
-            continue
-        if not await _is_authorized(sender_id, chat_id):
-            await send_chat_message(
-                chat_id,
-                f"⛔ Команда {escape_html(command)} отклонена. "
-                f"Пользователь {escape_html(str(sender_name))} не имеет прав админа бота.",
-            )
-            continue
+            if command == "/start":
+                await set_summaries_enabled(True)
+                await send_chat_message(chat_id, "✅ Сводки PlannerBro включены.")
+                continue
 
-        if command == "/start":
-            await set_summaries_enabled(True)
-            await send_chat_message(chat_id, "✅ Сводки PlannerBro включены.")
-            continue
+            if command == "/stop":
+                await set_summaries_enabled(False)
+                await send_chat_message(chat_id, "⏸ Сводки PlannerBro остановлены.")
+                continue
 
-        if command == "/stop":
-            await set_summaries_enabled(False)
-            await send_chat_message(chat_id, "⏸ Сводки PlannerBro остановлены.")
-            continue
-
-        if command == "/stats":
-            await send_chat_message(chat_id, "📊 Формирую текущую сводку PlannerBro...")
-            await _async_send_projects_summary(compact=True, force=True)
-            await _async_send_critical_tasks_summary(compact=True, force=True)
-
-    await set_updates_offset(max_update_id + 1)
-
+            if command == "/stats":
+                await send_chat_message(chat_id, "📊 Формирую текущую сводку PlannerBro...")
+                send_projects_summary.delay(compact=True, force=True)
+                send_critical_tasks_summary.delay(compact=True, force=True)
+        except Exception as exc:
+            try:
+                await send_chat_message(
+                    chat_id,
+                    f"⚠️ Ошибка обработки команды: {escape_html(str(exc))[:300]}",
+                )
+            except Exception:
+                pass
+        finally:
+            await set_updates_offset(update_id + 1)

@@ -38,13 +38,13 @@ def _task_url(task: Task) -> str:
 
 
 @celery_app.task(name="app.tasks.telegram_summary_checker.send_projects_summary")
-def send_projects_summary():
-    asyncio.run(_async_send_projects_summary(compact=False, force=False))
+def send_projects_summary(compact: bool = False, force: bool = False):
+    asyncio.run(_async_send_projects_summary(compact=compact, force=force))
 
 
 @celery_app.task(name="app.tasks.telegram_summary_checker.send_critical_tasks_summary")
-def send_critical_tasks_summary():
-    asyncio.run(_async_send_critical_tasks_summary(compact=False, force=False))
+def send_critical_tasks_summary(compact: bool = False, force: bool = False):
+    asyncio.run(_async_send_critical_tasks_summary(compact=compact, force=force))
 
 
 async def _async_send_projects_summary(compact: bool = False, force: bool = False) -> None:
