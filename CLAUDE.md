@@ -92,11 +92,11 @@ Client (browser / Flutter)
 Layered FastAPI with async SQLAlchemy:
 
 - **`core/`** — cross-cutting: `config.py` (Pydantic Settings from `.env`), `database.py` (async engine + `get_db` dependency), `security.py` (`get_current_user` Bearer dependency, JWT helpers), `firebase.py` (FCM admin SDK, gracefully no-ops if credentials file absent)
-- **`models/`** — SQLAlchemy ORM. All PKs are `str` UUIDs. `ProjectMember` is a composite-PK join table (project_id + user_id). `Task.parent_task_id` is a self-referential FK for subtasks. `ProjectFile` stores uploaded files per project. `DeadlineChange` records every end_date mutation with old/new dates and a mandatory reason.
+- **`models/`** — SQLAlchemy ORM. All PKs are `str` UUIDs. `ProjectMember` is a composite-PK join table (project_id + user_id). `Task.parent_task_id` is a self-referential FK for subtasks. `ProjectFile` stores uploaded files per project. `DeadlineChange` records every end_date mutation with old/new dates and a mandatory reason. `VaultFile` stores encrypted team file metadata. `Department` supports hierarchical org structure; `User` has `manager_id` (self-ref FK), `department_id`, `position_title`, `work_email` fields.
 - **`schemas/`** — Pydantic request/response models, one file per domain. `GanttTask`/`GanttData` in `project.py` map directly to the `gantt-task-react` Task interface.
-- **`api/v1/`** — thin route handlers. Authorization helpers (`_require_project_access`, `_require_project_member`) are local to each router file. `tasks.py` router has **no prefix** — task routes are split across `/projects/{id}/tasks` and `/tasks/{id}`. Project files live under `/projects/{id}/files` with upload/list/download/delete endpoints.
-- **`services/`** — business logic. `notification_service.py` is the central fan-out point: every mutation calls a `notify_*` function which (1) writes DB records, (2) sends FCM via `firebase.py`, (3) broadcasts a WebSocket event via `ws_manager`.
-- **`tasks/`** — Celery. `celery_app.py` defines the Beat schedule. `deadline_checker.py` uses `asyncio.run()` to call async DB code from a sync Celery task.
+- **`api/v1/`** — thin route handlers. Authorization helpers (`_require_project_access`, `_require_project_member`) are local to each router file. `tasks.py` router has **no prefix** — task routes are split across `/projects/{id}/tasks` and `/tasks/{id}`. Project files live under `/projects/{id}/files` with upload/list/download/delete endpoints. `vault.py` handles encrypted team storage. `GET /users/online/presence` returns users with active WebSocket connections (polled by sidebar every 30 s).
+- **`services/`** — business logic. `notification_service.py` is the central fan-out point: every mutation calls a `notify_*` function which (1) writes DB records, (2) sends FCM via `firebase.py`, (3) broadcasts a WebSocket event via `ws_manager`. `vault_crypto.py` — AES-256-GCM encryption: `derive_file_key` (HKDF-SHA256, file_id as info), `encrypt_file`/`decrypt_file`, signed 15-min download JWTs.
+- **`tasks/`** — Celery. `celery_app.py` defines the Beat schedule. `deadline_checker.py` uses `asyncio.run()` to call async DB code from a sync Celery task. `ai_ingestion.py` deletes the source file from disk immediately after text extraction (security + disk hygiene).
 
 ### Deadline change audit trail
 Every `end_date` change on a task or project **requires a mandatory reason** (`deadline_change_reason` field in PUT body). Validated at the API level — 422 if missing.
@@ -107,6 +107,17 @@ Two parallel records are written on each deadline change:
 
 Frontend: `DeadlineReasonModal` intercepts saves in TaskDrawer and ProjectDetail edit form. Deadline history is displayed as a collapsible section in both places.
 
+### Secure team vault
+Encrypted file storage at `/storage` route. Security model:
+- **Per-file keys**: `HKDF-SHA256(master_key, file_id)` → 32-byte AES key. Compromising one file's key doesn't expose others.
+- **AES-256-GCM** with 96-bit random nonce; 16-byte auth tag detects tampering on decrypt.
+- **Download tokens**: short-lived JWT (15 min, HS256) with `{sub, fid, purpose}` claims. Download endpoint skips Bearer auth so browsers can open files directly.
+- `VAULT_ENCRYPTION_KEY` in `.env` (64-char hex). Falls back to `SHA-256(SECRET_KEY)` with a warning log if unset.
+- Vault files are stored in `VAULT_FILES_DIR` (default `uploads/vault`), mounted as a persistent volume in production.
+
+### Online presence
+`GET /users/online/presence` reads `ws_manager._user_sockets.keys()` (in-memory, no DB) and returns `[{id, name}]` for users with active WebSocket connections. The sidebar polls this every 30 s and shows a green dot list.
+
 ### Authorization model
 - JWT access token in `Authorization: Bearer` header. `get_current_user` dependency validates it.
 - Project access: a user must exist in `project_members` for that project (or have `role="admin"` to bypass).
@@ -116,10 +127,14 @@ Frontend: `DeadlineReasonModal` intercepts saves in TaskDrawer and ProjectDetail
 - **`store/authStore.ts`** — Zustand store. Only `refreshToken` is persisted (localStorage via `persist`). `accessToken` lives in memory only.
 - **`api/client.ts`** — Axios instance with two interceptors: (1) attaches access token to every request, (2) on 401, calls `/auth/refresh`, saves new tokens, replays queued requests. All API functions are exported from `api` object here.
 - **`hooks/useProjects.ts`** — all TanStack Query hooks for projects/tasks/files. On mutations, invalidates both `tasks` and `gantt` query keys since both derive from the same data.
+- **`hooks/useVault.ts`** — TanStack Query hooks for vault: `useVaultFiles`, `useUploadVaultFile`, `useDeleteVaultFile`, `useVaultDownloadToken`.
 - **`hooks/useWebSocket.ts`** — opens `ws://host/ws?token=...` on mount, dispatches `queryClient.invalidateQueries` on received events. No explicit reconnect logic.
 - **`components/GanttChart/`** — wraps `gantt-task-react`. Converts `GanttTask[]` (from the `/gantt` endpoint) to the library's `Task[]` type via `toGanttTasks()`.
 - **`pages/Dashboard.tsx`** — clickable KPI cards filter a project list (active/in-progress/overdue/completed) and add fast navigation via `ProjectCard` links.
 - **`pages/ProjectDetail.tsx`** — project editing (name/status/dates/owner) and a Files tab for uploading and managing attachments.
+- **`pages/TeamStorage.tsx`** — encrypted vault UI: folder tabs, file list, upload panel (with optional description), download via signed token (`window.open`), delete gated by `can_delete`/`admin`.
+- **`pages/Team.tsx`** — team management. Users can edit their own display name inline in their card (calls `PUT /users/me`). Admins/managers manage roles, org structure, departments.
+- **`App.tsx`** sidebar — polls `GET /users/online/presence` every 30 s; shows green dot + name list under nav items.
 
 ### Flutter mobile (`mobile/lib/`)
 - **`core/api_client.dart`** — singleton `apiClient` (Dio). Token stored in `flutter_secure_storage`. On 401, attempts refresh then replays; on failure calls `logout()` (clears storage).
@@ -145,6 +160,7 @@ Required before features work:
 - **Push notifications**: `firebase-credentials.json` at `FIREBASE_CREDENTIALS_PATH` (Firebase gracefully skips if file is absent)
 - **Email**: `SMTP_USER` + `SMTP_PASSWORD` (only deadline_missed events send email)
 - **Project files storage**: `PROJECT_FILES_DIR` points to a writable directory. In production, mount this directory as a persistent volume.
+- **Vault storage**: `VAULT_FILES_DIR` (default `uploads/vault`) — persistent volume in production. `VAULT_ENCRYPTION_KEY` — 64-char hex string (32-byte AES master key). Generate: `python3 -c "import os; print(os.urandom(32).hex())"`. Falls back to `SHA-256(SECRET_KEY)` with a warning if unset.
 
 ## Production Security (VPS: 95.164.92.165)
 
@@ -194,6 +210,10 @@ Migration chain (`backend/alembic/versions/`):
 | 0009 | `user_permissions.py` | Granular permissions: `can_delete`, `can_import`, `can_bulk_edit` |
 | 0010 | `deadline_changes.py` | `deadline_changes` audit table |
 | 0011 | `task_event_reason.py` | `reason` column on `task_events` |
+| 0012 | `user_work_email_and_team_status_notifications.py` | `users.work_email`, `team_status_reminder` notification type |
+| 0013 | `task_checkin_fields.py` | `last_check_in_at`, `next_check_in_due_at`, `last_check_in_note` on tasks |
+| 0014 | `org_and_task_dependencies.py` | `departments` table; `position_title`, `manager_id`, `department_id` on users; task dependencies |
+| 0015 | `vault.py` | `vault_files` table for encrypted team storage |
 
 Alembic runs automatically on container start via the `command:` in `docker-compose.yml`.
 
