@@ -37,6 +37,7 @@ const PROJECT_STATUS_LABEL: Record<string, string> = {
 }
 
 const TASK_STATUS_LABEL: Record<string, string> = {
+  planning: 'Планирование',
   todo: 'К выполнению',
   in_progress: 'В работе',
   review: 'На проверке',
@@ -117,6 +118,7 @@ export function Dashboard() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false)
   const [selectedDepartmentTab, setSelectedDepartmentTab] = useState<string>('all')
   const [projectSearch, setProjectSearch] = useState('')
+  const [onlyMine, setOnlyMine] = useState(false)
   const [escalationBlinkEnabled, setEscalationBlinkEnabled] = useState(true)
   const [assignProject, setAssignProject] = useState<Project | null>(null)
   const [assignDepartmentIds, setAssignDepartmentIds] = useState<string[]>([])
@@ -170,18 +172,45 @@ export function Dashboard() {
     }
   }, [escalationBlinkEnabled])
 
+  const myProjectIds = useMemo(() => {
+    if (!currentUser?.id) return new Set<string>()
+    const ids = new Set<string>()
+    for (const p of projects) {
+      if (p.owner_id === currentUser.id) ids.add(p.id)
+    }
+    for (const t of tasks) {
+      const assignedIds = t.assignee_ids ?? []
+      if (t.project_id && (t.created_by_id === currentUser.id || t.assigned_to_id === currentUser.id || assignedIds.includes(currentUser.id))) {
+        ids.add(t.project_id)
+      }
+    }
+    return ids
+  }, [projects, tasks, currentUser?.id])
+
+  const myTasks = useMemo(() => {
+    if (!currentUser?.id) return [] as Task[]
+    return tasks
+      .filter((t) => {
+        const assignedIds = t.assignee_ids ?? []
+        return t.created_by_id === currentUser.id || t.assigned_to_id === currentUser.id || assignedIds.includes(currentUser.id)
+      })
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+      .slice(0, 8)
+  }, [tasks, currentUser?.id])
+
   const projectsForSelectedTab = useMemo(() => {
     const source =
       selectedDepartmentTab === 'all'
         ? projects
         : departmentTabs.find((dep) => dep.department_id === selectedDepartmentTab)?.projects ?? []
+    const mineFiltered = onlyMine ? source.filter((project) => myProjectIds.has(project.id)) : source
     const q = projectSearch.trim().toLowerCase()
-    if (!q) return source
-    return source.filter((project) => {
+    if (!q) return mineFiltered
+    return mineFiltered.filter((project) => {
       const hay = `${project.name} ${project.description ?? ''}`.toLowerCase()
       return hay.includes(q)
     })
-  }, [projects, departmentTabs, selectedDepartmentTab, projectSearch])
+  }, [projects, departmentTabs, selectedDepartmentTab, projectSearch, onlyMine, myProjectIds])
 
   const activeProjects = useMemo(
     () => projects.filter((p) => p.status !== 'completed' && (!p.end_date || p.end_date >= today)).length,
@@ -206,7 +235,7 @@ export function Dashboard() {
   }, [tasks, sevenDaysAgo])
 
   const statusStats = useMemo(() => {
-    const counts: Record<string, number> = { todo: 0, in_progress: 0, review: 0, done: 0 }
+    const counts: Record<string, number> = { planning: 0, todo: 0, in_progress: 0, review: 0, done: 0 }
     tasks.forEach((task) => {
       counts[task.status] = (counts[task.status] ?? 0) + 1
     })
@@ -221,8 +250,20 @@ export function Dashboard() {
   )
 
   const upcomingDeadlines = useMemo(
-    () => tasks.filter((t) => t.end_date && t.status !== 'done' && t.end_date >= today).sort((a, b) => a.end_date!.localeCompare(b.end_date!)).slice(0, 8),
-    [tasks, today]
+    () =>
+      tasks
+        .filter((t) => {
+          if (!t.end_date || t.status === 'done') return false
+          const days = daysUntil(t.end_date)
+          return days !== null && days >= 0 && days <= 10
+        })
+        .sort((a, b) => {
+          const ad = daysUntil(a.end_date) ?? Number.MAX_SAFE_INTEGER
+          const bd = daysUntil(b.end_date) ?? Number.MAX_SAFE_INTEGER
+          return ad - bd
+        })
+        .slice(0, 8),
+    [tasks]
   )
 
   const departmentNameById = useMemo(
@@ -442,7 +483,21 @@ export function Dashboard() {
         <SectionCard
           title="ИТ проекты по отделам"
           className="xl:col-span-7"
-          action={<Input value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} placeholder="Поиск проекта" className="h-8 w-48 text-xs" />}
+          action={
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setOnlyMine((v) => !v)}
+                className={cn(
+                  'rounded-md border px-2 py-1 text-xs',
+                  onlyMine ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground'
+                )}
+              >
+                Мои проекты и задачи
+              </button>
+              <Input value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} placeholder="Поиск проекта" className="h-8 w-48 text-xs" />
+            </div>
+          }
         >
           <div className="mb-3 flex flex-wrap gap-2">
             <button
@@ -510,6 +565,22 @@ export function Dashboard() {
               </div>
             ))}
           </div>
+          {onlyMine && (
+            <div className="mt-3 border-t pt-3">
+              <p className="mb-2 text-xs text-muted-foreground">Мои задачи</p>
+              <div className="max-h-44 space-y-1 overflow-auto pr-1">
+                {myTasks.length === 0 && <p className="text-xs text-muted-foreground">Личных задач не найдено.</p>}
+                {myTasks.map((task) => (
+                  <Link key={task.id} to={`/projects/${task.project_id}?task=${task.id}`} className="block rounded border px-2 py-1.5 text-xs hover:bg-accent">
+                    <p className="truncate font-medium">{task.title}</p>
+                    <p className="text-muted-foreground">
+                      {TASK_STATUS_LABEL[task.status] ?? task.status} · дедлайн: {formatDate(task.end_date)}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard title="Статусы и дедлайны" className="xl:col-span-3">

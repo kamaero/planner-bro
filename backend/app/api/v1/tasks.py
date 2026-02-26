@@ -209,7 +209,7 @@ async def _mark_escalation_response(task: Task, actor_id: str, db: AsyncSession)
 
 
 async def _ensure_predecessors_done(task: Task, target_status: str, db: AsyncSession) -> None:
-    if target_status in ("todo", "done"):
+    if target_status in ("planning", "todo", "done"):
         return
     deps = (
         await db.execute(
@@ -360,7 +360,9 @@ async def update_task(
     # Validate deadline change requires a reason
     end_date_provided = "end_date" in payload
     new_end_date = payload.get("end_date")
-    if end_date_provided and old_end_date is not None and new_end_date != old_end_date:
+    projected_status = payload.get("status", task.status)
+    requires_reason = projected_status != "planning"
+    if end_date_provided and old_end_date is not None and new_end_date != old_end_date and requires_reason:
         if not deadline_change_reason:
             raise HTTPException(status_code=422, detail="Укажите причину изменения дедлайна")
 
@@ -393,7 +395,13 @@ async def update_task(
         task.next_check_in_due_at = _plan_next_check_in(task, _now_utc())
 
     # Record deadline change if end_date actually changed
-    if end_date_provided and old_end_date is not None and new_end_date != old_end_date and deadline_change_reason:
+    if (
+        end_date_provided
+        and old_end_date is not None
+        and new_end_date != old_end_date
+        and deadline_change_reason
+        and requires_reason
+    ):
         db.add(DeadlineChange(
             entity_type="task",
             entity_id=task.id,
@@ -589,7 +597,7 @@ async def bulk_update_tasks(
         _require_delete_permission(current_user)
 
     if "status" in payload:
-        valid_statuses = {"todo", "in_progress", "review", "done"}
+        valid_statuses = {"planning", "todo", "in_progress", "review", "done"}
         if payload["status"] not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
     if "priority" in payload:
@@ -719,7 +727,7 @@ async def update_task_status(
         raise HTTPException(status_code=404, detail="Task not found")
     await _require_task_editor(task, current_user, db)
 
-    valid_statuses = {"todo", "in_progress", "review", "done"}
+    valid_statuses = {"planning", "todo", "in_progress", "review", "done"}
     if data.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
     await _ensure_predecessors_done(task, data.status, db)

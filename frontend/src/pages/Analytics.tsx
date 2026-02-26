@@ -16,6 +16,7 @@ import { Download, AlertTriangle } from 'lucide-react'
 import type { Task, Project } from '@/types'
 
 const STATUS_LABELS: Record<string, string> = {
+  planning: 'Планирование',
   todo: 'К выполнению',
   in_progress: 'В работе',
   review: 'На проверке',
@@ -37,6 +38,7 @@ const PRIORITY_COLORS: Record<string, string> = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
+  planning: '#0ea5e9',
   todo: '#94a3b8',
   in_progress: '#6366f1',
   review: '#f59e0b',
@@ -112,7 +114,7 @@ export function Analytics() {
   const overdue = tasks.filter((t) => t.end_date && t.end_date < today && t.status !== 'done').length
   const unassigned = tasks.filter((t) => !t.assigned_to_id).length
 
-  const statusCounts = ['todo', 'in_progress', 'review', 'done'].map((s) => ({
+  const statusCounts = ['planning', 'todo', 'in_progress', 'review', 'done'].map((s) => ({
     name: STATUS_LABELS[s],
     count: tasks.filter((t) => t.status === s).length,
     fill: STATUS_COLORS[s],

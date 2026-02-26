@@ -27,8 +27,9 @@ const PRIORITY_COLORS: Record<string, string> = {
   critical: 'bg-red-100 text-red-800',
 }
 
-const STATUS_OPTIONS = ['todo', 'in_progress', 'review', 'done'] as const
+const STATUS_OPTIONS = ['planning', 'todo', 'in_progress', 'review', 'done'] as const
 const STATUS_LABELS: Record<string, string> = {
+  planning: 'Планирование',
   todo: 'К выполнению',
   in_progress: 'В работе',
   review: 'На проверке',
@@ -206,7 +207,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
 
   const handleSaveDates = async () => {
     const endDateChanged = endDate !== (task.end_date ?? '')
-    const canRequireReason = Boolean(task.end_date)
+    const canRequireReason = Boolean(task.end_date) && status !== 'planning'
     if (endDateChanged && canRequireReason) {
       setPendingEndDate(endDate)
       setShowDeadlineReasonModal(true)

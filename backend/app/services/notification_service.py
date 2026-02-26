@@ -175,6 +175,7 @@ async def notify_task_updated(db: AsyncSession, task: Task, actor_id: str):
         return
 
     status_labels = {
+        "planning": "в планировании",
         "todo": "к выполнению",
         "in_progress": "в работе",
         "review": "на проверке",

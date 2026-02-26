@@ -47,10 +47,26 @@ const PRIORITY_COLORS: Record<string, string> = {
 }
 
 const STATUS_LABELS: Record<string, string> = {
+  planning: 'Планирование',
   todo: 'К выполнению',
   in_progress: 'В работе',
   review: 'На проверке',
   done: 'Выполнено',
+}
+
+const TASK_STATUS_ORDER: Record<string, number> = {
+  planning: 0,
+  todo: 1,
+  in_progress: 2,
+  review: 3,
+  done: 4,
+}
+
+const TASK_PRIORITY_ORDER: Record<string, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
 }
 
 const PROJECT_STATUS_OPTIONS = [
@@ -148,6 +164,8 @@ export function ProjectDetail() {
   const [taskSearch, setTaskSearch] = useState('')
   const [taskStatusFilter, setTaskStatusFilter] = useState('all')
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState('all')
+  const [taskSortBy, setTaskSortBy] = useState<'order' | 'status' | 'priority'>('order')
+  const [taskSortDir, setTaskSortDir] = useState<'asc' | 'desc'>('asc')
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkAssignee, setBulkAssignee] = useState('keep')
@@ -182,13 +200,25 @@ export function ProjectDetail() {
       const assigneeOk =
         taskAssigneeFilter === 'all' ||
         (taskAssigneeFilter === 'unassigned'
-          ? !task.assigned_to_id
-          : task.assigned_to_id === taskAssigneeFilter)
+          ? !(task.assignee_ids && task.assignee_ids.length > 0) && !task.assigned_to_id
+          : task.assigned_to_id === taskAssigneeFilter || (task.assignee_ids ?? []).includes(taskAssigneeFilter))
 
       return searchOk && statusOk && assigneeOk
     })
     const withIndex = filtered.map((task, idx) => ({ task, idx }))
     withIndex.sort((a, b) => {
+      if (taskSortBy === 'status') {
+        const diff = (TASK_STATUS_ORDER[a.task.status] ?? 999) - (TASK_STATUS_ORDER[b.task.status] ?? 999)
+        if (diff !== 0) return taskSortDir === 'asc' ? diff : -diff
+      }
+      if (taskSortBy === 'priority') {
+        const diff = (TASK_PRIORITY_ORDER[a.task.priority] ?? 999) - (TASK_PRIORITY_ORDER[b.task.priority] ?? 999)
+        if (diff !== 0) return taskSortDir === 'asc' ? diff : -diff
+      }
+      if (taskSortBy !== 'order') {
+        const byTitle = a.task.title.localeCompare(b.task.title, 'ru')
+        if (byTitle !== 0) return taskSortDir === 'asc' ? byTitle : -byTitle
+      }
       const ao = parseImportedTaskOrder(a.task.title)
       const bo = parseImportedTaskOrder(b.task.title)
       if (ao && bo) {
@@ -205,7 +235,7 @@ export function ProjectDetail() {
       return a.idx - b.idx
     })
     return withIndex.map((entry) => entry.task)
-  }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter])
+  }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter, taskSortBy, taskSortDir])
 
   const selectedVisibleCount = filteredTasks.filter((t) => selectedTaskIds.includes(t.id)).length
 
@@ -591,6 +621,7 @@ export function ProjectDetail() {
             onChange={(e) => handleQuickStatusChange(task, e.target.value)}
             className="text-xs border rounded px-2 py-1 bg-background"
           >
+            <option value="planning">{STATUS_LABELS.planning}</option>
             <option value="todo">{STATUS_LABELS.todo}</option>
             <option value="in_progress">{STATUS_LABELS.in_progress}</option>
             <option value="review">{STATUS_LABELS.review}</option>
@@ -1165,6 +1196,7 @@ export function ProjectDetail() {
                 className="border rounded px-2 py-2 text-sm bg-background"
               >
                 <option value="all">Все статусы</option>
+                <option value="planning">Планирование</option>
                 <option value="todo">К выполнению</option>
                 <option value="in_progress">В работе</option>
                 <option value="review">На проверке</option>
@@ -1195,6 +1227,23 @@ export function ProjectDetail() {
                 Выбрано: {selectedTaskIds.length} / Видимых: {filteredTasks.length}
               </span>
               <select
+                value={taskSortBy}
+                onChange={(e) => setTaskSortBy(e.target.value as 'order' | 'status' | 'priority')}
+                className="border rounded px-2 py-1 text-sm bg-background"
+              >
+                <option value="order">Сортировка: по порядку</option>
+                <option value="status">Сортировка: по статусу</option>
+                <option value="priority">Сортировка: по приоритету</option>
+              </select>
+              <select
+                value={taskSortDir}
+                onChange={(e) => setTaskSortDir(e.target.value as 'asc' | 'desc')}
+                className="border rounded px-2 py-1 text-sm bg-background"
+              >
+                <option value="asc">По возрастанию</option>
+                <option value="desc">По убыванию</option>
+              </select>
+              <select
                 value={taskRowSize}
                 onChange={(e) => setTaskRowSize(e.target.value as 'compact' | 'normal' | 'comfortable')}
                 className="border rounded px-2 py-1 text-sm bg-background"
@@ -1205,6 +1254,14 @@ export function ProjectDetail() {
               </select>
               {canManage && canBulkEdit && (
                 <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBulkStatusUpdate('planning')}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                  >
+                    В планирование
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"

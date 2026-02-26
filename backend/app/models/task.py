@@ -18,8 +18,8 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(String(5000), nullable=True)
     status: Mapped[str] = mapped_column(
-        SAEnum("todo", "in_progress", "review", "done", name="task_status"),
-        default="todo",
+        SAEnum("planning", "todo", "in_progress", "review", "done", name="task_status"),
+        default="planning",
         nullable=False,
     )
     priority: Mapped[str] = mapped_column(

@@ -7,7 +7,7 @@ from app.schemas.user import UserOut
 class TaskBase(BaseModel):
     title: str
     description: Optional[str] = None
-    status: str = "todo"
+    status: str = "planning"
     priority: str = "medium"
     control_ski: bool = False
     progress_percent: int = Field(default=0, ge=0, le=100)

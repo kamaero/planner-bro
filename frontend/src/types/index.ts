@@ -44,7 +44,7 @@ export interface Task {
   parent_task_id?: string
   title: string
   description?: string
-  status: 'todo' | 'in_progress' | 'review' | 'done'
+  status: 'planning' | 'todo' | 'in_progress' | 'review' | 'done'
   priority: 'low' | 'medium' | 'high' | 'critical'
   control_ski: boolean
   progress_percent: number
