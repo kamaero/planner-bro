@@ -4,8 +4,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0011"
-down_revision: Union[str, None] = "0010"
+revision: str = "0020"
+down_revision: Union[str, None] = "0019_email_dispatch_logs"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
