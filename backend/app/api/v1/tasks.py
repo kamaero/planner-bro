@@ -275,7 +275,9 @@ async def create_task(
 ):
     await _require_project_member(project_id, current_user, db)
     payload = data.model_dump()
-    assignee_ids = payload.pop("assignee_ids", None) if "assignee_ids" in data.model_fields_set else None
+    assignee_ids = payload.pop("assignee_ids", None)
+    if "assignee_ids" not in data.model_fields_set:
+        assignee_ids = None
     if assignee_ids is not None:
         payload["assigned_to_id"] = assignee_ids[0] if assignee_ids else None
     _prepare_escalation_fields(payload)
