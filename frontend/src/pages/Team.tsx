@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
@@ -44,6 +44,28 @@ export function Team() {
   const [ownPasswordSuccess, setOwnPasswordSuccess] = useState('')
   const [ownPasswordError, setOwnPasswordError] = useState('')
   const [ownPasswordForm, setOwnPasswordForm] = useState({ current_password: '', new_password: '' })
+
+  const { setUser } = useAuthStore()
+  const [ownNameDraft, setOwnNameDraft] = useState(currentUser?.name ?? '')
+  const [ownNameSaving, setOwnNameSaving] = useState(false)
+  const [ownNameError, setOwnNameError] = useState('')
+  const ownNameChanged = ownNameDraft.trim() !== (currentUser?.name ?? '')
+
+  const handleSaveOwnName = async () => {
+    const trimmed = ownNameDraft.trim()
+    if (!trimmed || !ownNameChanged) return
+    setOwnNameSaving(true)
+    setOwnNameError('')
+    try {
+      const updated = await api.updateMe({ name: trimmed })
+      setUser(updated)
+      setUsers((prev) => prev.map((u) => (u.id === currentUser?.id ? { ...u, name: trimmed } : u)))
+    } catch (err: any) {
+      setOwnNameError(err?.response?.data?.detail ?? 'Не удалось сохранить имя')
+    } finally {
+      setOwnNameSaving(false)
+    }
+  }
 
   const canManageTeam = currentUser?.role === 'admin' || currentUser?.can_manage_team
   const canCreateSubordinates = canManageTeam || currentUser?.role === 'manager'
@@ -486,7 +508,29 @@ export function Team() {
           {users.map((user) => (
             <div key={user.id} className="rounded-lg border px-3 py-3 flex flex-col gap-2">
               <div className="min-w-0">
-                <p className="text-sm font-medium truncate">{user.name} - {user.email}</p>
+                {user.id === currentUser?.id ? (
+                  <div className="flex items-center gap-2 mb-1">
+                    <Input
+                      value={ownNameDraft}
+                      onChange={(e) => setOwnNameDraft(e.target.value)}
+                      className="h-7 text-sm font-medium w-48"
+                      placeholder="Имя Фамилия"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      disabled={!ownNameChanged || ownNameSaving}
+                      onClick={handleSaveOwnName}
+                    >
+                      {ownNameSaving ? '...' : 'Сохранить'}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">{user.email}</span>
+                    {ownNameError && <span className="text-xs text-destructive">{ownNameError}</span>}
+                  </div>
+                ) : (
+                  <p className="text-sm font-medium truncate">{user.name} - {user.email}</p>
+                )}
                 <p className="text-xs text-muted-foreground">Корпоративная почта: {user.work_email || 'не указана'}</p>
                 <p className="text-xs text-muted-foreground">Должность: {permissionDrafts[user.id]?.position_title || 'не указана'}</p>
                 <p className="text-xs text-muted-foreground">
