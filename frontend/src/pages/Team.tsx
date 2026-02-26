@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
@@ -23,7 +23,8 @@ export function Team() {
   const [departmentDrafts, setDepartmentDrafts] = useState<Record<string, { parent_id: string; head_user_id: string }>>({})
 
   const [invite, setInvite] = useState({
-    name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     work_email: '',
     role: 'developer',
@@ -45,36 +46,17 @@ export function Team() {
   const [ownPasswordError, setOwnPasswordError] = useState('')
   const [ownPasswordForm, setOwnPasswordForm] = useState({ current_password: '', new_password: '' })
 
-  const { setUser } = useAuthStore()
-  const [ownNameDraft, setOwnNameDraft] = useState(currentUser?.name ?? '')
-  const [ownNameSaving, setOwnNameSaving] = useState(false)
-  const [ownNameError, setOwnNameError] = useState('')
-  const ownNameChanged = ownNameDraft.trim() !== (currentUser?.name ?? '')
+  const [nameDrafts, setNameDrafts] = useState<Record<string, { first_name: string; last_name: string }>>({})
+  const [nameBusyId, setNameBusyId] = useState<string | null>(null)
 
-  const handleSaveOwnName = async () => {
-    const trimmed = ownNameDraft.trim()
-    if (!trimmed || !ownNameChanged) return
-    setOwnNameSaving(true)
-    setOwnNameError('')
-    try {
-      const updated = await api.updateMe({ name: trimmed })
-      setUser(updated)
-      setUsers((prev) => prev.map((u) => (u.id === currentUser?.id ? { ...u, name: trimmed } : u)))
-    } catch (err: any) {
-      setOwnNameError(err?.response?.data?.detail ?? 'Не удалось сохранить имя')
-    } finally {
-      setOwnNameSaving(false)
-    }
-  }
+  const { setUser } = useAuthStore()
 
   const canManageTeam = currentUser?.role === 'admin' || currentUser?.can_manage_team
   const canCreateSubordinates = canManageTeam || currentUser?.role === 'manager'
 
   const usersById = useMemo(() => {
     const map: Record<string, User> = {}
-    users.forEach((u) => {
-      map[u.id] = u
-    })
+    users.forEach((u) => { map[u.id] = u })
     return map
   }, [users])
 
@@ -97,6 +79,7 @@ export function Team() {
       setUsers(userData)
       setDepartments(departmentData)
       const drafts: Record<string, UserDraft> = {}
+      const nDrafts: Record<string, { first_name: string; last_name: string }> = {}
       userData.forEach((user: User) => {
         drafts[user.id] = {
           role: user.role,
@@ -109,6 +92,7 @@ export function Team() {
           can_import: user.can_import,
           can_bulk_edit: user.can_bulk_edit,
         }
+        nDrafts[user.id] = { first_name: user.first_name ?? '', last_name: user.last_name ?? '' }
       })
       setPermissionDrafts(drafts)
       const depDrafts: Record<string, { parent_id: string; head_user_id: string }> = {}
@@ -116,6 +100,7 @@ export function Team() {
         depDrafts[d.id] = { parent_id: d.parent_id ?? '', head_user_id: d.head_user_id ?? '' }
       })
       setDepartmentDrafts(depDrafts)
+      setNameDrafts(nDrafts)
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? 'Не удалось загрузить данные команды')
     } finally {
@@ -133,8 +118,11 @@ export function Team() {
     setInviteError('')
     setInviteSuccess('')
     try {
+      const fullName = `${invite.first_name.trim()} ${invite.last_name.trim()}`.trim()
       await api.createUser({
-        name: invite.name,
+        name: fullName,
+        first_name: invite.first_name.trim(),
+        last_name: invite.last_name.trim(),
         email: invite.email,
         work_email: invite.work_email || undefined,
         password: invite.password,
@@ -145,7 +133,8 @@ export function Team() {
       })
       setInviteSuccess(`Аккаунт создан: ${invite.email}`)
       setInvite({
-        name: '',
+        first_name: '',
+        last_name: '',
         email: '',
         work_email: '',
         role: 'developer',
@@ -218,6 +207,34 @@ export function Team() {
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? 'Не удалось обновить отдел')
     }
+  }
+
+  const handleSaveName = async (user: User) => {
+    const draft = nameDrafts[user.id]
+    if (!draft) return
+    setNameBusyId(user.id)
+    setError('')
+    try {
+      let updated: User
+      if (user.id === currentUser?.id) {
+        updated = await api.updateMe({ first_name: draft.first_name.trim(), last_name: draft.last_name.trim() })
+        setUser(updated)
+      } else {
+        if (!canManageTeam) return
+        updated = await api.updateUserName(user.id, draft)
+      }
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)))
+    } catch (err: any) {
+      setError(err?.response?.data?.detail ?? 'Не удалось обновить имя')
+    } finally {
+      setNameBusyId(null)
+    }
+  }
+
+  const isNameChanged = (user: User) => {
+    const draft = nameDrafts[user.id]
+    if (!draft) return false
+    return draft.first_name !== (user.first_name ?? '') || draft.last_name !== (user.last_name ?? '')
   }
 
   const handleResetPassword = async (user: User) => {
@@ -508,29 +525,7 @@ export function Team() {
           {users.map((user) => (
             <div key={user.id} className="rounded-lg border px-3 py-3 flex flex-col gap-2">
               <div className="min-w-0">
-                {user.id === currentUser?.id ? (
-                  <div className="flex items-center gap-2 mb-1">
-                    <Input
-                      value={ownNameDraft}
-                      onChange={(e) => setOwnNameDraft(e.target.value)}
-                      className="h-7 text-sm font-medium w-48"
-                      placeholder="Имя Фамилия"
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs"
-                      disabled={!ownNameChanged || ownNameSaving}
-                      onClick={handleSaveOwnName}
-                    >
-                      {ownNameSaving ? '...' : 'Сохранить'}
-                    </Button>
-                    <span className="text-xs text-muted-foreground">{user.email}</span>
-                    {ownNameError && <span className="text-xs text-destructive">{ownNameError}</span>}
-                  </div>
-                ) : (
-                  <p className="text-sm font-medium truncate">{user.name} - {user.email}</p>
-                )}
+                <p className="text-sm font-medium truncate">{user.name} — {user.email}</p>
                 <p className="text-xs text-muted-foreground">Корпоративная почта: {user.work_email || 'не указана'}</p>
                 <p className="text-xs text-muted-foreground">Должность: {permissionDrafts[user.id]?.position_title || 'не указана'}</p>
                 <p className="text-xs text-muted-foreground">
@@ -542,7 +537,41 @@ export function Team() {
                 {tempPasswords[user.id] && (
                   <p className="text-xs text-orange-600 mt-1">Временный пароль: {tempPasswords[user.id]}</p>
                 )}
-                <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                {(user.id === currentUser?.id || canManageTeam) && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      className="text-xs border rounded px-2 py-1 bg-background w-28"
+                      placeholder="Имя"
+                      value={nameDrafts[user.id]?.first_name ?? ''}
+                      onChange={(e) =>
+                        setNameDrafts((prev) => ({
+                          ...prev,
+                          [user.id]: { ...prev[user.id], first_name: e.target.value },
+                        }))
+                      }
+                    />
+                    <input
+                      className="text-xs border rounded px-2 py-1 bg-background w-28"
+                      placeholder="Фамилия"
+                      value={nameDrafts[user.id]?.last_name ?? ''}
+                      onChange={(e) =>
+                        setNameDrafts((prev) => ({
+                          ...prev,
+                          [user.id]: { ...prev[user.id], last_name: e.target.value },
+                        }))
+                      }
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleSaveName(user)}
+                      disabled={nameBusyId === user.id || !isNameChanged(user)}
+                    >
+                      Сохранить имя
+                    </Button>
+                  </div>
+                )}
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
                   <select
                     value={permissionDrafts[user.id]?.role ?? user.role}
                     onChange={(e) => handlePermissionChange(user.id, 'role', e.target.value)}
@@ -659,11 +688,20 @@ export function Team() {
         <form onSubmit={handleInvite} className="space-y-4 max-w-2xl">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>ФИО</Label>
+              <Label>Имя</Label>
               <Input
-                placeholder="Иван Петров"
-                value={invite.name}
-                onChange={(e) => setInvite((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Иван"
+                value={invite.first_name}
+                onChange={(e) => setInvite((f) => ({ ...f, first_name: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Фамилия</Label>
+              <Input
+                placeholder="Петров"
+                value={invite.last_name}
+                onChange={(e) => setInvite((f) => ({ ...f, last_name: e.target.value }))}
                 required
               />
             </div>

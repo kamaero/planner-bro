@@ -17,6 +17,7 @@ from app.schemas.user import (
     UserCreate,
     UserOut,
     UserUpdate,
+    UserNameUpdate,
     UserProfile,
     UserPermissionsUpdate,
     ReminderSettingsUpdate,
@@ -162,10 +163,22 @@ async def create_user_by_admin(
             if value is not None:
                 permissions[key] = value
 
+    first_name = (data.first_name or "").strip()
+    last_name = (data.last_name or "").strip()
+    if first_name or last_name:
+        computed_name = f"{first_name} {last_name}".strip()
+    else:
+        computed_name = data.name.strip()
+        parts = computed_name.split(" ", 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+
     user = User(
         email=normalized_email,
         work_email=normalized_work_email,
-        name=data.name,
+        name=computed_name,
+        first_name=first_name,
+        last_name=last_name,
         position_title=data.position_title,
         manager_id=data.manager_id or (current_user.id if current_user.role != "admin" else None),
         department_id=data.department_id,
@@ -186,11 +199,39 @@ async def update_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    for field, value in data.model_dump(exclude_none=True).items():
+    payload = data.model_dump(exclude_none=True)
+    first_name = payload.pop("first_name", None)
+    last_name = payload.pop("last_name", None)
+    for field, value in payload.items():
         setattr(current_user, field, value)
+    if first_name is not None:
+        current_user.first_name = first_name.strip()
+    if last_name is not None:
+        current_user.last_name = last_name.strip()
+    if first_name is not None or last_name is not None:
+        current_user.name = f"{current_user.first_name} {current_user.last_name}".strip()
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+
+@router.patch("/{user_id}/name", response_model=UserOut)
+async def update_user_name(
+    user_id: str,
+    data: UserNameUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_team_manager(current_user)
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.first_name = data.first_name.strip()
+    user.last_name = data.last_name.strip()
+    user.name = f"{user.first_name} {user.last_name}".strip()
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.get("/search", response_model=list[UserOut])

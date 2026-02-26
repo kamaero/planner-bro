@@ -3,6 +3,8 @@ export interface User {
   email: string
   work_email?: string | null
   name: string
+  first_name: string
+  last_name: string
   position_title?: string | null
   manager_id?: string | null
   department_id?: string | null

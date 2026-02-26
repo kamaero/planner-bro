@@ -84,6 +84,8 @@ export const api = {
       email: string
       work_email?: string
       name: string
+      first_name?: string
+      last_name?: string
       password: string
       role?: string
       position_title?: string
@@ -92,7 +94,9 @@ export const api = {
     }
   ) =>
     apiClient.post('/users/', data).then((r) => r.data),
-  updateMe: (data: Partial<{ name: string; avatar_url: string }>) =>
+  updateUserName: (userId: string, data: { first_name: string; last_name: string }) =>
+    apiClient.patch(`/users/${userId}/name`, data).then((r) => r.data),
+  updateMe: (data: Partial<{ first_name: string; last_name: string; avatar_url: string }>) =>
     apiClient.put('/users/me', data).then((r) => r.data),
   changeMyPassword: (data: { current_password: string; new_password: string }) =>
     apiClient.post('/users/me/change-password', data).then((r) => r.data as { message: string }),

@@ -174,7 +174,7 @@ async def notify_task_assigned(db: AsyncSession, task: Task, assignee_id: str):
     body += f" Откройте задачу: {_build_task_link(task.project_id, task.id)}"
     data = {"task_id": task.id, "project_id": task.project_id, "kind": "task_assigned"}
     notif = await _create_notification(db, assignee_id, "task_assigned", title, body, data)
-    await db.commit()
+    await db.flush()
 
     tokens = await _get_fcm_tokens(db, [assignee_id])
     if tokens:
