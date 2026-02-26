@@ -74,6 +74,24 @@ function formatDate(value?: string) {
   return new Date(value).toLocaleDateString('ru')
 }
 
+function parseDateOnly(value?: string): Date | null {
+  if (!value) return null
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return null
+  const year = Number.parseInt(match[1], 10)
+  const month = Number.parseInt(match[2], 10) - 1
+  const day = Number.parseInt(match[3], 10)
+  return new Date(year, month, day, 12, 0, 0, 0)
+}
+
+function daysUntil(dateValue?: string): number | null {
+  const target = parseDateOnly(dateValue)
+  if (!target) return null
+  const now = new Date()
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0)
+  return Math.round((target.getTime() - startToday.getTime()) / (1000 * 60 * 60 * 24))
+}
+
 export function Dashboard() {
   const { data: projects = [], isLoading: projectsLoading } = useProjects()
   const { tasks, isLoading: tasksLoading } = useAllTasks()
@@ -92,6 +110,7 @@ export function Dashboard() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false)
   const [selectedDepartmentTab, setSelectedDepartmentTab] = useState<string>('all')
   const [projectSearch, setProjectSearch] = useState('')
+  const [escalationBlinkEnabled, setEscalationBlinkEnabled] = useState(true)
   const [assignProject, setAssignProject] = useState<Project | null>(null)
   const [assignDepartmentIds, setAssignDepartmentIds] = useState<string[]>([])
   const [form, setForm] = useState({
@@ -126,6 +145,23 @@ export function Dashboard() {
     const exists = departmentTabs.some((dep) => dep.department_id === selectedDepartmentTab)
     if (!exists) setSelectedDepartmentTab('all')
   }, [departmentTabs, selectedDepartmentTab])
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('dashboard_escalation_blink')
+      if (raw === 'off') setEscalationBlinkEnabled(false)
+    } catch {
+      // ignore storage errors in restricted environments
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('dashboard_escalation_blink', escalationBlinkEnabled ? 'on' : 'off')
+    } catch {
+      // ignore storage errors in restricted environments
+    }
+  }, [escalationBlinkEnabled])
 
   const projectsForSelectedTab = useMemo(() => {
     const source =
@@ -186,6 +222,8 @@ export function Dashboard() {
     () => Object.fromEntries(departments.map((d) => [d.id, d.name])),
     [departments]
   )
+
+  const escalationPulse = escalations.length > 0 && escalationBlinkEnabled
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -402,10 +440,25 @@ export function Dashboard() {
             ))}
           </div>
 
-          <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
+          <div className="max-h-[500px] space-y-1.5 overflow-auto pr-1">
             {projectsForSelectedTab.length === 0 && <p className="text-sm text-muted-foreground">Проектов не найдено.</p>}
             {projectsForSelectedTab.map((project) => (
-              <div key={project.id} className="rounded-lg border p-3">
+              <div
+                key={project.id}
+                className={cn(
+                  'rounded-lg border p-2.5 transition-all',
+                  (() => {
+                    const d = daysUntil(project.end_date)
+                    if (d !== null && d >= 3 && d <= 5) {
+                      return 'border-red-500/90 shadow-[0_0_14px_rgba(239,68,68,0.55)]'
+                    }
+                    if (d !== null && d >= 7 && d <= 10) {
+                      return 'border-orange-500/90 shadow-[0_0_14px_rgba(249,115,22,0.45)]'
+                    }
+                    return ''
+                  })()
+                )}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <Link to={`/projects/${project.id}`} className="truncate text-sm font-semibold hover:text-primary">
@@ -506,7 +559,27 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Эскалации" action={<Link to="/analytics" className="text-xs text-primary hover:underline">Аналитика →</Link>}>
+        <SectionCard
+          title="Эскалации"
+          className={cn(escalationPulse && 'border-red-500/90 shadow-[0_0_18px_rgba(239,68,68,0.55)] animate-pulse')}
+          action={
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setEscalationBlinkEnabled((v) => !v)}
+                className={cn(
+                  'rounded border px-2 py-0.5 text-[11px]',
+                  escalationBlinkEnabled ? 'border-red-400 text-red-600' : 'text-muted-foreground'
+                )}
+              >
+                {escalationBlinkEnabled ? 'Мигание: Вкл' : 'Мигание: Выкл'}
+              </button>
+              <Link to="/analytics" className="text-xs text-primary hover:underline">
+                Аналитика →
+              </Link>
+            </div>
+          }
+        >
           <div className="max-h-64 space-y-2 overflow-auto">
             {escalations.length === 0 && <p className="text-sm text-muted-foreground">Новых эскалаций нет.</p>}
             {escalations.slice(0, 8).map((task) => (
