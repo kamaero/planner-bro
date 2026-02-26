@@ -15,7 +15,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TYPE task_status ADD VALUE IF NOT EXISTS 'planning'")
+    with op.get_context().autocommit_block():
+        op.execute("ALTER TYPE task_status ADD VALUE IF NOT EXISTS 'planning'")
     op.execute("ALTER TABLE tasks ALTER COLUMN status SET DEFAULT 'planning'")
 
 
