@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 from pathlib import Path
 import shutil
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
@@ -22,6 +23,7 @@ from app.models.project import (
 from app.models.task import Task, TaskEvent, TaskComment
 from app.models.ai import AIIngestionJob, AITaskDraft
 from app.models.deadline_change import DeadlineChange
+from app.models.vault import VaultFile
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
     AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut, MSProjectImportResult,
@@ -36,7 +38,8 @@ from app.services.notification_service import (
     notify_task_assigned,
     notify_project_assigned,
 )
-from app.services.ms_project_import_service import parse_ms_project_xml
+from app.services.ms_project_import_service import parse_ms_project_content
+from app.services.vault_crypto import encrypt_file
 from app.tasks.ai_ingestion import process_file_for_ai
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -95,6 +98,13 @@ def _require_delete_permission(user: User) -> None:
         raise HTTPException(status_code=403, detail="No permission to delete")
 
 
+def _vault_key() -> str:
+    key = settings.VAULT_ENCRYPTION_KEY
+    if key:
+        return key
+    return hashlib.sha256(settings.SECRET_KEY.encode()).hexdigest()
+
+
 async def _require_project_access(
     project_id: str, user: User, db: AsyncSession, require_manager: bool = False
 ) -> Project:
@@ -147,6 +157,76 @@ async def _get_member(project_id: str, user_id: str, db: AsyncSession) -> Projec
         )
     )
     return result.scalar_one_or_none()
+
+
+async def _maybe_archive_processed_file(
+    project_id: str,
+    project_file_id: str,
+    actor_id: str,
+    db: AsyncSession,
+) -> None:
+    pending_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(AITaskDraft)
+            .where(
+                AITaskDraft.project_id == project_id,
+                AITaskDraft.project_file_id == project_file_id,
+                AITaskDraft.status == "pending",
+            )
+        )
+    ).scalar_one()
+    if pending_count:
+        return
+
+    project_file = (
+        await db.execute(
+            select(ProjectFile).where(
+                ProjectFile.id == project_file_id,
+                ProjectFile.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not project_file:
+        return
+
+    source_path = Path(project_file.storage_path)
+    if source_path.exists():
+        archive_description = f"Обработанный файл проекта {project_id} (source_file_id={project_file_id})"
+        existing_archive = (
+            await db.execute(
+                select(VaultFile.id).where(
+                    VaultFile.folder == "Processed",
+                    VaultFile.name == project_file.filename,
+                    VaultFile.description == archive_description,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_archive:
+            return
+
+        plaintext = source_path.read_bytes()
+        if plaintext:
+            vault_id = str(uuid.uuid4())
+            ciphertext, nonce = encrypt_file(_vault_key(), vault_id, plaintext)
+            vault_dir = Path(settings.VAULT_FILES_DIR)
+            vault_dir.mkdir(parents=True, exist_ok=True)
+            vault_storage_path = vault_dir / vault_id
+            vault_storage_path.write_bytes(ciphertext)
+            db.add(
+                VaultFile(
+                    id=vault_id,
+                    name=project_file.filename,
+                    description=archive_description,
+                    content_type=project_file.content_type,
+                    size=len(plaintext),
+                    encrypted_size=len(ciphertext),
+                    storage_path=str(vault_storage_path),
+                    nonce=nonce,
+                    folder="Processed",
+                    uploaded_by_id=actor_id,
+                )
+            )
 
 
 @router.get("/", response_model=list[ProjectOut])
@@ -566,7 +646,7 @@ async def import_tasks_from_ms_project(
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     try:
-        parsed = parse_ms_project_xml(content)
+        parsed = parse_ms_project_content(content, filename=upload.filename)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -833,6 +913,7 @@ async def approve_ai_draft(
         raise HTTPException(status_code=400, detail="AI draft is already processed")
 
     await _approve_single_ai_draft(project_id, draft, current_user, db)
+    await _maybe_archive_processed_file(project_id, draft.project_file_id, current_user.id, db)
     await db.commit()
     await db.refresh(draft)
     return draft
@@ -863,6 +944,8 @@ async def approve_ai_drafts_bulk(
             continue
         await _approve_single_ai_draft(project_id, draft, current_user, db)
         approved.append(draft)
+    for file_id in {d.project_file_id for d in approved}:
+        await _maybe_archive_processed_file(project_id, file_id, current_user.id, db)
     await db.commit()
     return approved
 
@@ -891,6 +974,7 @@ async def reject_ai_draft(
         raise HTTPException(status_code=400, detail="AI draft is already processed")
     draft.status = "rejected"
     draft.approved_by_id = current_user.id
+    await _maybe_archive_processed_file(project_id, draft.project_file_id, current_user.id, db)
     await db.commit()
     await db.refresh(draft)
     return draft

@@ -304,12 +304,14 @@ async def update_task(
     old_status = task.status
     old_start_date = task.start_date
     old_end_date = task.end_date
-    payload = data.model_dump(exclude_none=True)
+    # Keep explicitly passed nulls (e.g. clearing dates/assignee) but ignore fields not sent by client.
+    payload = data.model_dump(exclude_unset=True)
     deadline_change_reason = payload.pop("deadline_change_reason", None)
 
     # Validate deadline change requires a reason
+    end_date_provided = "end_date" in payload
     new_end_date = payload.get("end_date")
-    if new_end_date is not None and new_end_date != old_end_date:
+    if end_date_provided and new_end_date != old_end_date:
         if not deadline_change_reason:
             raise HTTPException(status_code=422, detail="Укажите причину изменения дедлайна")
 
@@ -342,7 +344,7 @@ async def update_task(
         task.next_check_in_due_at = _plan_next_check_in(task, _now_utc())
 
     # Record deadline change if end_date actually changed
-    if new_end_date is not None and new_end_date != old_end_date and deadline_change_reason:
+    if end_date_provided and new_end_date != old_end_date and deadline_change_reason:
         db.add(DeadlineChange(
             entity_type="task",
             entity_id=task.id,
@@ -353,13 +355,14 @@ async def update_task(
         ))
 
     # Log date_changed events to task_events
+    start_date_provided = "start_date" in payload
     new_start_date = payload.get("start_date")
-    if new_start_date is not None and new_start_date != old_start_date:
+    if start_date_provided and new_start_date != old_start_date:
         await _log_task_event(
             db, task.id, current_user.id, "date_changed",
             f"start:{old_start_date}->{task.start_date}",
         )
-    if new_end_date is not None and new_end_date != old_end_date:
+    if end_date_provided and new_end_date != old_end_date:
         await _log_task_event(
             db, task.id, current_user.id, "date_changed",
             f"end:{old_end_date}->{task.end_date}",

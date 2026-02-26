@@ -1,6 +1,8 @@
 import json
 import re
 import subprocess
+import zipfile
+import xml.etree.ElementTree as ET
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -9,6 +11,143 @@ import httpx
 from pypdf import PdfReader
 
 from app.core.config import settings
+
+
+def _xml_local_name(tag: str) -> str:
+    if "}" in tag:
+        return tag.split("}", 1)[1]
+    return tag
+
+
+def _extract_docx_text(path: Path) -> str:
+    with zipfile.ZipFile(path) as archive:
+        document_xml = archive.read("word/document.xml")
+    root = ET.fromstring(document_xml)
+    paragraphs: list[str] = []
+    for node in root.iter():
+        if _xml_local_name(node.tag) != "p":
+            continue
+        parts: list[str] = []
+        for child in node.iter():
+            if _xml_local_name(child.tag) == "t" and child.text:
+                parts.append(child.text)
+        line = "".join(parts).strip()
+        if line:
+            paragraphs.append(line)
+    return "\n".join(paragraphs).strip()
+
+
+def _extract_pptx_text(path: Path) -> str:
+    with zipfile.ZipFile(path) as archive:
+        slide_names = sorted(
+            name
+            for name in archive.namelist()
+            if name.startswith("ppt/slides/slide") and name.endswith(".xml")
+        )
+        lines: list[str] = []
+        for name in slide_names:
+            slide_xml = archive.read(name)
+            root = ET.fromstring(slide_xml)
+            parts: list[str] = []
+            for node in root.iter():
+                if _xml_local_name(node.tag) == "t" and node.text:
+                    parts.append(node.text.strip())
+            line = " ".join([p for p in parts if p]).strip()
+            if line:
+                lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _column_index(cell_ref: str) -> int:
+    letters = "".join(ch for ch in cell_ref.upper() if "A" <= ch <= "Z")
+    if not letters:
+        return 0
+    value = 0
+    for ch in letters:
+        value = value * 26 + (ord(ch) - ord("A") + 1)
+    return value
+
+
+def _extract_xlsx_text(path: Path) -> str:
+    with zipfile.ZipFile(path) as archive:
+        shared_strings: list[str] = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            for si in root.iter():
+                if _xml_local_name(si.tag) != "si":
+                    continue
+                text_parts: list[str] = []
+                for node in si.iter():
+                    if _xml_local_name(node.tag) == "t" and node.text:
+                        text_parts.append(node.text)
+                shared_strings.append("".join(text_parts))
+
+        sheet_names = sorted(
+            name
+            for name in archive.namelist()
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+        )
+        lines: list[str] = []
+        for sheet_name in sheet_names:
+            root = ET.fromstring(archive.read(sheet_name))
+            for row in root.iter():
+                if _xml_local_name(row.tag) != "row":
+                    continue
+                row_cells: dict[int, str] = {}
+                for cell in row:
+                    if _xml_local_name(cell.tag) != "c":
+                        continue
+                    ref = cell.attrib.get("r", "")
+                    idx = _column_index(ref)
+                    cell_type = cell.attrib.get("t")
+                    value_text = ""
+                    if cell_type == "inlineStr":
+                        for node in cell.iter():
+                            if _xml_local_name(node.tag) == "t" and node.text:
+                                value_text += node.text
+                    else:
+                        raw = ""
+                        for node in cell:
+                            if _xml_local_name(node.tag) == "v" and node.text:
+                                raw = node.text.strip()
+                                break
+                        if cell_type == "s":
+                            try:
+                                s_idx = int(raw)
+                                value_text = shared_strings[s_idx] if 0 <= s_idx < len(shared_strings) else ""
+                            except ValueError:
+                                value_text = raw
+                        else:
+                            value_text = raw
+                    value_text = value_text.strip()
+                    if idx > 0 and value_text:
+                        row_cells[idx] = value_text
+                if row_cells:
+                    lines.append(" | ".join(row_cells[col] for col in sorted(row_cells)))
+    return "\n".join(lines).strip()
+
+
+def _extract_xls_text(path: Path) -> str:
+    try:
+        import xlrd  # type: ignore
+    except Exception as exc:
+        raise ValueError("Для обработки .xls установите зависимость xlrd.") from exc
+
+    workbook = xlrd.open_workbook(str(path), on_demand=True)
+    lines: list[str] = []
+    for sheet_name in workbook.sheet_names():
+        sheet = workbook.sheet_by_name(sheet_name)
+        for row_idx in range(sheet.nrows):
+            values: list[str] = []
+            for col_idx in range(sheet.ncols):
+                cell = sheet.cell_value(row_idx, col_idx)
+                text = str(cell).strip()
+                if text:
+                    values.append(text)
+            if values:
+                lines.append(" | ".join(values))
+    workbook.release_resources()
+    return "\n".join(lines).strip()
 
 
 def extract_text_for_ai(storage_path: str, content_type: str | None = None) -> str:
@@ -37,6 +176,14 @@ def extract_text_for_ai(storage_path: str, content_type: str | None = None) -> s
             err = (proc.stderr or proc.stdout or "").strip()
             raise ValueError(f"Could not parse .doc via antiword: {err[:300]}")
         text = proc.stdout.strip()
+    elif lowered == ".docx":
+        text = _extract_docx_text(path)
+    elif lowered == ".pptx":
+        text = _extract_pptx_text(path)
+    elif lowered == ".xlsx":
+        text = _extract_xlsx_text(path)
+    elif lowered == ".xls":
+        text = _extract_xls_text(path)
     else:
         text = path.read_text(encoding="utf-8", errors="ignore").strip()
 
@@ -161,7 +308,14 @@ def _extract_tasks_from_fixed_plan_table(source_text: str) -> list[dict[str, Any
         if "мероприятие" in _normalize_spaces(activity):
             continue
 
-        starts_new = bool(re.fullmatch(r"\d{1,3}", task_no))
+        starts_new = bool(re.fullmatch(r"\d{1,3}(?:[.)]|(?:\.\d+)+)?", task_no))
+        if not starts_new and not task_no:
+            # Some antiword table exports shift numbering into the activity cell.
+            activity_match = re.match(r"^\s*(\d{1,3}(?:[.)]|(?:\.\d+)+))\s+(.+)$", activity)
+            if activity_match:
+                task_no = activity_match.group(1)
+                activity = activity_match.group(2).strip()
+                starts_new = True
         if starts_new:
             if current and current.get("description"):
                 rows.append(current)
@@ -193,7 +347,9 @@ def _extract_tasks_from_fixed_plan_table(source_text: str) -> list[dict[str, Any
         desc = " ".join(str(row.get("description", "")).split()).strip()
         if not desc or len(desc) < 12:
             continue
-        title = desc[:180]
+        task_no = str(row.get("task_no") or "").strip()
+        numbered_title = f"{task_no} {desc}".strip() if task_no else desc
+        title = numbered_title[:180]
         if len(desc) > 180:
             title = f"{title}..."
 
@@ -201,18 +357,22 @@ def _extract_tasks_from_fixed_plan_table(source_text: str) -> list[dict[str, Any
         p_raw = str(row.get("priority_raw") or "").strip()
         priority = priority_map.get(p_raw, "medium")
 
+        comment = " ".join(str(row.get("comment", "")).split()).strip()
+        if comment:
+            description = f"{desc}\n\nКомментарий: {comment}"[:5000]
+        else:
+            description = desc
         quote = desc[:500]
-        next_step = row.get("comment") or None
         tasks.append(
             {
                 "title": title,
-                "description": desc,
+                "description": description,
                 "priority": priority,
                 "end_date": None,
                 "estimated_hours": None,
                 "assignee_hint": row.get("assignee_hint"),
                 "progress_percent": 0,
-                "next_step": str(next_step)[:500] if next_step else None,
+                "next_step": None,
                 "source_quote": quote,
                 "confidence": 95,
                 "raw_payload": row,
@@ -257,10 +417,13 @@ async def generate_task_drafts_from_text(
     member_hints: list[str],
 ) -> list[dict[str, Any]]:
     fixed_tasks = _extract_tasks_from_fixed_plan_table(text)
-    if fixed_tasks:
-        return fixed_tasks
 
-    provider, api_key, base_url, model = _resolve_ai_provider()
+    try:
+        provider, api_key, base_url, model = _resolve_ai_provider()
+    except ValueError:
+        if fixed_tasks:
+            return fixed_tasks[:120]
+        raise
 
     prompt = (
         "Ты помощник PM в ИТ-отделе. Извлеки только реальные ИТ-задачи из документа.\n"
@@ -287,7 +450,7 @@ async def generate_task_drafts_from_text(
         "    }\n"
         "  ]\n"
         "}\n"
-        "Включай не более 40 задач.\n"
+        "Включай не более 120 задач.\n"
         f"Проект: {project_name}\n"
         f"Участники команды (подсказки): {', '.join(member_hints) if member_hints else 'не указаны'}\n"
         "Текст документа:\n"
@@ -365,6 +528,7 @@ async def generate_task_drafts_from_text(
             relaxed_tasks.append(_build_task(item, source_quote=None, confidence_cap=45))
 
     # Strict mode first; if all tasks were filtered out, fallback to relaxed mode to avoid empty result.
-    if strict_tasks:
-        return strict_tasks[:40]
-    return relaxed_tasks[:20]
+    llm_tasks = strict_tasks[:120] if strict_tasks else relaxed_tasks[:120]
+    if fixed_tasks and len(fixed_tasks) >= len(llm_tasks):
+        return fixed_tasks[:120]
+    return llm_tasks

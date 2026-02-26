@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+import tempfile
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from math import ceil
 
 
@@ -113,13 +115,139 @@ def _find_project_root(root: ET.Element) -> ET.Element:
     raise ValueError("MS Project XML root <Project> not found")
 
 
+def _to_python_date(value) -> date | None:
+    if value is None:
+        return None
+    # java.util.Date from JPype
+    try:
+        millis = int(value.getTime())
+        return datetime.fromtimestamp(millis / 1000, tz=timezone.utc).date()
+    except Exception:
+        return None
+
+
+def _parse_ms_project_mpp(content: bytes) -> MSProjectParseResult:
+    try:
+        import jpype
+        import mpxj  # type: ignore
+    except Exception as exc:
+        raise ValueError(
+            "Прямая обработка .mpp недоступна: не установлены зависимости JPype1/mpxj."
+        ) from exc
+
+    try:
+        if not jpype.isJVMStarted():
+            jpype.startJVM(classpath=mpxj.getClassPath())
+    except Exception as exc:
+        raise ValueError(
+            "Прямая обработка .mpp недоступна: JVM не запущена (установите JRE в backend-контейнер)."
+        ) from exc
+
+    try:
+        reader_cls = jpype.JClass("net.sf.mpxj.reader.UniversalProjectReader")
+        reader = reader_cls()
+    except Exception as exc:
+        raise ValueError("Не удалось инициализировать MPXJ reader для .mpp") from exc
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mpp") as temp_file:
+        temp_file.write(content)
+        temp_path = temp_file.name
+
+    try:
+        project = reader.read(temp_path)
+        if project is None:
+            raise ValueError("MPXJ не смог прочитать .mpp файл")
+
+        parsed_tasks: list[ParsedMSProjectTask] = []
+        skipped_count = 0
+        for task in project.getTasks():
+            if task is None:
+                skipped_count += 1
+                continue
+            try:
+                title = str(task.getName() or "").strip()
+            except Exception:
+                title = ""
+            if not title:
+                skipped_count += 1
+                continue
+
+            try:
+                uid_val = task.getUniqueID()
+                uid = str(uid_val) if uid_val is not None else None
+            except Exception:
+                uid = None
+            if not uid:
+                skipped_count += 1
+                continue
+
+            try:
+                outline = task.getOutlineNumber()
+                outline_number = str(outline) if outline is not None else None
+            except Exception:
+                outline_number = None
+
+            try:
+                notes_raw = task.getNotes()
+                description = str(notes_raw).strip() if notes_raw else None
+            except Exception:
+                description = None
+
+            start_date = _to_python_date(task.getStart())
+            end_date = _to_python_date(task.getFinish())
+            if start_date and end_date and end_date < start_date:
+                end_date = start_date
+
+            try:
+                pct = task.getPercentageComplete()
+                progress_percent = _clamp_progress(str(pct) if pct is not None else None)
+            except Exception:
+                progress_percent = 0
+
+            try:
+                priority = _normalize_priority(str(task.getPriority()) if task.getPriority() is not None else None)
+            except Exception:
+                priority = "medium"
+
+            estimated_hours = None
+            try:
+                duration = task.getDuration()
+                if duration is not None:
+                    dur_val = duration.getDuration()
+                    if dur_val is not None:
+                        estimated_hours = max(1, ceil(float(dur_val)))
+            except Exception:
+                estimated_hours = None
+
+            parent_uid = None
+            try:
+                parent = task.getParentTask()
+                if parent is not None and parent.getUniqueID() is not None:
+                    parent_uid = str(parent.getUniqueID())
+            except Exception:
+                parent_uid = None
+
+            parsed_tasks.append(
+                ParsedMSProjectTask(
+                    uid=uid,
+                    outline_number=outline_number,
+                    title=title,
+                    description=description,
+                    start_date=start_date,
+                    end_date=end_date,
+                    progress_percent=progress_percent,
+                    priority=priority,
+                    estimated_hours=estimated_hours,
+                    parent_uid=parent_uid,
+                )
+            )
+        return MSProjectParseResult(tasks=parsed_tasks, skipped_count=skipped_count)
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
+
+
 def parse_ms_project_xml(content: bytes) -> MSProjectParseResult:
     stripped = content.lstrip()
-    # Legacy MS Project .mpp files are OLE Compound File Binary format.
-    if content.startswith(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"):
-        raise ValueError(
-            "Похоже, загружен .mpp файл. Экспортируйте проект из MS Project в XML (MSPDI) и загрузите .xml."
-        )
     # Generic non-XML payload guard for clearer UX than raw parser error.
     if not stripped.startswith((b"<", b"\xef\xbb\xbf<", b"\xff\xfe<", b"\xfe\xff<")):
         raise ValueError(
@@ -193,3 +321,12 @@ def parse_ms_project_xml(content: bytes) -> MSProjectParseResult:
                 level_stack.pop(level, None)
 
     return MSProjectParseResult(tasks=parsed_tasks, skipped_count=skipped_count)
+
+
+def parse_ms_project_content(content: bytes, filename: str | None = None) -> MSProjectParseResult:
+    lower_name = (filename or "").lower()
+    # Legacy MS Project .mpp files are OLE Compound File Binary format.
+    is_mpp = lower_name.endswith(".mpp") or content.startswith(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1")
+    if is_mpp:
+        return _parse_ms_project_mpp(content)
+    return parse_ms_project_xml(content)

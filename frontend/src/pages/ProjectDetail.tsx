@@ -13,7 +13,6 @@ import {
   useProjectFiles,
   useUploadProjectFile,
   useDeleteProjectFile,
-  useImportMSProjectTasks,
   useAIJobs,
   useStartAIProcessing,
   useAIDrafts,
@@ -35,7 +34,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import type { Task, GanttTask, ProjectFile, MSProjectImportResult } from '@/types'
+import type { Task, GanttTask, ProjectFile } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -104,7 +103,6 @@ export function ProjectDetail() {
   const bulkUpdateTasks = useBulkUpdateTasks()
   const uploadProjectFile = useUploadProjectFile()
   const deleteProjectFile = useDeleteProjectFile()
-  const importMSProjectTasks = useImportMSProjectTasks()
   const approveAIDraft = useApproveAIDraft()
   const approveAIDraftsBulk = useApproveAIDraftsBulk()
   const rejectAIDraft = useRejectAIDraft()
@@ -116,8 +114,6 @@ export function ProjectDetail() {
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [fileToUpload, setFileToUpload] = useState<File | null>(null)
-  const [msProjectFile, setMsProjectFile] = useState<File | null>(null)
-  const [msProjectImportResult, setMsProjectImportResult] = useState<MSProjectImportResult | null>(null)
   const [taskForm, setTaskForm] = useState({
     title: '',
     description: '',
@@ -486,14 +482,6 @@ export function ProjectDetail() {
     if (!window.confirm('Удалить проект? Это действие нельзя отменить.')) return
     await deleteProject.mutateAsync(id)
     navigate('/')
-  }
-
-  const handleImportMSProject = async () => {
-    if (!msProjectFile || !canImport) return
-    const result = await importMSProjectTasks.mutateAsync({ projectId: id!, file: msProjectFile })
-    setMsProjectImportResult(result)
-    setMsProjectFile(null)
-    setView('list')
   }
 
   const handleQuickStatusChange = async (task: Task, status: string) => {
@@ -1293,57 +1281,21 @@ export function ProjectDetail() {
               <Button
                 variant="outline"
                 onClick={handleUploadFile}
-                disabled={!fileToUpload || uploadProjectFile.isPending}
+                disabled={!fileToUpload || uploadProjectFile.isPending || !canImport}
               >
                 {uploadProjectFile.isPending ? 'Загрузка...' : 'Загрузить файл'}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Добавляйте материалы проекта: pdf, docx, ppt и другие файлы
+              Единая загрузка: XML/MSPDI, PDF, DOC/DOCX, PPTX, XLSX и текстовые форматы. После обработки черновиков
+              файл автоматически переносится в зашифрованное Хранилище (`Processed`) или его можно удалить вручную.
             </p>
           </div>
-
-          <div className="rounded-lg border bg-card p-4 space-y-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-sm font-semibold">Импорт задач из MS Project XML</p>
-                <p className="text-xs text-muted-foreground">
-                  Поддерживается XML-экспорт MS Project (MSPDI). Структура задач и даты сохраняются.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="file"
-                  accept=".xml,text/xml,application/xml"
-                  onChange={(e) => setMsProjectFile(e.target.files?.[0] ?? null)}
-                />
-                <Button
-                  variant="outline"
-                  onClick={handleImportMSProject}
-                  disabled={!msProjectFile || importMSProjectTasks.isPending || !canImport}
-                >
-                  {importMSProjectTasks.isPending ? 'Импорт...' : 'Импортировать задачи'}
-                </Button>
-              </div>
-            </div>
-            {!canImport && (
-              <p className="text-xs text-muted-foreground">
-                У вас нет права `import` для загрузки задач из MS Project.
-              </p>
-            )}
-            {msProjectImportResult && (
-              <p className="text-xs text-muted-foreground">
-                Импорт завершен: создано {msProjectImportResult.created}, связей родитель-дочерняя{' '}
-                {msProjectImportResult.linked_to_parent}, пропущено {msProjectImportResult.skipped}, всего в файле{' '}
-                {msProjectImportResult.total_in_file}.
-              </p>
-            )}
-            {importMSProjectTasks.isError && (
-              <p className="text-xs text-red-600">
-                Ошибка импорта: {(importMSProjectTasks.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'не удалось обработать файл'}
-              </p>
-            )}
-          </div>
+          {!canImport && (
+            <p className="text-xs text-muted-foreground">
+              У вас нет права `import` для загрузки/обработки файлов.
+            </p>
+          )}
 
           {files.length === 0 ? (
             <div className="text-sm text-muted-foreground">Файлов пока нет.</div>

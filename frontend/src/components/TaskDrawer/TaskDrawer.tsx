@@ -196,13 +196,13 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
 
   const handleSaveDates = async () => {
     const endDateChanged = endDate !== (task.end_date ?? '')
-    if (endDateChanged && endDate) {
+    if (endDateChanged) {
       // Need reason for changing end_date
       setPendingEndDate(endDate)
       setShowDeadlineReasonModal(true)
       return
     }
-    // No end_date change or clearing it — save directly
+    // No end_date change — save directly
     await updateTask.mutateAsync({
       taskId: task.id,
       data: {
