@@ -485,19 +485,31 @@ export function ProjectDetail() {
       return
     }
 
-    await updateProject.mutateAsync({ projectId: id!, data: formData })
     setEditOpen(false)
+    try {
+      await updateProject.mutateAsync({ projectId: id!, data: formData })
+    } catch (error: any) {
+      setEditOpen(true)
+      const detail = error?.response?.data?.detail
+      window.alert(typeof detail === 'string' ? detail : 'Не удалось сохранить проект')
+    }
   }
 
   const handleProjectDeadlineConfirm = async (reason: string) => {
     if (!pendingProjectFormData) return
     setShowProjectDeadlineModal(false)
-    await updateProject.mutateAsync({
-      projectId: id!,
-      data: { ...pendingProjectFormData, deadline_change_reason: reason },
-    })
-    setPendingProjectFormData(null)
     setEditOpen(false)
+    try {
+      await updateProject.mutateAsync({
+        projectId: id!,
+        data: { ...pendingProjectFormData, deadline_change_reason: reason },
+      })
+      setPendingProjectFormData(null)
+    } catch (error: any) {
+      setEditOpen(true)
+      const detail = error?.response?.data?.detail
+      window.alert(typeof detail === 'string' ? detail : 'Не удалось сохранить проект')
+    }
   }
 
   const handleProjectDeadlineCancel = () => {
