@@ -540,6 +540,16 @@ export function ProjectDetail() {
     setSelectedDraftIds([])
   }
 
+  const allDraftsSelected = aiDrafts.length > 0 && aiDrafts.every((d) => selectedDraftIds.includes(d.id))
+
+  const handleToggleAllDrafts = () => {
+    if (allDraftsSelected) {
+      setSelectedDraftIds([])
+      return
+    }
+    setSelectedDraftIds(aiDrafts.map((d) => d.id))
+  }
+
   const renderTaskContent = (task: Task) => (
     <>
       <div className="flex items-center justify-between">
@@ -1388,15 +1398,25 @@ export function ProjectDetail() {
                   После загрузки документа ИИ предлагает задачи. Подтвердите нужные.
                 </p>
               </div>
-              <Button
-                size="sm"
-                onClick={handleApproveSelectedDrafts}
-                disabled={selectedDraftIds.length === 0 || approveAIDraftsBulk.isPending}
-              >
-                {approveAIDraftsBulk.isPending
-                  ? 'Создание...'
-                  : `Подтвердить выбранные (${selectedDraftIds.length})`}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleToggleAllDrafts}
+                  disabled={aiDrafts.length === 0}
+                >
+                  {allDraftsSelected ? 'Снять всё' : `Выбрать всё (${aiDrafts.length})`}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleApproveSelectedDrafts}
+                  disabled={selectedDraftIds.length === 0 || approveAIDraftsBulk.isPending}
+                >
+                  {approveAIDraftsBulk.isPending
+                    ? 'Создание...'
+                    : `Подтвердить выбранные (${selectedDraftIds.length})`}
+                </Button>
+              </div>
             </div>
             {aiDrafts.length === 0 ? (
               <p className="text-sm text-muted-foreground">Пока нет pending-черновиков.</p>
