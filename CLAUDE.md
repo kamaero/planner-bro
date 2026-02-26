@@ -96,7 +96,7 @@ Layered FastAPI with async SQLAlchemy:
 - **`schemas/`** — Pydantic request/response models, one file per domain. `GanttTask`/`GanttData` in `project.py` map directly to the `gantt-task-react` Task interface.
 - **`api/v1/`** — thin route handlers. Authorization helpers (`_require_project_access`, `_require_project_member`) are local to each router file. `tasks.py` router has **no prefix** — task routes are split across `/projects/{id}/tasks` and `/tasks/{id}`. Project files live under `/projects/{id}/files` with upload/list/download/delete endpoints. `vault.py` handles encrypted team storage. `GET /users/online/presence` returns users with active WebSocket connections (polled by sidebar every 30 s).
 - **`services/`** — business logic. `notification_service.py` is the central fan-out point: every mutation calls a `notify_*` function which (1) writes DB records, (2) sends FCM via `firebase.py`, (3) broadcasts a WebSocket event via `ws_manager`. `vault_crypto.py` — AES-256-GCM encryption: `derive_file_key` (HKDF-SHA256, file_id as info), `encrypt_file`/`decrypt_file`, signed 15-min download JWTs.
-- **`tasks/`** — Celery. `celery_app.py` defines the Beat schedule. `deadline_checker.py` uses `asyncio.run()` to call async DB code from a sync Celery task. `ai_ingestion.py` deletes the source file from disk immediately after text extraction (security + disk hygiene). `telegram_summary_checker.py` posts scheduled summaries to Telegram.
+- **`tasks/`** — Celery. `celery_app.py` defines the Beat schedule. `deadline_checker.py` uses `asyncio.run()` to call async DB code from a sync Celery task. `ai_ingestion.py` deletes the source file from disk immediately after text extraction (security + disk hygiene). `telegram_summary_checker.py` posts scheduled summaries to Telegram, `telegram_commands_checker.py` handles `/start`, `/stop`, `/stats`.
 
 ### Deadline change audit trail
 Every `end_date` change on a task or project **requires a mandatory reason** (`deadline_change_reason` field in PUT body). Validated at the API level — 422 if missing.
@@ -161,7 +161,7 @@ Required before features work:
 - **Email**: `SMTP_USER` + `SMTP_PASSWORD` (only deadline_missed events send email)
 - **Project files storage**: `PROJECT_FILES_DIR` points to a writable directory. In production, mount this directory as a persistent volume.
 - **Vault storage**: `VAULT_FILES_DIR` (default `uploads/vault`) — persistent volume in production. `VAULT_ENCRYPTION_KEY` — 64-char hex string (32-byte AES master key). Generate: `python3 -c "import os; print(os.urandom(32).hex())"`. Falls back to `SHA-256(SECRET_KEY)` with a warning if unset.
-- **Telegram summaries**: `TELEGRAM_BOT_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_TIMEZONE` (default `Asia/Yekaterinburg`).
+- **Telegram summaries**: `TELEGRAM_BOT_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_TIMEZONE` (default `Asia/Yekaterinburg`), optional `TELEGRAM_ADMIN_USER_IDS` (comma-separated IDs; if empty, only Telegram chat admins can execute commands).
 
 ## Production Security (VPS: 95.164.92.165)
 

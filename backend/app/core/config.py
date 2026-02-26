@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
     TELEGRAM_TIMEZONE: str = "Asia/Yekaterinburg"
+    TELEGRAM_ADMIN_USER_IDS: str = ""
 
     # Task check-in cadence
     CHECK_IN_SOON_DEADLINE_WINDOW_DAYS: int = 7

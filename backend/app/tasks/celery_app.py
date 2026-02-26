@@ -40,6 +40,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.telegram_summary_checker.send_critical_tasks_summary",
         "schedule": crontab(minute=0, hour=5),
     },
+    "telegram-commands-poll-every-minute": {
+        "task": "app.tasks.telegram_commands_checker.check_telegram_commands",
+        "schedule": crontab(minute="*"),
+    },
 }
 
 celery_app.conf.timezone = "UTC"
@@ -49,6 +53,7 @@ celery_app.conf.imports = (
     "app.tasks.status_update_reminder_checker",
     "app.tasks.management_audit_checker",
     "app.tasks.telegram_summary_checker",
+    "app.tasks.telegram_commands_checker",
     "app.tasks.ai_ingestion",
 )
 celery_app.autodiscover_tasks(["app.tasks"])

@@ -11,7 +11,11 @@ from app.core.database import AsyncSessionLocal
 from app.models.project import Project
 from app.models.task import Task
 from app.models.user import User
-from app.services.telegram_service import escape_html, send_telegram_message
+from app.services.telegram_service import (
+    escape_html,
+    get_summaries_enabled,
+    send_telegram_message,
+)
 from app.tasks.celery_app import celery_app
 
 
@@ -35,16 +39,18 @@ def _task_url(task: Task) -> str:
 
 @celery_app.task(name="app.tasks.telegram_summary_checker.send_projects_summary")
 def send_projects_summary():
-    asyncio.run(_async_send_projects_summary())
+    asyncio.run(_async_send_projects_summary(compact=False, force=False))
 
 
 @celery_app.task(name="app.tasks.telegram_summary_checker.send_critical_tasks_summary")
 def send_critical_tasks_summary():
-    asyncio.run(_async_send_critical_tasks_summary())
+    asyncio.run(_async_send_critical_tasks_summary(compact=False, force=False))
 
 
-async def _async_send_projects_summary() -> None:
+async def _async_send_projects_summary(compact: bool = False, force: bool = False) -> None:
     if not _is_enabled():
+        return
+    if not force and not await get_summaries_enabled():
         return
 
     now_local = datetime.now(ZoneInfo(settings.TELEGRAM_TIMEZONE))
@@ -52,28 +58,46 @@ async def _async_send_projects_summary() -> None:
 
     async with AsyncSessionLocal() as db:
         projects = (
-            await db.execute(select(Project).options(selectinload(Project.owner)))
+            await db.execute(
+                select(Project)
+                .where(Project.status != "completed")
+                .options(selectinload(Project.owner))
+            )
         ).scalars().all()
-        tasks = (await db.execute(select(Task))).scalars().all()
+        users = (await db.execute(select(User.id, User.is_active))).all()
+        tasks = (
+            await db.execute(
+                select(Task).where(
+                    Task.status != "done",
+                    Task.assigned_to_id.is_not(None),
+                )
+            )
+        ).scalars().all()
+
+    active_user_ids = {uid for uid, is_active in users if is_active}
+    tasks = [task for task in tasks if task.assigned_to_id in active_user_ids]
 
     tasks_by_project: dict[str, list[Task]] = defaultdict(list)
     for task in tasks:
         tasks_by_project[task.project_id].append(task)
 
-    active_count = sum(1 for p in projects if p.status != "completed")
-    completed_count = sum(1 for p in projects if p.status == "completed")
+    filtered_projects = [p for p in projects if p.owner_id in active_user_ids]
+    assigned_project_ids = {pid for pid, ptasks in tasks_by_project.items() if ptasks}
+    filtered_projects = [p for p in filtered_projects if p.id in assigned_project_ids]
+
+    active_count = len(filtered_projects)
+    completed_count = 0
     overdue_projects = [
-        p for p in projects if p.status != "completed" and p.end_date and p.end_date < today
+        p for p in filtered_projects if p.end_date and p.end_date < today
     ]
 
     top_lines: list[str] = []
     ranked_projects = sorted(
-        projects,
+        filtered_projects,
         key=lambda p: (
-            0 if p.status != "completed" else 1,
             p.end_date.isoformat() if p.end_date else "9999-12-31",
         ),
-    )[:10]
+    )[: (5 if compact else 10)]
     for project in ranked_projects:
         ptasks = tasks_by_project.get(project.id, [])
         total = len(ptasks)
@@ -88,18 +112,22 @@ async def _async_send_projects_summary() -> None:
     text = (
         f"<b>PlannerBro · Сводка по проектам</b>\n"
         f"🕒 {now_local.strftime('%d.%m.%Y %H:%M')} ({escape_html(settings.TELEGRAM_TIMEZONE)})\n\n"
-        f"Всего проектов: <b>{len(projects)}</b>\n"
-        f"Активных: <b>{active_count}</b>\n"
-        f"Завершенных: <b>{completed_count}</b>\n"
-        f"Просроченных проектов: <b>{len(overdue_projects)}</b>\n\n"
-        f"<b>Топ проектов:</b>\n"
+        f"Текущих проектов (с назначениями): <b>{active_count}</b>\n"
+        f"Просроченных проектов: <b>{len(overdue_projects)}</b>\n"
+    )
+    if not compact:
+        text += f"Завершенных: <b>{completed_count}</b>\n"
+    text += (
+        f"\n<b>{'Краткий список' if compact else 'Топ проектов'}:</b>\n"
         f"{chr(10).join(top_lines) if top_lines else '• Нет проектов'}"
     )
     await send_telegram_message(text)
 
 
-async def _async_send_critical_tasks_summary() -> None:
+async def _async_send_critical_tasks_summary(compact: bool = False, force: bool = False) -> None:
     if not _is_enabled():
+        return
+    if not force and not await get_summaries_enabled():
         return
 
     now_local = datetime.now(ZoneInfo(settings.TELEGRAM_TIMEZONE))
@@ -109,17 +137,21 @@ async def _async_send_critical_tasks_summary() -> None:
         tasks = (
             await db.execute(
                 select(Task)
+                .join(Project, Task.project_id == Project.id)
                 .where(
+                    Project.status != "completed",
                     Task.status != "done",
+                    Task.assigned_to_id.is_not(None),
                     (Task.priority == "critical") | (Task.control_ski == True),  # noqa: E712
                 )
             )
         ).scalars().all()
         projects = (await db.execute(select(Project.id, Project.name))).all()
-        users = (await db.execute(select(User.id, User.name))).all()
+        users = (await db.execute(select(User.id, User.name, User.is_active))).all()
 
     project_map = {pid: name for pid, name in projects}
-    user_map = {uid: name for uid, name in users}
+    user_map = {uid: name for uid, name, is_active in users if is_active}
+    tasks = [task for task in tasks if task.assigned_to_id in user_map]
 
     overdue = [t for t in tasks if t.end_date and t.end_date < today]
     due_soon = [t for t in tasks if t.end_date and 0 <= (t.end_date - today).days <= 5]
@@ -132,7 +164,7 @@ async def _async_send_critical_tasks_summary() -> None:
             t.end_date.isoformat() if t.end_date else "9999-12-31",
             t.updated_at.isoformat(),
         ),
-    )[:15]
+    )[: (8 if compact else 15)]
 
     lines: list[str] = []
     for task in ranked:
@@ -147,12 +179,11 @@ async def _async_send_critical_tasks_summary() -> None:
     text = (
         f"<b>PlannerBro · Критические задачи</b>\n"
         f"🕒 {now_local.strftime('%d.%m.%Y %H:%M')} ({escape_html(settings.TELEGRAM_TIMEZONE)})\n\n"
-        f"Открытых критических/СКИ: <b>{len(tasks)}</b>\n"
+        f"Текущих критических/СКИ (с назначениями): <b>{len(tasks)}</b>\n"
         f"Просрочено: <b>{len(overdue)}</b>\n"
         f"Дедлайн ≤5 дней: <b>{len(due_soon)}</b>\n"
         f"Эскалаций: <b>{len(escalations)}</b>\n\n"
-        f"<b>Фокус-лист:</b>\n"
+        f"<b>{'Краткий фокус-лист' if compact else 'Фокус-лист'}:</b>\n"
         f"{chr(10).join(lines) if lines else '• Нет критических задач'}"
     )
     await send_telegram_message(text)
-
