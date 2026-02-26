@@ -40,6 +40,10 @@ export function Team() {
   const [newDepartmentParentId, setNewDepartmentParentId] = useState('')
   const [newDepartmentHeadId, setNewDepartmentHeadId] = useState('')
   const [creatingDepartment, setCreatingDepartment] = useState(false)
+  const [changingOwnPassword, setChangingOwnPassword] = useState(false)
+  const [ownPasswordSuccess, setOwnPasswordSuccess] = useState('')
+  const [ownPasswordError, setOwnPasswordError] = useState('')
+  const [ownPasswordForm, setOwnPasswordForm] = useState({ current_password: '', new_password: '' })
 
   const canManageTeam = currentUser?.role === 'admin' || currentUser?.can_manage_team
   const canCreateSubordinates = canManageTeam || currentUser?.role === 'manager'
@@ -213,6 +217,22 @@ export function Team() {
     }
   }
 
+  const handleChangeOwnPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setChangingOwnPassword(true)
+    setOwnPasswordError('')
+    setOwnPasswordSuccess('')
+    try {
+      await api.changeMyPassword(ownPasswordForm)
+      setOwnPasswordSuccess('Пароль успешно обновлен')
+      setOwnPasswordForm({ current_password: '', new_password: '' })
+    } catch (err: any) {
+      setOwnPasswordError(err?.response?.data?.detail ?? 'Не удалось изменить пароль')
+    } finally {
+      setChangingOwnPassword(false)
+    }
+  }
+
   const handleDeactivate = async (user: User) => {
     if (!canCreateSubordinates) return
     if (!window.confirm(`Отключить сотрудника ${user.name}?`)) return
@@ -312,6 +332,40 @@ export function Team() {
       </p>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <div className="rounded-xl border bg-card p-4 space-y-3 max-w-2xl">
+        <h2 className="font-semibold">Сменить свой пароль</h2>
+        <form onSubmit={handleChangeOwnPassword} className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="current-password">Текущий пароль</Label>
+              <Input
+                id="current-password"
+                type="password"
+                value={ownPasswordForm.current_password}
+                onChange={(e) => setOwnPasswordForm((f) => ({ ...f, current_password: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-password">Новый пароль</Label>
+              <Input
+                id="new-password"
+                type="password"
+                minLength={6}
+                value={ownPasswordForm.new_password}
+                onChange={(e) => setOwnPasswordForm((f) => ({ ...f, new_password: e.target.value }))}
+                required
+              />
+            </div>
+          </div>
+          <Button type="submit" disabled={changingOwnPassword}>
+            {changingOwnPassword ? 'Сохранение...' : 'Сменить пароль'}
+          </Button>
+          {ownPasswordSuccess && <p className="text-sm text-green-600">{ownPasswordSuccess}</p>}
+          {ownPasswordError && <p className="text-sm text-destructive">{ownPasswordError}</p>}
+        </form>
+      </div>
 
       <div className="rounded-xl border bg-card p-4 space-y-3">
         <h2 className="font-semibold">Оргструктура</h2>

@@ -7,7 +7,7 @@ from sqlalchemy import select, or_, delete, func
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.models.user import User
 from app.models.department import Department
 from app.models.project import Project, ProjectMember
@@ -20,6 +20,7 @@ from app.schemas.user import (
     UserPermissionsUpdate,
     ReminderSettingsUpdate,
     ResetPasswordResponse,
+    ChangeMyPasswordRequest,
     DepartmentCreate,
     DepartmentUpdate,
     DepartmentOut,
@@ -89,6 +90,26 @@ def _generate_temporary_password(length: int = 14) -> str:
 @router.get("/me", response_model=UserProfile)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.post("/me/change-password")
+async def change_my_password(
+    data: ChangeMyPasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.password_hash:
+        raise HTTPException(status_code=400, detail="Password login is not configured for this account")
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Новый пароль должен быть не короче 6 символов")
+    if data.current_password == data.new_password:
+        raise HTTPException(status_code=400, detail="Новый пароль должен отличаться от текущего")
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Текущий пароль указан неверно")
+
+    current_user.password_hash = hash_password(data.new_password)
+    await db.commit()
+    return {"message": "Пароль обновлен"}
 
 
 @router.post("/", response_model=UserOut, status_code=201)

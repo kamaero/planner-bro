@@ -89,6 +89,11 @@ class ResetPasswordResponse(BaseModel):
     temporary_password: str
 
 
+class ChangeMyPasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class DepartmentBase(BaseModel):
     name: str
     parent_id: Optional[str] = None
