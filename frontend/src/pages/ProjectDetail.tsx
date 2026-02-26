@@ -75,7 +75,7 @@ function formatFileSize(size: number) {
 }
 
 function parseImportedTaskOrder(title: string): number[] | null {
-  const match = title.match(/^(\d+(?:\.\d+)*)\s+/)
+  const match = title.match(/^(\d+(?:\.\d+)*)(?:[.)])?\s+/)
   if (!match) return null
   const values = match[1].split('.').map((part) => Number.parseInt(part, 10))
   if (values.some((v) => !Number.isFinite(v))) return null

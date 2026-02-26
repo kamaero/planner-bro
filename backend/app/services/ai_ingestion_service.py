@@ -382,6 +382,73 @@ def _extract_tasks_from_fixed_plan_table(source_text: str) -> list[dict[str, Any
     return tasks[:120]
 
 
+def _extract_tasks_from_numbered_lines(source_text: str) -> list[dict[str, Any]]:
+    lines = [line.strip() for line in source_text.splitlines() if line.strip()]
+    rows: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    for raw_line in lines:
+        line = " ".join(raw_line.strip("|").split()).strip()
+        if not line:
+            continue
+        lowered = _normalize_spaces(line)
+        if any(marker in lowered for marker in ("№", "мероприятие", "ответственный", "приоритет")):
+            continue
+
+        match = re.match(r"^(\d{1,3}(?:\.\d+)*)(?:[.)])?\s+(.+)$", line)
+        if match:
+            task_no = match.group(1).strip()
+            # Guard against dates like 12.03.2026 being parsed as task numbers.
+            if any(len(part) > 3 for part in task_no.split(".")):
+                match = None
+            else:
+                description = match.group(2).strip()
+                if current and current.get("description"):
+                    rows.append(current)
+                current = {
+                    "task_no": task_no,
+                    "description": description,
+                }
+                continue
+
+        if not current:
+            continue
+        if len(lowered) < 3:
+            continue
+        if lowered.startswith(("итого", "примечание", "утверждаю")):
+            continue
+        current["description"] = f"{current['description']} {line}".strip()
+
+    if current and current.get("description"):
+        rows.append(current)
+
+    tasks: list[dict[str, Any]] = []
+    for row in rows:
+        desc = " ".join(str(row.get("description", "")).split()).strip()
+        if len(desc) < 8:
+            continue
+        task_no = str(row.get("task_no") or "").strip()
+        title = f"{task_no} {desc}".strip()[:180]
+        if len(desc) > 180:
+            title = f"{title}..."
+        tasks.append(
+            {
+                "title": title,
+                "description": desc[:5000],
+                "priority": "medium",
+                "end_date": None,
+                "estimated_hours": None,
+                "assignee_hint": None,
+                "progress_percent": 0,
+                "next_step": None,
+                "source_quote": desc[:500],
+                "confidence": 90,
+                "raw_payload": row,
+            }
+        )
+    return tasks[:120]
+
+
 def _extract_llm_content(data: dict[str, Any], provider: str) -> str:
     err = data.get("error")
     if isinstance(err, dict):
@@ -417,12 +484,17 @@ async def generate_task_drafts_from_text(
     member_hints: list[str],
 ) -> list[dict[str, Any]]:
     fixed_tasks = _extract_tasks_from_fixed_plan_table(text)
+    numbered_tasks = _extract_tasks_from_numbered_lines(text)
+    preparsed_tasks = fixed_tasks if len(fixed_tasks) >= len(numbered_tasks) else numbered_tasks
+    # If deterministic parsing already found enough tasks, prefer it over LLM.
+    if len(preparsed_tasks) >= 30:
+        return preparsed_tasks[:120]
 
     try:
         provider, api_key, base_url, model = _resolve_ai_provider()
     except ValueError:
-        if fixed_tasks:
-            return fixed_tasks[:120]
+        if preparsed_tasks:
+            return preparsed_tasks[:120]
         raise
 
     prompt = (
@@ -529,6 +601,6 @@ async def generate_task_drafts_from_text(
 
     # Strict mode first; if all tasks were filtered out, fallback to relaxed mode to avoid empty result.
     llm_tasks = strict_tasks[:120] if strict_tasks else relaxed_tasks[:120]
-    if fixed_tasks and len(fixed_tasks) >= len(llm_tasks):
-        return fixed_tasks[:120]
+    if preparsed_tasks and len(preparsed_tasks) >= max(len(llm_tasks), 12):
+        return preparsed_tasks[:120]
     return llm_tasks
