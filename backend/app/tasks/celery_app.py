@@ -25,6 +25,21 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.management_audit_checker.check_management_gaps",
         "schedule": crontab(minute=30, hour=9),
     },
+    # Asia/Yekaterinburg (UTC+5): Mon 08:00 => Mon 03:00 UTC
+    "telegram-projects-summary-mon-0800-yekt": {
+        "task": "app.tasks.telegram_summary_checker.send_projects_summary",
+        "schedule": crontab(minute=0, hour=3, day_of_week="mon"),
+    },
+    # Asia/Yekaterinburg (UTC+5): Fri 16:00 => Fri 11:00 UTC
+    "telegram-projects-summary-fri-1600-yekt": {
+        "task": "app.tasks.telegram_summary_checker.send_projects_summary",
+        "schedule": crontab(minute=0, hour=11, day_of_week="fri"),
+    },
+    # Asia/Yekaterinburg (UTC+5): daily 10:00 => 05:00 UTC
+    "telegram-critical-summary-daily-1000-yekt": {
+        "task": "app.tasks.telegram_summary_checker.send_critical_tasks_summary",
+        "schedule": crontab(minute=0, hour=5),
+    },
 }
 
 celery_app.conf.timezone = "UTC"
@@ -33,6 +48,7 @@ celery_app.conf.imports = (
     "app.tasks.escalation_sla_checker",
     "app.tasks.status_update_reminder_checker",
     "app.tasks.management_audit_checker",
+    "app.tasks.telegram_summary_checker",
     "app.tasks.ai_ingestion",
 )
 celery_app.autodiscover_tasks(["app.tasks"])

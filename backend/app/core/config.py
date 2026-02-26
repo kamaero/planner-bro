@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     MANAGEMENT_AUDIT_ENABLED: bool = True
     MANAGEMENT_AUDIT_EMAIL: str = "aerokamero@gmail.com"
 
+    # Telegram summaries
+    TELEGRAM_BOT_ENABLED: bool = False
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+    TELEGRAM_TIMEZONE: str = "Asia/Yekaterinburg"
+
     # Task check-in cadence
     CHECK_IN_SOON_DEADLINE_WINDOW_DAYS: int = 7
     CHECK_IN_HOURS_DEFAULT: int = 168

@@ -146,6 +146,7 @@ Copy `.env.example` to `.env` and set:
 | `TEAM_STATUS_REMINDER_*` | Team status reminder policy (enabled + cadence windows) |
 | `CHECK_IN_*` | Automatic next check-in planning cadence by task criticality |
 | `MANAGEMENT_AUDIT_*` | Daily audit email for projects/tasks without manager/admin |
+| `TELEGRAM_BOT_*` | Telegram bot summaries (projects + critical tasks) |
 | `VITE_GOOGLE_CLIENT_ID` | Used by frontend for Google OAuth button |
 
 ## Recent Improvements
@@ -190,3 +191,7 @@ Copy `.env.example` to `.env` and set:
 - Department dashboard:
   projects can be manually linked to multiple departments (`department_ids`) and
   dashboard tabs also auto-include projects where department head or subordinates are assigned.
+- Telegram bot summaries:
+  Celery Beat posts into a Telegram group when bot is enabled:
+  projects summary on Monday 08:00 and Friday 16:00 (Asia/Yekaterinburg),
+  critical tasks summary daily at 10:00 (Asia/Yekaterinburg).
