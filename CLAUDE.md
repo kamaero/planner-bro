@@ -130,7 +130,7 @@ Encrypted file storage at `/storage` route. Security model:
 - **`hooks/useVault.ts`** — TanStack Query hooks for vault: `useVaultFiles`, `useUploadVaultFile`, `useDeleteVaultFile`, `useVaultDownloadToken`.
 - **`hooks/useWebSocket.ts`** — opens `ws://host/ws?token=...` on mount, dispatches `queryClient.invalidateQueries` on received events. No explicit reconnect logic.
 - **`components/GanttChart/`** — wraps `gantt-task-react`. Converts `GanttTask[]` (from the `/gantt` endpoint) to the library's `Task[]` type via `toGanttTasks()`.
-- **`pages/Dashboard.tsx`** — clickable KPI cards filter a project list (active/in-progress/overdue/completed) and add fast navigation via `ProjectCard` links.
+- **`pages/Dashboard.tsx`** — compact `Дэшборд IT` with department tabs (`/projects/dashboard/departments`), manual project-to-department linking, and condensed widgets for one-screen visibility.
 - **`pages/ProjectDetail.tsx`** — project editing (name/status/dates/owner) and a Files tab for uploading and managing attachments.
 - **`pages/TeamStorage.tsx`** — encrypted vault UI: folder tabs, file list, upload panel (with optional description), download via signed token (`window.open`), delete gated by `can_delete`/`admin`.
 - **`pages/Team.tsx`** — team management. Users can edit their own display name inline in their card (calls `PUT /users/me`). Admins/managers manage roles, org structure, departments.
@@ -214,6 +214,7 @@ Migration chain (`backend/alembic/versions/`):
 | 0013 | `task_checkin_fields.py` | `last_check_in_at`, `next_check_in_due_at`, `last_check_in_note` on tasks |
 | 0014 | `org_and_task_dependencies.py` | `departments` table; `position_title`, `manager_id`, `department_id` on users; task dependencies |
 | 0015 | `vault.py` | `vault_files` table for encrypted team storage |
+| 0016 | `project_departments.py` | `project_departments` table for manual project-to-department assignment |
 
 Alembic runs automatically on container start via the `command:` in `docker-compose.yml`.
 

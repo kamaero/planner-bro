@@ -30,6 +30,7 @@ export interface Project {
   launch_basis_file_id?: string
   start_date?: string
   end_date?: string
+  department_ids?: string[]
   completion_checklist?: Array<{ id: string; label: string; done: boolean }>
   owner_id: string
   owner: User
@@ -210,6 +211,16 @@ export interface GlobalSearchResult {
   projects: Array<{ id: string; name: string; status: string }>
   tasks: Array<{ id: string; title: string; project_id: string; status: string }>
   users: Array<{ id: string; name: string; email: string }>
+}
+
+export interface DepartmentProjectsSection {
+  department_id: string
+  department_name: string
+  projects: Project[]
+}
+
+export interface DepartmentProjectsResponse {
+  departments: DepartmentProjectsSection[]
 }
 
 export interface DeadlineChange {

@@ -4,20 +4,28 @@ import shutil
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.config import settings
 from app.models.user import User
-from app.models.project import Project, ProjectMember, ProjectFile, default_completion_checklist
+from app.models.department import Department
+from app.models.project import (
+    Project,
+    ProjectMember,
+    ProjectFile,
+    ProjectDepartment,
+    default_completion_checklist,
+)
 from app.models.task import Task, TaskEvent, TaskComment
 from app.models.ai import AIIngestionJob, AITaskDraft
 from app.models.deadline_change import DeadlineChange
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
-    AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut, MSProjectImportResult
+    AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut, MSProjectImportResult,
+    DepartmentProjectsResponse, DepartmentProjectsSection,
 )
 from app.schemas.ai import AIIngestionJobOut, AITaskDraftOut, AITaskDraftBulkApproveRequest
 from app.schemas.deadline_change import DeadlineChangeOut, DeadlineStats
@@ -93,7 +101,7 @@ async def _require_project_access(
     result = await db.execute(
         select(Project)
         .where(Project.id == project_id)
-        .options(selectinload(Project.owner))
+        .options(selectinload(Project.owner), selectinload(Project.departments))
     )
     project = result.scalar_one_or_none()
     if not project:
@@ -113,6 +121,24 @@ async def _require_project_access(
     return project
 
 
+async def _validate_department_ids(db: AsyncSession, department_ids: list[str]) -> list[str]:
+    normalized = sorted({dep_id for dep_id in department_ids if dep_id})
+    if not normalized:
+        return []
+    existing = (
+        await db.execute(select(Department.id).where(Department.id.in_(normalized)))
+    ).scalars().all()
+    if len(existing) != len(normalized):
+        raise HTTPException(status_code=400, detail="One or more departments do not exist")
+    return normalized
+
+
+async def _sync_project_departments(db: AsyncSession, project_id: str, department_ids: list[str]) -> None:
+    await db.execute(delete(ProjectDepartment).where(ProjectDepartment.project_id == project_id))
+    for dep_id in department_ids:
+        db.add(ProjectDepartment(project_id=project_id, department_id=dep_id))
+
+
 async def _get_member(project_id: str, user_id: str, db: AsyncSession) -> ProjectMember | None:
     result = await db.execute(
         select(ProjectMember).where(
@@ -129,7 +155,7 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Project).options(selectinload(Project.owner))
+        select(Project).options(selectinload(Project.owner), selectinload(Project.departments))
     )
     return result.scalars().all()
 
@@ -141,6 +167,7 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
 ):
     payload = data.model_dump()
+    department_ids = await _validate_department_ids(db, payload.pop("department_ids", []))
     incoming_checklist = _normalize_checklist(payload.get("completion_checklist"))
     payload["completion_checklist"] = incoming_checklist or default_completion_checklist()
     _apply_control_ski(payload)
@@ -150,6 +177,7 @@ async def create_project(
     project = Project(**payload, owner_id=current_user.id)
     db.add(project)
     await db.flush()
+    await _sync_project_departments(db, project.id, department_ids)
 
     # Add owner as member
     member = ProjectMember(project_id=project.id, user_id=current_user.id, role="owner")
@@ -158,9 +186,81 @@ async def create_project(
     await db.refresh(project)
 
     result = await db.execute(
-        select(Project).where(Project.id == project.id).options(selectinload(Project.owner))
+        select(Project)
+        .where(Project.id == project.id)
+        .options(selectinload(Project.owner), selectinload(Project.departments))
     )
     return result.scalar_one()
+
+
+@router.get("/dashboard/departments", response_model=DepartmentProjectsResponse)
+async def get_department_dashboard(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    del current_user
+    departments = (await db.execute(select(Department).order_by(Department.name.asc()))).scalars().all()
+    users = (await db.execute(select(User.id, User.manager_id))).all()
+    projects = (
+        await db.execute(select(Project).options(selectinload(Project.owner), selectinload(Project.departments)))
+    ).scalars().all()
+    members = (await db.execute(select(ProjectMember.project_id, ProjectMember.user_id))).all()
+    manual_links = (await db.execute(select(ProjectDepartment.project_id, ProjectDepartment.department_id))).all()
+
+    children_map: dict[str, list[str]] = {}
+    for user_id, manager_id in users:
+        if manager_id:
+            children_map.setdefault(manager_id, []).append(user_id)
+
+    def _collect_subordinates(head_user_id: str | None) -> set[str]:
+        if not head_user_id:
+            return set()
+        collected: set[str] = set()
+        stack = [head_user_id]
+        while stack:
+            cur = stack.pop()
+            if cur in collected:
+                continue
+            collected.add(cur)
+            stack.extend(children_map.get(cur, []))
+        return collected
+
+    dept_user_ids: dict[str, set[str]] = {
+        dep.id: _collect_subordinates(dep.head_user_id) for dep in departments
+    }
+
+    project_ids_by_dept: dict[str, set[str]] = {dep.id: set() for dep in departments}
+    for project_id, user_id in members:
+        for dep in departments:
+            if user_id in dept_user_ids.get(dep.id, set()):
+                project_ids_by_dept[dep.id].add(project_id)
+    for project_id, dep_id in manual_links:
+        if dep_id in project_ids_by_dept:
+            project_ids_by_dept[dep_id].add(project_id)
+
+    project_map = {project.id: project for project in projects}
+    sections: list[DepartmentProjectsSection] = []
+    for dep in departments:
+        dep_projects = [
+            project_map[pid]
+            for pid in sorted(project_ids_by_dept.get(dep.id, set()))
+            if pid in project_map
+        ]
+        dep_projects.sort(
+            key=lambda p: (
+                1 if p.status == "completed" else 0,
+                p.end_date.isoformat() if p.end_date else "9999-12-31",
+                p.name.lower(),
+            )
+        )
+        sections.append(
+            DepartmentProjectsSection(
+                department_id=dep.id,
+                department_name=dep.name,
+                projects=dep_projects,
+            )
+        )
+    return DepartmentProjectsResponse(departments=sections)
 
 
 @router.get("/analytics/deadline-stats-summary", response_model=DeadlineStats)
@@ -258,6 +358,7 @@ async def update_project(
     requester_member = await _get_member(project_id, current_user.id, db)
     payload = data.model_dump(exclude_none=True)
     owner_id = payload.pop("owner_id", None)
+    incoming_department_ids = payload.pop("department_ids", None)
     checklist_payload = payload.pop("completion_checklist", None)
     deadline_change_reason = payload.pop("deadline_change_reason", None)
 
@@ -288,6 +389,9 @@ async def update_project(
     _apply_control_ski(payload, existing_priority=project.priority, existing_control_ski=project.control_ski)
     for field, value in payload.items():
         setattr(project, field, value)
+    if incoming_department_ids is not None:
+        normalized_department_ids = await _validate_department_ids(db, incoming_department_ids)
+        await _sync_project_departments(db, project_id, normalized_department_ids)
 
     # Record deadline change if end_date actually changed
     if new_end_date is not None and new_end_date != old_end_date and deadline_change_reason:
@@ -329,7 +433,9 @@ async def update_project(
         )
     await db.commit()
     result = await db.execute(
-        select(Project).where(Project.id == project_id).options(selectinload(Project.owner))
+        select(Project)
+        .where(Project.id == project_id)
+        .options(selectinload(Project.owner), selectinload(Project.departments))
     )
     project = result.scalar_one()
     await notify_project_updated(db, project)

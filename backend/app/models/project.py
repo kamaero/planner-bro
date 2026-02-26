@@ -68,6 +68,15 @@ class Project(Base):
     launch_basis_file: Mapped["ProjectFile | None"] = relationship(
         "ProjectFile", foreign_keys=[launch_basis_file_id]
     )
+    departments: Mapped[list["ProjectDepartment"]] = relationship(
+        "ProjectDepartment",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def department_ids(self) -> list[str]:
+        return [link.department_id for link in self.departments]
 
 
 class ProjectMember(Base):
@@ -111,3 +120,20 @@ class ProjectFile(Base):
         "Project", back_populates="files", foreign_keys=[project_id]
     )
     uploaded_by: Mapped["User"] = relationship("User")
+
+
+class ProjectDepartment(Base):
+    __tablename__ = "project_departments"
+
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    department_id: Mapped[str] = mapped_column(
+        ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    project: Mapped["Project"] = relationship("Project", back_populates="departments")
+    department: Mapped["Department"] = relationship("Department", back_populates="project_links")

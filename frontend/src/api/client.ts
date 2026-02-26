@@ -132,6 +132,8 @@ export const api = {
 
   // Projects
   listProjects: () => apiClient.get('/projects/').then((r) => r.data),
+  getDepartmentDashboard: () =>
+    apiClient.get('/projects/dashboard/departments').then((r) => r.data),
   createProject: (data: object) => apiClient.post('/projects/', data).then((r) => r.data),
   getProject: (id: string) => apiClient.get(`/projects/${id}`).then((r) => r.data),
   updateProject: (id: string, data: object) =>

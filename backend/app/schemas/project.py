@@ -21,6 +21,7 @@ class ProjectBase(BaseModel):
     launch_basis_file_id: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    department_ids: List[str] = Field(default_factory=list)
     completion_checklist: List[ProjectChecklistItem] = Field(default_factory=list)
 
 
@@ -39,6 +40,7 @@ class ProjectUpdate(BaseModel):
     launch_basis_file_id: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    department_ids: Optional[List[str]] = None
     owner_id: Optional[str] = None
     completion_checklist: Optional[List[ProjectChecklistItem]] = None
     deadline_change_reason: Optional[str] = None
@@ -108,3 +110,13 @@ class GanttTask(BaseModel):
 
 class GanttData(BaseModel):
     tasks: List[GanttTask]
+
+
+class DepartmentProjectsSection(BaseModel):
+    department_id: str
+    department_name: str
+    projects: List[ProjectOut]
+
+
+class DepartmentProjectsResponse(BaseModel):
+    departments: List[DepartmentProjectsSection]

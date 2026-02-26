@@ -32,3 +32,8 @@ class Department(Base):
         back_populates="department",
         foreign_keys="User.department_id",
     )
+    project_links: Mapped[list["ProjectDepartment"]] = relationship(
+        "ProjectDepartment",
+        back_populates="department",
+        cascade="all, delete-orphan",
+    )

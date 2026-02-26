@@ -120,6 +120,7 @@ Key endpoints:
 - `POST /api/v1/auth/refresh` — rotate refresh token pair
 - `POST /api/v1/auth/logout` — revoke current refresh token
 - `GET  /api/v1/projects/` — list user's projects
+- `GET  /api/v1/projects/dashboard/departments` — grouped project dashboard by department
 - `PATCH /api/v1/projects/{id}/members/{user_id}` — update member role (`member`/`manager`)
 - `GET  /api/v1/projects/{id}/gantt` — Gantt-compatible task data
 - `GET  /api/v1/projects/{id}/critical-path` — critical path based on task dependencies
@@ -186,3 +187,6 @@ Copy `.env.example` to `.env` and set:
 - Management audit:
   daily checker sends report to configured leadership email when project/task has no
   active manager/admin coverage.
+- Department dashboard:
+  projects can be manually linked to multiple departments (`department_ids`) and
+  dashboard tabs also auto-include projects where department head or subordinates are assigned.

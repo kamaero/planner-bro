@@ -15,12 +15,20 @@ import type {
   DeadlineChange,
   DeadlineStats,
   TaskDependency,
+  DepartmentProjectsResponse,
 } from '@/types'
 
 export function useProjects() {
   return useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: api.listProjects,
+  })
+}
+
+export function useDepartmentDashboard() {
+  return useQuery<DepartmentProjectsResponse>({
+    queryKey: ['department-dashboard'],
+    queryFn: api.getDepartmentDashboard,
   })
 }
 
@@ -65,7 +73,10 @@ export function useCreateProject() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: object) => api.createProject(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['department-dashboard'] })
+    },
   })
 }
 
@@ -77,6 +88,7 @@ export function useUpdateProject() {
     onSuccess: (_, { projectId }) => {
       qc.invalidateQueries({ queryKey: ['projects'] })
       qc.invalidateQueries({ queryKey: ['projects', projectId] })
+      qc.invalidateQueries({ queryKey: ['department-dashboard'] })
     },
   })
 }
@@ -85,7 +97,10 @@ export function useDeleteProject() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.deleteProject(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['department-dashboard'] })
+    },
   })
 }
 
