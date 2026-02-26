@@ -1,7 +1,7 @@
 """task assignees many-to-many
 
 Revision ID: 0017_task_assignees
-Revises: 0016_project_departments
+Revises: 0016
 Create Date: 2026-02-26
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "0017_task_assignees"
-down_revision = "0016_project_departments"
+down_revision = "0016"
 branch_labels = None
 depends_on = None
 
