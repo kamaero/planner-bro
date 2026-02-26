@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useQuery } from '@tanstack/react-query'
+import type { EmailDispatchLog, User } from '@/types'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -64,6 +65,16 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     queryFn: api.getOnlineUsers,
     refetchInterval: 30_000,
   })
+  const { data: teamUsers = [] } = useQuery<User[]>({
+    queryKey: ['users'],
+    queryFn: api.listUsers,
+    refetchInterval: 60_000,
+  })
+  const { data: activityFeed = [] } = useQuery<EmailDispatchLog[]>({
+    queryKey: ['email-dispatch-logs'],
+    queryFn: api.listEmailDispatchLogs,
+    refetchInterval: 20_000,
+  })
 
   const handleLogout = async () => {
     if (refreshToken) {
@@ -105,9 +116,23 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [searchQuery])
 
+  const onlineUserIds = new Set(onlineUsers.map((u) => u.id))
+  const teamList = [...teamUsers]
+    .filter((u) => u.is_active !== false)
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+
+  const recentActivity = activityFeed.slice(0, 6)
+  const formatSidebarTime = (iso: string) =>
+    new Intl.DateTimeFormat('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(iso))
+
   return (
     <div className="min-h-screen bg-background flex">
-      <aside className="w-64 border-r bg-card/60">
+      <aside className="w-64 border-r bg-card/60 flex flex-col h-screen sticky top-0">
         <div className="px-6 py-5 flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold">
             PB
@@ -136,31 +161,62 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             )
           })}
         </nav>
-
-        {onlineUsers.length > 0 && (
-          <div className="px-4 mt-6">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
-              Онлайн · {onlineUsers.length}
-            </p>
-            <div className="space-y-1">
-              {onlineUsers.map((u) => (
-                <div key={u.id} className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
-                  <span className="truncate">{u.name}</span>
-                </div>
-              ))}
+        <div className="mt-auto border-t">
+          <div className="px-4 py-4 flex items-center gap-3 border-b">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{user?.name}</p>
+              <p className="text-xs text-muted-foreground truncate">Участник команды</p>
             </div>
+            <Button variant="ghost" size="icon" onClick={handleLogout} aria-label="Выйти">
+              <LogOut className="w-4 h-4" />
+            </Button>
           </div>
-        )}
+          <div className="px-4 py-3 space-y-4 max-h-[42vh] overflow-y-auto">
+            <section>
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
+                Команда · {teamList.length} · Онлайн {onlineUsers.length}
+              </p>
+              <div className="space-y-1.5">
+                {teamList.map((member) => {
+                  const isOnline = onlineUserIds.has(member.id)
+                  return (
+                    <div key={member.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}
+                      />
+                      <span className="truncate">{member.name}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
 
-        <div className="mt-auto px-4 py-4 border-t flex items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{user?.name}</p>
-            <p className="text-xs text-muted-foreground truncate">Участник команды</p>
+            <section>
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
+                Активность системы
+              </p>
+              {recentActivity.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Пока нет событий.</p>
+              ) : (
+                <div className="space-y-2">
+                  {recentActivity.map((item) => (
+                    <div key={item.id} className="rounded-md border px-2 py-1.5 bg-background/80">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium truncate">{item.subject}</p>
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {formatSidebarTime(item.created_at)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground line-clamp-2">
+                        [{item.status}] {item.source} • {item.recipient_masked}
+                        {item.error_text ? ` • ${item.error_text}` : ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
-          <Button variant="ghost" size="icon" onClick={handleLogout} aria-label="Выйти">
-            <LogOut className="w-4 h-4" />
-          </Button>
         </div>
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">

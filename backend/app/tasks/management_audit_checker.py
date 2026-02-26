@@ -53,6 +53,7 @@ async def _async_check_management_gaps():
                 missing_task_managers.append((task_id, task_title, project_id))
 
         await send_management_gap_report(
+            db=db,
             missing_project_managers=missing_project_managers,
             missing_task_managers=missing_task_managers,
         )

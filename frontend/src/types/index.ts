@@ -117,6 +117,18 @@ export interface Notification {
   created_at: string
 }
 
+export interface EmailDispatchLog {
+  id: string
+  recipient: string
+  recipient_masked: string
+  subject: string
+  status: 'sent' | 'failed' | 'skipped'
+  source: string
+  error_text?: string | null
+  payload?: Record<string, unknown> | null
+  created_at: string
+}
+
 export interface TokenPair {
   access_token: string
   refresh_token: string

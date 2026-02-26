@@ -19,3 +19,15 @@ class NotificationOut(BaseModel):
 class DeviceRegisterRequest(BaseModel):
     token: str
     platform: str = "android"  # android | web
+
+
+class EmailDispatchLogOut(BaseModel):
+    id: str
+    recipient: str
+    recipient_masked: str
+    subject: str
+    status: str
+    source: str
+    error_text: Optional[str] = None
+    payload: Optional[dict[str, Any]] = None
+    created_at: datetime

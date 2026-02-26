@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.notification import Notification
+from app.models.email_dispatch_log import EmailDispatchLog
 from app.models.user import User
 from app.models.project import Project, ProjectMember
 from app.models.task import Task
@@ -47,8 +48,49 @@ def _preferred_email(user: User, now: datetime) -> str | None:
     return user.work_email or user.email
 
 
-async def _send_email_to_recipients(recipients: list[str], subject: str, body: str) -> None:
-    if not settings.SMTP_HOST or not recipients:
+async def _record_email_dispatch(
+    db: AsyncSession,
+    recipient: str,
+    subject: str,
+    status: str,
+    source: str,
+    error_text: str | None = None,
+    payload: dict | None = None,
+) -> None:
+    db.add(
+        EmailDispatchLog(
+            recipient=recipient,
+            subject=subject[:255],
+            status=status,
+            source=source[:100],
+            error_text=(error_text or None),
+            payload=payload or None,
+        )
+    )
+
+
+async def _send_email_to_recipients(
+    db: AsyncSession,
+    recipients: list[str],
+    subject: str,
+    body: str,
+    source: str,
+    payload: dict | None = None,
+) -> None:
+    if not recipients:
+        return
+    if not settings.SMTP_HOST:
+        for email in recipients:
+            await _record_email_dispatch(
+                db,
+                recipient=email,
+                subject=subject,
+                status="skipped",
+                source=source,
+                error_text="SMTP host is not configured",
+                payload=payload,
+            )
+        await db.commit()
         return
     for email in recipients:
         msg = MIMEText(body, "plain")
@@ -67,8 +109,25 @@ async def _send_email_to_recipients(recipients: list[str], subject: str, body: s
             if settings.SMTP_PASSWORD:
                 kwargs["password"] = settings.SMTP_PASSWORD
             await aiosmtplib.send(msg, **kwargs)
+            await _record_email_dispatch(
+                db,
+                recipient=email,
+                subject=subject,
+                status="sent",
+                source=source,
+                payload=payload,
+            )
         except Exception:
-            pass
+            await _record_email_dispatch(
+                db,
+                recipient=email,
+                subject=subject,
+                status="failed",
+                source=source,
+                error_text="SMTP send failed",
+                payload=payload,
+            )
+    await db.commit()
 
 
 async def _get_project_member_ids(db: AsyncSession, project_id: str) -> list[str]:
@@ -130,7 +189,14 @@ async def notify_task_assigned(db: AsyncSession, task: Task, assignee_id: str):
     if assignee:
         email = _preferred_email(assignee, datetime.now(timezone.utc))
         if email:
-            await _send_email_to_recipients([email], title, body)
+            await _send_email_to_recipients(
+                db,
+                [email],
+                title,
+                body,
+                source="task_assigned",
+                payload=data,
+            )
 
 
 async def notify_project_assigned(
@@ -165,7 +231,14 @@ async def notify_project_assigned(
     if user:
         email = _preferred_email(user, datetime.now(timezone.utc))
         if email:
-            await _send_email_to_recipients([email], title, body)
+            await _send_email_to_recipients(
+                db,
+                [email],
+                title,
+                body,
+                source="project_assigned",
+                payload=data,
+            )
 
 
 async def notify_task_updated(db: AsyncSession, task: Task, actor_id: str):
@@ -272,7 +345,14 @@ async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
         send_push_to_multiple(tokens, title, body, data)
 
     if days_until <= 0:
-        await _send_email_to_members(db, member_ids, title, body)
+        await _send_email_to_members(
+            db,
+            member_ids,
+            title,
+            body,
+            source=type_,
+            payload=data,
+        )
 
     await ws_manager.broadcast_to_project(task.project_id, ev.DEADLINE_WARNING, data)
 
@@ -414,10 +494,24 @@ async def notify_team_status_reminder(
         return
     target_email = _preferred_email(user, datetime.now(timezone.utc))
     if target_email:
-        await _send_email_to_recipients([target_email], title, body)
+        await _send_email_to_recipients(
+            db,
+            [target_email],
+            title,
+            body,
+            source="team_status_reminder",
+            payload=data,
+        )
 
 
-async def _send_email_to_members(db: AsyncSession, user_ids: list[str], subject: str, body: str):
+async def _send_email_to_members(
+    db: AsyncSession,
+    user_ids: list[str],
+    subject: str,
+    body: str,
+    source: str,
+    payload: dict | None = None,
+):
     result = await db.execute(select(User).where(User.id.in_(user_ids)))
     now = datetime.now(timezone.utc)
     emails = []
@@ -426,10 +520,18 @@ async def _send_email_to_members(db: AsyncSession, user_ids: list[str], subject:
         if target_email:
             emails.append(target_email)
     deduplicated = list(dict.fromkeys(emails))
-    await _send_email_to_recipients(deduplicated, subject, body)
+    await _send_email_to_recipients(
+        db,
+        deduplicated,
+        subject,
+        body,
+        source=source,
+        payload=payload,
+    )
 
 
 async def send_management_gap_report(
+    db: AsyncSession,
     missing_project_managers: list[tuple[str, str]],
     missing_task_managers: list[tuple[str, str, str]],
 ):
@@ -453,4 +555,14 @@ async def send_management_gap_report(
         lines.append(f"- {task_title} ({task_id}) -> {_build_task_link(project_id, task_id)}")
 
     subject = "PlannerBro audit: проекты/задачи без менеджера"
-    await _send_email_to_recipients([target], subject, "\n".join(lines))
+    await _send_email_to_recipients(
+        db,
+        [target],
+        subject,
+        "\n".join(lines),
+        source="management_gap_report",
+        payload={
+            "missing_project_managers": len(missing_project_managers),
+            "missing_task_managers": len(missing_task_managers),
+        },
+    )

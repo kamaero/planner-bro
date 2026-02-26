@@ -223,6 +223,7 @@ export const api = {
 
   // Notifications
   listNotifications: () => apiClient.get('/notifications').then((r) => r.data),
+  listEmailDispatchLogs: () => apiClient.get('/notifications/activity/email').then((r) => r.data),
   markRead: (id: string) => apiClient.patch(`/notifications/${id}/read`).then((r) => r.data),
   markAllRead: () => apiClient.post('/notifications/read-all').then((r) => r.data),
 
