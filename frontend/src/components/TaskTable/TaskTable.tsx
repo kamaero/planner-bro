@@ -4,16 +4,20 @@ import { Clock, AlertCircle } from 'lucide-react'
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
+  tz: 'ТЗ',
   todo: 'К выполнению',
   in_progress: 'В работе',
+  testing: 'Тестирование',
   review: 'На проверке',
   done: 'Выполнено',
 }
 
 const STATUS_BADGE: Record<string, string> = {
   planning: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
+  tz: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
   todo: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
   in_progress: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
+  testing: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
   review: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   done: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
 }

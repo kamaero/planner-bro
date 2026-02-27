@@ -23,7 +23,7 @@ class Project(Base):
     description: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     color: Mapped[str] = mapped_column(String(7), default="#6366f1", nullable=False)
     status: Mapped[str] = mapped_column(
-        SAEnum("planning", "active", "on_hold", "completed", name="project_status"),
+        SAEnum("planning", "tz", "active", "testing", "on_hold", "completed", name="project_status"),
         default="planning",
         nullable=False,
     )

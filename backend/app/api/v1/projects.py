@@ -33,7 +33,8 @@ from app.schemas.project import (
 )
 from app.schemas.ai import AIIngestionJobOut, AITaskDraftOut, AITaskDraftBulkApproveRequest
 from app.schemas.deadline_change import DeadlineChangeOut, DeadlineStats
-from app.services.project_service import get_projects_for_user, get_gantt_data
+from app.services.project_service import get_gantt_data
+from app.services.access_scope import can_access_project, get_user_access_scope
 from app.services.notification_service import (
     notify_project_updated,
     notify_new_task,
@@ -133,6 +134,9 @@ async def _require_project_access(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    if not await can_access_project(db, user, project_id):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     if require_manager and user.role != "admin":
         member_result = await db.execute(
@@ -253,8 +257,32 @@ async def list_projects(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if current_user.role == "admin":
+        result = await db.execute(
+            select(Project).options(selectinload(Project.owner), selectinload(Project.departments))
+        )
+        return result.scalars().all()
+
+    scope = await get_user_access_scope(db, current_user)
+    project_ids_from_members = (
+        await db.execute(
+            select(ProjectMember.project_id).where(ProjectMember.user_id.in_(scope.user_ids))
+        )
+    ).scalars().all()
+    project_ids_from_departments = (
+        await db.execute(
+            select(ProjectDepartment.project_id).where(
+                ProjectDepartment.department_id.in_(scope.department_ids or {""})
+            )
+        )
+    ).scalars().all()
+    accessible_ids = set(project_ids_from_members) | set(project_ids_from_departments)
+    if not accessible_ids:
+        return []
     result = await db.execute(
-        select(Project).options(selectinload(Project.owner), selectinload(Project.departments))
+        select(Project)
+        .where(Project.id.in_(accessible_ids))
+        .options(selectinload(Project.owner), selectinload(Project.departments))
     )
     return result.scalars().all()
 
@@ -297,19 +325,25 @@ async def get_department_dashboard(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    del current_user
+    scope = None if current_user.role == "admin" else await get_user_access_scope(db, current_user)
     departments = (await db.execute(select(Department).order_by(Department.name.asc()))).scalars().all()
     users = (await db.execute(select(User.id, User.manager_id, User.department_id))).all()
     projects = (
         await db.execute(select(Project).options(selectinload(Project.owner), selectinload(Project.departments)))
     ).scalars().all()
-    members = (
-        await db.execute(
-            select(ProjectMember.project_id, ProjectMember.user_id, ProjectMember.role)
-            .where(ProjectMember.role != "owner")
+    members_query = select(ProjectMember.project_id, ProjectMember.user_id, ProjectMember.role).where(
+        ProjectMember.role != "owner"
+    )
+    if scope:
+        members_query = members_query.where(ProjectMember.user_id.in_(scope.user_ids))
+    members = (await db.execute(members_query)).all()
+
+    manual_links_query = select(ProjectDepartment.project_id, ProjectDepartment.department_id)
+    if scope:
+        manual_links_query = manual_links_query.where(
+            ProjectDepartment.department_id.in_(scope.department_ids or {""})
         )
-    ).all()
-    manual_links = (await db.execute(select(ProjectDepartment.project_id, ProjectDepartment.department_id))).all()
+    manual_links = (await db.execute(manual_links_query)).all()
 
     children_map: dict[str, list[str]] = {}
     user_department_map: dict[str, str | None] = {}
@@ -375,6 +409,8 @@ async def get_department_dashboard(
     project_map = {project.id: project for project in projects}
     sections: list[DepartmentProjectsSection] = []
     for dep in departments:
+        if scope and dep.id not in scope.department_ids:
+            continue
         dep_projects = [
             project_map[pid]
             for pid in sorted(project_ids_by_dept.get(dep.id, set()))

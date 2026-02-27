@@ -5,14 +5,18 @@ import { CalendarDays, Users } from 'lucide-react'
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Planning',
+  tz: 'TZ',
   active: 'Active',
+  testing: 'Testing',
   on_hold: 'On Hold',
   completed: 'Completed',
 }
 
 const STATUS_COLORS: Record<string, string> = {
   planning: 'secondary',
+  tz: 'outline',
   active: 'default',
+  testing: 'outline',
   on_hold: 'outline',
   completed: 'secondary',
 }

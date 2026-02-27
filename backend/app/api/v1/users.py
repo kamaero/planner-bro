@@ -11,8 +11,9 @@ from app.services.websocket_manager import ws_manager
 from app.core.security import hash_password, verify_password
 from app.models.user import User
 from app.models.department import Department
-from app.models.project import Project, ProjectMember
+from app.models.project import Project, ProjectMember, ProjectDepartment
 from app.models.task import Task
+from app.services.access_scope import get_user_access_scope, is_user_in_scope
 from app.schemas.user import (
     UserCreate,
     UserOut,
@@ -52,9 +53,17 @@ def _require_team_manager(user: User) -> None:
 
 
 def _can_manage_subordinate(actor: User, target: User) -> bool:
-    if actor.role == "admin" or _can_manage_team(actor):
-        return True
     return target.manager_id == actor.id and actor.role in ("manager", "admin")
+
+
+async def _can_manage_user_with_scope(actor: User, target: User, db: AsyncSession) -> bool:
+    if actor.role == "admin":
+        return True
+    if actor.id == target.id:
+        return False
+    if not (actor.role == "manager" or _can_manage_team(actor)):
+        return False
+    return await is_user_in_scope(db, actor, target.id)
 
 
 def _can_create_subordinate(actor: User) -> bool:
@@ -150,6 +159,12 @@ async def create_user_by_admin(
         raise HTTPException(status_code=403, detail="Only admin can create admin accounts")
     if current_user.role not in ("admin",) and data.manager_id and data.manager_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only create direct subordinates")
+    if current_user.role != "admin":
+        scope = await get_user_access_scope(db, current_user)
+        if data.department_id and data.department_id not in scope.department_ids:
+            raise HTTPException(status_code=403, detail="No permission to assign this department")
+        if data.manager_id and data.manager_id not in scope.user_ids:
+            raise HTTPException(status_code=403, detail="No permission to assign this manager")
 
     permissions = _default_permissions_for_role(data.role)
     if current_user.role == "admin":
@@ -240,10 +255,12 @@ async def search_users(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    scope = await get_user_access_scope(db, current_user)
     result = await db.execute(
         select(User)
         .where(
             User.is_active == True,  # noqa: E712
+            User.id.in_(scope.user_ids),
             or_(User.email.ilike(f"%{q}%"), User.name.ilike(f"%{q}%")),
         )
         .limit(10)
@@ -256,8 +273,14 @@ async def list_users(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    scope = await get_user_access_scope(db, current_user)
     result = await db.execute(
-        select(User).where(User.is_active == True).order_by(User.created_at.desc())  # noqa: E712
+        select(User)
+        .where(
+            User.is_active == True,  # noqa: E712
+            User.id.in_(scope.user_ids),
+        )
+        .order_by(User.created_at.desc())
     )
     return result.scalars().all()
 
@@ -276,7 +299,7 @@ async def reset_user_password(
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
-    if not _can_manage_subordinate(current_user, user):
+    if not await _can_manage_user_with_scope(current_user, user, db):
         raise HTTPException(status_code=403, detail="No permission to reset password for this user")
     temporary_password = _generate_temporary_password()
     user.password_hash = hash_password(temporary_password)
@@ -296,7 +319,7 @@ async def deactivate_user(
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
-    if not _can_manage_subordinate(current_user, user):
+    if not await _can_manage_user_with_scope(current_user, user, db):
         raise HTTPException(status_code=403, detail="No permission to deactivate this user")
 
     owns_projects = (
@@ -329,7 +352,7 @@ async def update_user_permissions(
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
-    if not _can_manage_subordinate(current_user, user):
+    if not await _can_manage_user_with_scope(current_user, user, db):
         raise HTTPException(status_code=403, detail="No permission to update this user")
     if current_user.role != "admin" and user.role == "admin":
         raise HTTPException(status_code=403, detail="Only admin can update admin permissions")
@@ -368,6 +391,12 @@ async def update_user_permissions(
         payload["work_email"] = normalized_work_email
     if "manager_id" in payload and payload["manager_id"] == user.id:
         raise HTTPException(status_code=400, detail="User cannot be their own manager")
+    if current_user.role != "admin":
+        scope = await get_user_access_scope(db, current_user)
+        if "department_id" in payload and payload["department_id"] and payload["department_id"] not in scope.department_ids:
+            raise HTTPException(status_code=403, detail="No permission to assign this department")
+        if "manager_id" in payload and payload["manager_id"] and payload["manager_id"] not in scope.user_ids:
+            raise HTTPException(status_code=403, detail="No permission to assign this manager")
 
     for field, value in payload.items():
         if field == "role":
@@ -400,9 +429,37 @@ async def global_search(
     db: AsyncSession = Depends(get_db),
 ):
     like = f"%{q}%"
+    scope = await get_user_access_scope(db, current_user)
+    member_project_ids = (
+        await db.execute(select(ProjectMember.project_id).where(ProjectMember.user_id.in_(scope.user_ids)))
+    ).scalars().all()
+    department_project_ids = []
+    if scope.department_ids:
+        department_project_ids = (
+            await db.execute(
+                select(ProjectDepartment.project_id).where(
+                    ProjectDepartment.department_id.in_(scope.department_ids)
+                )
+            )
+        ).scalars().all()
+    project_ids = set(member_project_ids) | set(department_project_ids)
 
-    project_stmt = select(Project).where(or_(Project.name.ilike(like), Project.description.ilike(like))).limit(10)
-    task_stmt = select(Task).where(or_(Task.title.ilike(like), Task.description.ilike(like))).limit(10)
+    project_stmt = (
+        select(Project)
+        .where(
+            Project.id.in_(project_ids or {""}),
+            or_(Project.name.ilike(like), Project.description.ilike(like)),
+        )
+        .limit(10)
+    )
+    task_stmt = (
+        select(Task)
+        .where(
+            Task.project_id.in_(project_ids or {""}),
+            or_(Task.title.ilike(like), Task.description.ilike(like)),
+        )
+        .limit(10)
+    )
 
     projects = (await db.execute(project_stmt)).scalars().all()
     tasks = (await db.execute(task_stmt)).scalars().all()
@@ -411,6 +468,7 @@ async def global_search(
             select(User)
             .where(
                 User.is_active == True,  # noqa: E712
+                User.id.in_(scope.user_ids),
                 or_(User.email.ilike(like), User.name.ilike(like)),
             )
             .limit(10)
@@ -433,9 +491,11 @@ async def list_online_users(
     online_ids = list(ws_manager._user_sockets.keys())
     if not online_ids:
         return []
-    result = await db.execute(
-        select(User.id, User.name).where(User.id.in_(online_ids), User.is_active == True)  # noqa: E712
-    )
+    stmt = select(User.id, User.name).where(User.id.in_(online_ids), User.is_active == True)  # noqa: E712
+    if current_user.role != "admin":
+        scope = await get_user_access_scope(db, current_user)
+        stmt = stmt.where(User.id.in_(scope.user_ids))
+    result = await db.execute(stmt)
     return [{"id": row.id, "name": row.name} for row in result.all()]
 
 
@@ -449,6 +509,10 @@ async def get_user(
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
+    if current_user.role != "admin":
+        scope = await get_user_access_scope(db, current_user)
+        if user.id not in scope.user_ids:
+            raise HTTPException(status_code=403, detail="Access denied")
     return user
 
 
@@ -457,7 +521,17 @@ async def list_departments(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Department).order_by(Department.name.asc()))
+    if current_user.role == "admin":
+        result = await db.execute(select(Department).order_by(Department.name.asc()))
+        return result.scalars().all()
+    scope = await get_user_access_scope(db, current_user)
+    if not scope.department_ids:
+        return []
+    result = await db.execute(
+        select(Department)
+        .where(Department.id.in_(scope.department_ids))
+        .order_by(Department.name.asc())
+    )
     return result.scalars().all()
 
 
@@ -532,10 +606,18 @@ async def get_org_tree(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    scope = await get_user_access_scope(db, current_user)
     users = (
-        await db.execute(select(User).where(User.is_active == True).order_by(User.name.asc()))  # noqa: E712
+        await db.execute(
+            select(User)
+            .where(User.is_active == True, User.id.in_(scope.user_ids))  # noqa: E712
+            .order_by(User.name.asc())
+        )
     ).scalars().all()
-    deps = (await db.execute(select(Department).order_by(Department.name.asc()))).scalars().all()
+    deps_query = select(Department).order_by(Department.name.asc())
+    if current_user.role != "admin":
+        deps_query = deps_query.where(Department.id.in_(scope.department_ids or {""}))
+    deps = (await db.execute(deps_query)).scalars().all()
     return {
         "departments": [
             {

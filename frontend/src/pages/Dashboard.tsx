@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useCreateProject, useDepartmentDashboard, useProjects, useAllTasks, useEscalations, useUpdateProject } from '@/hooks/useProjects'
+import { useCreateProject, useCreateTask, useDepartmentDashboard, useProjects, useAllTasks, useEscalations, useUpdateProject } from '@/hooks/useProjects'
 import { api } from '@/api/client'
 import { Plus, FolderOpen, Clock, AlertTriangle, CheckCircle2, Building2, Users2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { useAuthStore } from '@/store/authStore'
-import type { Department, Project, Task } from '@/types'
+import type { Department, Project, Task, User } from '@/types'
 
 function cn(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(' ')
@@ -31,15 +31,19 @@ const PROJECT_TEMPLATES: Record<string, Array<{ title: string; priority: string;
 
 const PROJECT_STATUS_LABEL: Record<string, string> = {
   planning: 'Планирование',
+  tz: 'ТЗ',
   active: 'Активный',
+  testing: 'Тестирование',
   on_hold: 'На паузе',
   completed: 'Завершен',
 }
 
 const TASK_STATUS_LABEL: Record<string, string> = {
   planning: 'Планирование',
+  tz: 'ТЗ',
   todo: 'К выполнению',
   in_progress: 'В работе',
+  testing: 'Тестирование',
   review: 'На проверке',
   done: 'Выполнено',
 }
@@ -119,6 +123,7 @@ export function Dashboard() {
   })
 
   const createProject = useCreateProject()
+  const createTask = useCreateTask()
   const updateProject = useUpdateProject()
   const currentUser = useAuthStore((s) => s.user)
 
@@ -143,8 +148,20 @@ export function Dashboard() {
     end_date: '',
     department_ids: [] as string[],
   })
+  const [urgentForm, setUrgentForm] = useState({
+    project_id: '',
+    title: '',
+    description: '',
+    assignee_id: '',
+    end_date: '',
+    control_ski: true,
+  })
 
   const canManageDepartmentLinks = currentUser?.role === 'admin' || currentUser?.role === 'manager' || !!currentUser?.can_manage_team
+  const { data: users = [] } = useQuery<User[]>({
+    queryKey: ['users'],
+    queryFn: api.listUsers,
+  })
 
   const today = new Date().toISOString().slice(0, 10)
   const sevenDaysAgo = useMemo(() => {
@@ -163,6 +180,11 @@ export function Dashboard() {
     const exists = departmentTabs.some((dep) => dep.department_id === selectedDepartmentTab)
     if (!exists) setSelectedDepartmentTab('all')
   }, [departmentTabs, selectedDepartmentTab])
+
+  useEffect(() => {
+    if (urgentForm.project_id || projects.length === 0) return
+    setUrgentForm((prev) => ({ ...prev, project_id: projects[0].id }))
+  }, [projects, urgentForm.project_id])
 
   useEffect(() => {
     try {
@@ -226,7 +248,7 @@ export function Dashboard() {
     [projects, today]
   )
   const inProgressProjects = useMemo(
-    () => projects.filter((p) => tasks.some((t) => t.project_id === p.id && (t.status === 'in_progress' || t.status === 'review'))).length,
+    () => projects.filter((p) => tasks.some((t) => t.project_id === p.id && (t.status === 'in_progress' || t.status === 'testing' || t.status === 'review'))).length,
     [projects, tasks]
   )
   const overdueProjects = useMemo(
@@ -244,7 +266,7 @@ export function Dashboard() {
   }, [tasks, sevenDaysAgo])
 
   const statusStats = useMemo(() => {
-    const counts: Record<string, number> = { planning: 0, todo: 0, in_progress: 0, review: 0, done: 0 }
+    const counts: Record<string, number> = { planning: 0, tz: 0, todo: 0, in_progress: 0, testing: 0, review: 0, done: 0 }
     tasks.forEach((task) => {
       counts[task.status] = (counts[task.status] ?? 0) + 1
     })
@@ -360,6 +382,32 @@ export function Dashboard() {
     }
   }
 
+  const handleCreateUrgentTask = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!urgentForm.project_id || !urgentForm.title.trim()) return
+    await createTask.mutateAsync({
+      projectId: urgentForm.project_id,
+      data: {
+        title: urgentForm.title.trim(),
+        description: urgentForm.description.trim() || undefined,
+        status: 'todo',
+        priority: 'high',
+        control_ski: urgentForm.control_ski,
+        assigned_to_id: urgentForm.assignee_id || undefined,
+        assignee_ids: urgentForm.assignee_id ? [urgentForm.assignee_id] : undefined,
+        end_date: urgentForm.end_date || undefined,
+      },
+    })
+    setUrgentForm((prev) => ({
+      ...prev,
+      title: '',
+      description: '',
+      assignee_id: '',
+      end_date: '',
+      control_ski: true,
+    }))
+  }
+
   const openAssignDialog = (project: Project) => {
     setAssignProject(project)
     setAssignDepartmentIds(project.department_ids ?? [])
@@ -380,7 +428,7 @@ export function Dashboard() {
   }
 
   return (
-    <div className="mx-auto max-w-[1280px] space-y-4 px-4 py-4">
+    <div className="space-y-4 px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Дэшборд IT</h1>
@@ -517,10 +565,10 @@ export function Dashboard() {
         <MetricCard label="Завершено" value={doneProjects} icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} tone="bg-emerald-50" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,6fr)_minmax(0,3fr)_minmax(0,2fr)_minmax(0,3fr)]">
         <SectionCard
           title="ИТ проекты по отделам"
-          className="xl:col-span-7"
+          className="xl:col-span-1"
           action={
             <Input value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} placeholder="Поиск проекта" className="h-8 w-48 text-xs" />
           }
@@ -623,7 +671,7 @@ export function Dashboard() {
           )}
         </SectionCard>
 
-        <SectionCard title="Статусы и дедлайны" className="xl:col-span-3">
+        <SectionCard title="Статусы и дедлайны" className="xl:col-span-1">
           <div className="space-y-3">
             {Object.entries(statusStats).map(([key, value]) => (
               <div key={key}>
@@ -665,7 +713,7 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Сигналы контроля" className="xl:col-span-2">
+        <SectionCard title="Сигналы контроля" className="xl:col-span-1">
           <div className="grid grid-cols-2 gap-2 text-center">
             <div className="rounded border p-2">
               <p className="text-[11px] text-muted-foreground">Создано 7д</p>
@@ -712,6 +760,65 @@ export function Dashboard() {
               </div>
             </div>
           </div>
+        </SectionCard>
+
+        <SectionCard title="Срочные задачи" className="xl:col-span-1">
+          <form className="space-y-2" onSubmit={handleCreateUrgentTask}>
+            <select
+              value={urgentForm.project_id}
+              onChange={(e) => setUrgentForm((f) => ({ ...f, project_id: e.target.value }))}
+              className="w-full rounded border bg-background px-2 py-1.5 text-xs"
+              required
+            >
+              <option value="">Проект</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+            <Input
+              value={urgentForm.title}
+              onChange={(e) => setUrgentForm((f) => ({ ...f, title: e.target.value }))}
+              placeholder="Быстрая заметка / задача"
+              className="h-8 text-xs"
+              required
+            />
+            <Input
+              value={urgentForm.description}
+              onChange={(e) => setUrgentForm((f) => ({ ...f, description: e.target.value }))}
+              placeholder="Комментарий"
+              className="h-8 text-xs"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                value={urgentForm.assignee_id}
+                onChange={(e) => setUrgentForm((f) => ({ ...f, assignee_id: e.target.value }))}
+                className="rounded border bg-background px-2 py-1.5 text-xs"
+              >
+                <option value="">Ответственный</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>{user.name}</option>
+                ))}
+              </select>
+              <Input
+                type="date"
+                value={urgentForm.end_date}
+                onChange={(e) => setUrgentForm((f) => ({ ...f, end_date: e.target.value }))}
+                className="h-8 text-xs"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={urgentForm.control_ski}
+                onChange={(e) => setUrgentForm((f) => ({ ...f, control_ski: e.target.checked }))}
+              />
+              Контроль СКИ
+            </label>
+            <p className="text-[11px] text-muted-foreground">По умолчанию: приоритет Высокий</p>
+            <Button type="submit" className="w-full" size="sm" disabled={createTask.isPending}>
+              {createTask.isPending ? 'Создание...' : 'Добавить срочную задачу'}
+            </Button>
+          </form>
         </SectionCard>
       </div>
 

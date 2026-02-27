@@ -17,8 +17,10 @@ import type { Task, Project } from '@/types'
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
+  tz: 'ТЗ',
   todo: 'К выполнению',
   in_progress: 'В работе',
+  testing: 'Тестирование',
   review: 'На проверке',
   done: 'Выполнено',
 }
@@ -39,8 +41,10 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 const STATUS_COLORS: Record<string, string> = {
   planning: '#0ea5e9',
+  tz: '#06b6d4',
   todo: '#94a3b8',
   in_progress: '#6366f1',
+  testing: '#8b5cf6',
   review: '#f59e0b',
   done: '#22c55e',
 }
@@ -114,7 +118,7 @@ export function Analytics() {
   const overdue = tasks.filter((t) => t.end_date && t.end_date < today && t.status !== 'done').length
   const unassigned = tasks.filter((t) => !t.assigned_to_id).length
 
-  const statusCounts = ['planning', 'todo', 'in_progress', 'review', 'done'].map((s) => ({
+  const statusCounts = ['planning', 'tz', 'todo', 'in_progress', 'testing', 'review', 'done'].map((s) => ({
     name: STATUS_LABELS[s],
     count: tasks.filter((t) => t.status === s).length,
     fill: STATUS_COLORS[s],
@@ -146,7 +150,7 @@ export function Analytics() {
   const workloadData = Object.values(assigneeCounts).sort((a, b) => b.count - a.count)
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8">
+    <div className="p-6 space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Аналитика</h1>
         <Button variant="outline" size="sm" onClick={() => exportCSV(reportTasks, projects)}>

@@ -27,7 +27,7 @@ export interface Project {
   name: string
   description?: string
   color: string
-  status: 'planning' | 'active' | 'on_hold' | 'completed'
+  status: 'planning' | 'tz' | 'active' | 'testing' | 'on_hold' | 'completed'
   priority: 'low' | 'medium' | 'high' | 'critical'
   control_ski: boolean
   launch_basis_text?: string
@@ -48,7 +48,7 @@ export interface Task {
   parent_task_id?: string
   title: string
   description?: string
-  status: 'planning' | 'todo' | 'in_progress' | 'review' | 'done'
+  status: 'planning' | 'tz' | 'todo' | 'in_progress' | 'testing' | 'review' | 'done'
   priority: 'low' | 'medium' | 'high' | 'critical'
   control_ski: boolean
   progress_percent: number

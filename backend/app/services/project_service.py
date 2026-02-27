@@ -61,7 +61,15 @@ async def get_gantt_data(db: AsyncSession, project_id: str) -> GanttData:
         start = t.start_date or date.today()
         end = t.end_date or start
         # calculate progress based on status
-        progress_map = {"planning": 0.0, "todo": 0.0, "in_progress": 0.3, "review": 0.7, "done": 1.0}
+        progress_map = {
+            "planning": 0.0,
+            "tz": 0.1,
+            "todo": 0.2,
+            "in_progress": 0.5,
+            "testing": 0.8,
+            "review": 0.9,
+            "done": 1.0,
+        }
         progress = progress_map.get(t.status, 0.0)
 
         dependency_ids = [link.predecessor_task_id for link in t.predecessor_links]

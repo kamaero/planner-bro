@@ -48,18 +48,22 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
+  tz: 'ТЗ',
   todo: 'К выполнению',
   in_progress: 'В работе',
+  testing: 'Тестирование',
   review: 'На проверке',
   done: 'Выполнено',
 }
 
 const TASK_STATUS_ORDER: Record<string, number> = {
   planning: 0,
-  todo: 1,
-  in_progress: 2,
-  review: 3,
-  done: 4,
+  tz: 1,
+  todo: 2,
+  in_progress: 3,
+  testing: 4,
+  review: 5,
+  done: 6,
 }
 
 const TASK_PRIORITY_ORDER: Record<string, number> = {
@@ -71,7 +75,9 @@ const TASK_PRIORITY_ORDER: Record<string, number> = {
 
 const PROJECT_STATUS_OPTIONS = [
   { value: 'planning', label: 'Планирование' },
+  { value: 'tz', label: 'ТЗ' },
   { value: 'active', label: 'Активный' },
+  { value: 'testing', label: 'Тестирование' },
   { value: 'on_hold', label: 'Пауза' },
   { value: 'completed', label: 'Завершён' },
 ]
@@ -634,8 +640,10 @@ export function ProjectDetail() {
             className="text-xs border rounded px-2 py-1 bg-background"
           >
             <option value="planning">{STATUS_LABELS.planning}</option>
+            <option value="tz">{STATUS_LABELS.tz}</option>
             <option value="todo">{STATUS_LABELS.todo}</option>
             <option value="in_progress">{STATUS_LABELS.in_progress}</option>
+            <option value="testing">{STATUS_LABELS.testing}</option>
             <option value="review">{STATUS_LABELS.review}</option>
             <option value="done">{STATUS_LABELS.done}</option>
           </select>
@@ -665,7 +673,7 @@ export function ProjectDetail() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
         <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors">
@@ -1209,8 +1217,10 @@ export function ProjectDetail() {
               >
                 <option value="all">Все статусы</option>
                 <option value="planning">Планирование</option>
+                <option value="tz">ТЗ</option>
                 <option value="todo">К выполнению</option>
                 <option value="in_progress">В работе</option>
+                <option value="testing">Тестирование</option>
                 <option value="review">На проверке</option>
                 <option value="done">Выполнено</option>
               </select>
@@ -1269,6 +1279,14 @@ export function ProjectDetail() {
                   <Button
                     size="sm"
                     variant="outline"
+                    onClick={() => handleBulkStatusUpdate('tz')}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                  >
+                    В ТЗ
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={() => handleBulkStatusUpdate('planning')}
                     disabled={selectedTaskIds.length === 0 || bulkBusy}
                   >
@@ -1289,6 +1307,14 @@ export function ProjectDetail() {
                     disabled={selectedTaskIds.length === 0 || bulkBusy}
                   >
                     На проверку
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBulkStatusUpdate('testing')}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                  >
+                    В тестирование
                   </Button>
                   <Button
                     size="sm"

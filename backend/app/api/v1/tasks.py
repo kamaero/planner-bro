@@ -33,12 +33,18 @@ from app.services.notification_service import (
     notify_check_in_help_requested,
 )
 from app.services.check_in_policy import compute_next_check_in_due_at
+from app.services.access_scope import can_access_project
 
 router = APIRouter(tags=["tasks"])
 
 
 async def _require_project_member(project_id: str, user: User, db: AsyncSession):
     if not await _is_project_member(project_id, user, db):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
+async def _require_project_visibility(project_id: str, user: User, db: AsyncSession) -> None:
+    if not await can_access_project(db, user, project_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
 
@@ -213,7 +219,7 @@ async def _mark_escalation_response(task: Task, actor_id: str, db: AsyncSession)
 
 
 async def _ensure_predecessors_done(task: Task, target_status: str, db: AsyncSession) -> None:
-    if target_status in ("planning", "todo", "done"):
+    if target_status in ("planning", "tz", "todo", "done"):
         return
     deps = (
         await db.execute(
@@ -267,6 +273,7 @@ async def list_tasks(
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_exists(project_id, db)
+    await _require_project_visibility(project_id, current_user, db)
     return await get_tasks_for_project(db, project_id)
 
 
@@ -337,6 +344,7 @@ async def get_task(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    await _require_project_visibility(task.project_id, current_user, db)
     return task
 
 
@@ -603,7 +611,7 @@ async def bulk_update_tasks(
         _require_delete_permission(current_user)
 
     if "status" in payload:
-        valid_statuses = {"planning", "todo", "in_progress", "review", "done"}
+        valid_statuses = {"planning", "tz", "todo", "in_progress", "testing", "review", "done"}
         if payload["status"] not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
     if "priority" in payload:
@@ -733,7 +741,7 @@ async def update_task_status(
         raise HTTPException(status_code=404, detail="Task not found")
     await _require_task_editor(task, current_user, db)
 
-    valid_statuses = {"planning", "todo", "in_progress", "review", "done"}
+    valid_statuses = {"planning", "tz", "todo", "in_progress", "testing", "review", "done"}
     if data.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
     await _ensure_predecessors_done(task, data.status, db)
@@ -900,6 +908,7 @@ async def critical_path(
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_exists(project_id, db)
+    await _require_project_visibility(project_id, current_user, db)
     tasks = (await db.execute(select(Task).where(Task.project_id == project_id))).scalars().all()
     by_id = {t.id: t for t in tasks}
     children: dict[str, list[str]] = {}
@@ -954,6 +963,7 @@ async def list_task_comments(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    await _require_project_visibility(task.project_id, current_user, db)
     result = await db.execute(
         select(TaskComment)
         .where(TaskComment.task_id == task_id)
@@ -995,6 +1005,7 @@ async def list_task_events(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    await _require_project_visibility(task.project_id, current_user, db)
     result = await db.execute(
         select(TaskEvent)
         .where(TaskEvent.task_id == task_id)
@@ -1014,6 +1025,7 @@ async def list_task_deadline_history(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    await _require_project_visibility(task.project_id, current_user, db)
     result = await db.execute(
         select(DeadlineChange)
         .where(DeadlineChange.entity_type == "task", DeadlineChange.entity_id == task_id)

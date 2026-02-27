@@ -11,7 +11,7 @@ function buildTeamBoardUrl() {
 
 export function TeamBoard() {
   return (
-    <div className="max-w-3xl mx-auto p-6">
+    <div className="p-6">
       <div className="rounded-2xl border bg-card p-6">
         <h1 className="text-2xl font-bold mb-3">Доска команды</h1>
         <p className="text-muted-foreground mb-6">

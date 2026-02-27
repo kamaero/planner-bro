@@ -27,11 +27,13 @@ const PRIORITY_COLORS: Record<string, string> = {
   critical: 'bg-red-100 text-red-800',
 }
 
-const STATUS_OPTIONS = ['planning', 'todo', 'in_progress', 'review', 'done'] as const
+const STATUS_OPTIONS = ['planning', 'tz', 'todo', 'in_progress', 'testing', 'review', 'done'] as const
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
+  tz: 'ТЗ',
   todo: 'К выполнению',
   in_progress: 'В работе',
+  testing: 'Тестирование',
   review: 'На проверке',
   done: 'Выполнено',
 }
