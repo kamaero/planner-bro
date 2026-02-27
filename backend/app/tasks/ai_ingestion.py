@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +12,8 @@ from app.models.ai import AIIngestionJob, AITaskDraft
 from app.models.project import Project, ProjectFile, ProjectMember
 from app.models.user import User
 from app.services.ms_project_import_service import parse_ms_project_content
-from app.services.ai_ingestion_service import extract_text_for_ai, generate_task_drafts_from_text
+from app.services.ai_ingestion_service import extract_text_for_ai_bytes, generate_task_drafts_from_text
+from app.services.project_file_storage import read_project_file_bytes
 from app.services.websocket_manager import ws_manager
 from app.services import events as ev
 from app.services.system_activity_service import log_system_activity
@@ -150,8 +150,8 @@ async def _async_process_file_for_ai(job_id: str):
             )
 
             drafts = None
+            raw = read_project_file_bytes(file_record)
             if is_project_plan_source:
-                raw = Path(file_record.storage_path).read_bytes()
                 try:
                     drafts = _drafts_from_ms_project_file(raw)
                 except ValueError as exc:
@@ -163,7 +163,7 @@ async def _async_process_file_for_ai(job_id: str):
                         raise
 
             if drafts is None:
-                text = extract_text_for_ai(file_record.storage_path, file_record.content_type)
+                text = extract_text_for_ai_bytes(raw, file_record.filename, file_record.content_type)
                 drafts = await generate_task_drafts_from_text(text, project.name, member_hints)
 
             existing_drafts = (

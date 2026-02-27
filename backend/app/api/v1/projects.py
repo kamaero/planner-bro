@@ -1,11 +1,11 @@
 import uuid
 import hashlib
 import re
+import io
 from datetime import date
 from pathlib import Path
-import shutil
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
@@ -43,6 +43,11 @@ from app.services.notification_service import (
 from app.services.system_activity_service import log_system_activity
 from app.services.ms_project_import_service import parse_ms_project_content
 from app.services.vault_crypto import encrypt_file
+from app.services.project_file_storage import (
+    store_project_file_encrypted,
+    read_project_file_bytes,
+    delete_project_file_blob,
+)
 from app.tasks.ai_ingestion import process_file_for_ai
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -202,8 +207,12 @@ async def _maybe_archive_processed_file(
     if not project_file:
         return
 
-    source_path = Path(project_file.storage_path)
-    if source_path.exists():
+    try:
+        plaintext = read_project_file_bytes(project_file)
+    except FileNotFoundError:
+        return
+
+    if plaintext:
         archive_description = f"Обработанный файл проекта {project_id} (source_file_id={project_file_id})"
         existing_archive = (
             await db.execute(
@@ -217,28 +226,26 @@ async def _maybe_archive_processed_file(
         if existing_archive:
             return
 
-        plaintext = source_path.read_bytes()
-        if plaintext:
-            vault_id = str(uuid.uuid4())
-            ciphertext, nonce = encrypt_file(_vault_key(), vault_id, plaintext)
-            vault_dir = Path(settings.VAULT_FILES_DIR)
-            vault_dir.mkdir(parents=True, exist_ok=True)
-            vault_storage_path = vault_dir / vault_id
-            vault_storage_path.write_bytes(ciphertext)
-            db.add(
-                VaultFile(
-                    id=vault_id,
-                    name=project_file.filename,
-                    description=archive_description,
-                    content_type=project_file.content_type,
-                    size=len(plaintext),
-                    encrypted_size=len(ciphertext),
-                    storage_path=str(vault_storage_path),
-                    nonce=nonce,
-                    folder="Processed",
-                    uploaded_by_id=actor_id,
-                )
+        vault_id = str(uuid.uuid4())
+        ciphertext, nonce = encrypt_file(_vault_key(), vault_id, plaintext)
+        vault_dir = Path(settings.VAULT_FILES_DIR)
+        vault_dir.mkdir(parents=True, exist_ok=True)
+        vault_storage_path = vault_dir / vault_id
+        vault_storage_path.write_bytes(ciphertext)
+        db.add(
+            VaultFile(
+                id=vault_id,
+                name=project_file.filename,
+                description=archive_description,
+                content_type=project_file.content_type,
+                size=len(plaintext),
+                encrypted_size=len(ciphertext),
+                storage_path=str(vault_storage_path),
+                nonce=nonce,
+                folder="Processed",
+                uploaded_by_id=actor_id,
             )
+        )
 
 
 @router.get("/", response_model=list[ProjectOut])
@@ -632,25 +639,22 @@ async def upload_project_file(
     if not upload.filename:
         raise HTTPException(status_code=400, detail="Filename required")
 
-    files_root = Path(settings.PROJECT_FILES_DIR)
-    project_dir = files_root / project_id
-    project_dir.mkdir(parents=True, exist_ok=True)
+    content = await upload.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     file_id = str(uuid.uuid4())
-    suffix = Path(upload.filename).suffix
-    stored_name = f"{file_id}{suffix}"
-    storage_path = project_dir / stored_name
-
-    with storage_path.open("wb") as buffer:
-        shutil.copyfileobj(upload.file, buffer)
-
-    size = storage_path.stat().st_size
+    storage_path, nonce, encrypted_size = store_project_file_encrypted(file_id, content)
+    size = len(content)
     record = ProjectFile(
         id=file_id,
         project_id=project_id,
         filename=upload.filename,
         content_type=upload.content_type,
         size=size,
+        encrypted_size=encrypted_size,
+        is_encrypted=True,
+        nonce=nonce,
         storage_path=str(storage_path),
         uploaded_by_id=current_user.id,
     )
@@ -834,13 +838,20 @@ async def download_project_file(
     record = result.scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="File not found")
-    path = Path(record.storage_path)
-    if not path.exists():
+    try:
+        payload = read_project_file_bytes(record)
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail="File missing on disk")
-    return FileResponse(
-        path=str(path),
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not decrypt file: {exc}")
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{record.filename}"',
+    }
+    return StreamingResponse(
+        io.BytesIO(payload),
         media_type=record.content_type or "application/octet-stream",
-        filename=record.filename,
+        headers=headers,
     )
 
 
@@ -862,9 +873,7 @@ async def delete_project_file(
     record = result.scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="File not found")
-    path = Path(record.storage_path)
-    if path.exists():
-        path.unlink()
+    delete_project_file_blob(record)
     await log_system_activity(
         db,
         source="backend",

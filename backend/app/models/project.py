@@ -108,6 +108,9 @@ class ProjectFile(Base):
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     size: Mapped[int] = mapped_column(Integer, nullable=False)
+    encrypted_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_encrypted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    nonce: Mapped[str | None] = mapped_column(String(64), nullable=True)
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     uploaded_by_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

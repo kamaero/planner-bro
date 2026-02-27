@@ -1,6 +1,8 @@
 import json
+import os
 import re
 import subprocess
+import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 from datetime import date
@@ -190,6 +192,20 @@ def extract_text_for_ai(storage_path: str, content_type: str | None = None) -> s
     if not text:
         raise ValueError("Could not extract text from file")
     return text
+
+
+def extract_text_for_ai_bytes(content: bytes, filename: str, content_type: str | None = None) -> str:
+    suffix = Path(filename or "upload.bin").suffix or ".bin"
+    fd, tmp_path = tempfile.mkstemp(prefix="plannerbro-ai-", suffix=suffix)
+    try:
+        with os.fdopen(fd, "wb") as fp:
+            fp.write(content)
+        return extract_text_for_ai(tmp_path, content_type)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
 
 def _safe_json_loads(content: str) -> dict[str, Any]:
