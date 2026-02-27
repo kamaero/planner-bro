@@ -862,19 +862,19 @@ export function Dashboard() {
         <SectionCard
           title="Мудрость дня"
           className="xl:col-span-2"
-          action={
-            <Button type="button" variant="outline" size="sm" onClick={() => setQuoteShift((v) => (v + 1) % IT_QUOTES.length)}>
-              Еще цитата
-            </Button>
-          }
         >
-          <div className="h-64 overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]">
+          <button
+            type="button"
+            onClick={() => setQuoteShift((v) => (v + 1) % IT_QUOTES.length)}
+            className="h-64 w-full overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 text-left font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]"
+            title="Кликните для новой цитаты"
+          >
             <div className="space-y-1">
               <p>[{new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}] [wisdom_bot] quote_loaded</p>
               <p className="whitespace-pre-wrap">“{wisdomQuote}”</p>
-              <p className="text-emerald-500/80">[info] Обновляется ежедневно + вручную кнопкой.</p>
+              <p className="text-emerald-500/80">[info] Обновляется ежедневно + кликом по окну.</p>
             </div>
-          </div>
+          </button>
         </SectionCard>
 
         <SectionCard

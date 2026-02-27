@@ -4,6 +4,20 @@ import { useNotifications, useMarkAllRead, useMarkRead } from '@/hooks/useNotifi
 import { cn } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 
+function localizeNotificationText(text: string): string {
+  return text
+    .replace(/^Deadline Approaching$/i, 'Срок подходит')
+    .replace(/^Deadline Missed$/i, 'Срок пропущен')
+    .replace(/^No notifications$/i, 'Уведомлений пока нет')
+    .replace(/^Notifications$/i, 'Уведомления')
+    .replace(/^Mark all read$/i, 'Отметить все')
+    .replace(/Task '([^']+)' deadline is in (\d+) day\(s\)/gi, 'Срок задачи «$1» наступит через $2 дн.')
+    .replace(/Task '([^']+)' deadline has passed/gi, 'Срок задачи «$1» уже прошел')
+    .replace(/Check-in:/gi, 'Отчет:')
+    .replace(/\bMissed\b/gi, 'Просрочено')
+    .replace(/\bApproaching\b/gi, 'Скоро')
+}
+
 export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
@@ -42,15 +56,15 @@ export function NotificationBell() {
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-11 z-20 w-80 rounded-xl border bg-card text-card-foreground shadow-xl overflow-hidden">
+          <div className="absolute left-0 top-11 z-20 w-96 max-w-[min(92vw,24rem)] rounded-xl border bg-[hsl(var(--card))] text-card-foreground shadow-xl overflow-hidden backdrop-blur-none opacity-100">
             <div className="flex items-center justify-between px-4 py-3 border-b">
-              <span className="font-semibold text-sm">Notifications</span>
+              <span className="font-semibold text-sm">Уведомления</span>
               {unreadCount > 0 && (
                 <button
                   onClick={() => markAllRead.mutate()}
                   className="text-xs text-primary hover:underline"
                 >
-                  Mark all read
+                  Отметить все
                 </button>
               )}
             </div>
@@ -58,7 +72,7 @@ export function NotificationBell() {
             <div className="max-h-80 overflow-y-auto divide-y">
               {notifications.length === 0 && (
                 <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-                  No notifications
+                  Уведомлений пока нет
                 </div>
               )}
               {notifications.map((n) => (
@@ -75,10 +89,10 @@ export function NotificationBell() {
                       <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1" />
                     )}
                   <div className={cn(!n.is_read ? '' : 'ml-4')}>
-                    <p className="text-sm font-medium">{n.title}</p>
-                    <p className="text-xs text-foreground/90">{n.body}</p>
+                    <p className="text-sm font-medium">{localizeNotificationText(n.title)}</p>
+                    <p className="text-xs text-foreground/90">{localizeNotificationText(n.body)}</p>
                     <p className="text-[10px] text-foreground/70 mt-1">
-                      {new Date(n.created_at).toLocaleString()}
+                      {new Date(n.created_at).toLocaleString('ru-RU')}
                     </p>
                   </div>
                   </div>
