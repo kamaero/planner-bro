@@ -366,6 +366,19 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               </Link>
             )
           })}
+          <button
+            type="button"
+            onClick={openGlobalChat}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-accent"
+          >
+            <MessageSquare className="w-4 h-4" />
+            Общий чат
+            {(chatUnread?.global_unread_count ?? 0) > 0 && (
+              <span className="ml-auto rounded-full bg-primary px-1.5 py-0 text-[10px] text-primary-foreground">
+                {chatUnread?.global_unread_count}
+              </span>
+            )}
+          </button>
         </nav>
         <div className="mt-4 border-t flex-1 min-h-0 flex flex-col">
           <div className="px-4 py-4 flex items-center gap-3 border-b">
@@ -383,13 +396,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
                   Команда · {teamList.length} · Онлайн {onlineUsers.length}
                 </p>
-                <button
-                  type="button"
-                  className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent"
-                  onClick={openGlobalChat}
-                >
-                  Общий чат{(chatUnread?.global_unread_count ?? 0) > 0 ? ` (${chatUnread?.global_unread_count})` : ''}
-                </button>
               </div>
               <div className="space-y-1.5">
                 {teamChatList.map((member) => {

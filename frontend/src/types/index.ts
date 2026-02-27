@@ -18,6 +18,8 @@ export interface User {
   reminder_days?: string
   created_at: string
   updated_at: string
+  last_sign_in_at?: string | null
+  last_login_at?: string | null
 }
 
 export interface Project {
