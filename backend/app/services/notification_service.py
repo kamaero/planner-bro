@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.notification import Notification
@@ -12,6 +13,8 @@ from app.services import events as ev
 import aiosmtplib
 from email.mime.text import MIMEText
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _build_task_link(project_id: str, task_id: str) -> str:
@@ -117,14 +120,24 @@ async def _send_email_to_recipients(
                 source=source,
                 payload=payload,
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "SMTP send failed: source=%s recipient=%s host=%s port=%s tls=%s starttls=%s err=%s",
+                source,
+                email,
+                settings.SMTP_HOST,
+                settings.SMTP_PORT,
+                settings.SMTP_USE_TLS,
+                settings.SMTP_USE_STARTTLS,
+                repr(exc),
+            )
             await _record_email_dispatch(
                 db,
                 recipient=email,
                 subject=subject,
                 status="failed",
                 source=source,
-                error_text="SMTP send failed",
+                error_text=f"{exc.__class__.__name__}: {str(exc)}"[:1000],
                 payload=payload,
             )
     await db.commit()

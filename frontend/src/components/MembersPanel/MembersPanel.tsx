@@ -35,6 +35,7 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [role, setRole] = useState('member')
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [actionMessage, setActionMessage] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Debounce search query
@@ -71,27 +72,68 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
     const user = selectedUser ?? (searchResults.length === 1 ? searchResults[0] : null)
     if (!user) return
     if (!canAssignManager && role === 'manager') return
-    await addMember.mutateAsync({ projectId, userId: user.id, role })
-    setSelectedUser(null)
-    setQuery('')
-    setDebouncedQuery('')
-    setRole('member')
-    setDropdownOpen(false)
+    setActionMessage(null)
+    try {
+      await addMember.mutateAsync({ projectId, userId: user.id, role })
+      setActionMessage({ type: 'ok', text: `Назначение сохранено: ${user.name} (${role})` })
+      setSelectedUser(null)
+      setQuery('')
+      setDebouncedQuery('')
+      setRole('member')
+      setDropdownOpen(false)
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail
+      setActionMessage({
+        type: 'error',
+        text: typeof detail === 'string' ? detail : 'Не удалось добавить участника',
+      })
+    }
   }
 
   const handleRemove = async (userId: string) => {
     if (window.confirm('Remove this member?')) {
-      await removeMember.mutateAsync({ projectId, userId })
+      setActionMessage(null)
+      try {
+        await removeMember.mutateAsync({ projectId, userId })
+        setActionMessage({ type: 'ok', text: 'Участник удален из проекта' })
+      } catch (err: any) {
+        const detail = err?.response?.data?.detail
+        setActionMessage({
+          type: 'error',
+          text: typeof detail === 'string' ? detail : 'Не удалось удалить участника',
+        })
+      }
     }
   }
 
   const handleRoleChange = async (userId: string, nextRole: string) => {
     if (!canAssignManager && nextRole === 'manager') return
-    await updateMemberRole.mutateAsync({ projectId, userId, role: nextRole })
+    setActionMessage(null)
+    try {
+      await updateMemberRole.mutateAsync({ projectId, userId, role: nextRole })
+      setActionMessage({ type: 'ok', text: `Роль обновлена: ${nextRole}` })
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail
+      setActionMessage({
+        type: 'error',
+        text: typeof detail === 'string' ? detail : 'Не удалось обновить роль',
+      })
+    }
   }
 
   return (
     <div className="space-y-4">
+      {actionMessage && (
+        <div
+          className={
+            actionMessage.type === 'ok'
+              ? 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700'
+              : 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700'
+          }
+        >
+          {actionMessage.text}
+        </div>
+      )}
       {/* Member list */}
       <div className="space-y-2">
         {members.map((m) => (

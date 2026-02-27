@@ -115,6 +115,7 @@ export function Dashboard() {
   const currentUser = useAuthStore((s) => s.user)
 
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [createError, setCreateError] = useState('')
   const [assignDialogOpen, setAssignDialogOpen] = useState(false)
   const [selectedDepartmentTab, setSelectedDepartmentTab] = useState<string>('all')
   const [projectSearch, setProjectSearch] = useState('')
@@ -289,42 +290,50 @@ export function Dashboard() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    const created = await createProject.mutateAsync({
-      ...form,
-      status: 'active',
-      priority: form.control_ski ? 'critical' : form.priority,
-      start_date: form.start_date || undefined,
-      end_date: form.end_date || undefined,
-      launch_basis_text: form.launch_basis_text?.trim() || undefined,
-      department_ids: form.department_ids,
-    })
-
-    const templateTasks = PROJECT_TEMPLATES[form.template] ?? []
-    await Promise.all(
-      templateTasks.map((taskTemplate) => {
-        const end = new Date()
-        end.setDate(end.getDate() + taskTemplate.daysOffset)
-        return api.createTask(created.id, {
-          title: taskTemplate.title,
-          priority: taskTemplate.priority,
-          end_date: end.toISOString().slice(0, 10),
-        })
+    setCreateError('')
+    try {
+      const created = await createProject.mutateAsync({
+        ...form,
+        status: 'active',
+        priority: form.control_ski ? 'critical' : form.priority,
+        start_date: form.start_date || undefined,
+        end_date: form.end_date || undefined,
+        launch_basis_text: form.launch_basis_text?.trim() || undefined,
+        department_ids: form.department_ids,
       })
-    )
 
-    setDialogOpen(false)
-    setForm({
-      name: '',
-      description: '',
-      color: '#6366f1',
-      template: 'blank',
-      priority: 'medium',
-      control_ski: false,
-      launch_basis_text: '',
-      start_date: '',
-      end_date: '',
-      department_ids: [],
-    })
+      // Close dialog immediately once project exists.
+      setDialogOpen(false)
+      setForm({
+        name: '',
+        description: '',
+        color: '#6366f1',
+        template: 'blank',
+        priority: 'medium',
+        control_ski: false,
+        launch_basis_text: '',
+        start_date: '',
+        end_date: '',
+        department_ids: [],
+      })
+
+      // Template tasks are best-effort and must not block UI.
+      const templateTasks = PROJECT_TEMPLATES[form.template] ?? []
+      await Promise.allSettled(
+        templateTasks.map((taskTemplate) => {
+          const end = new Date()
+          end.setDate(end.getDate() + taskTemplate.daysOffset)
+          return api.createTask(created.id, {
+            title: taskTemplate.title,
+            priority: taskTemplate.priority,
+            end_date: end.toISOString().slice(0, 10),
+          })
+        })
+      )
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail
+      setCreateError(typeof detail === 'string' ? detail : 'Не удалось создать проект')
+    }
   }
 
   const openAssignDialog = (project: Project) => {
@@ -365,6 +374,11 @@ export function Dashboard() {
               <DialogTitle>Создать проект</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreate} className="space-y-3">
+              {createError && (
+                <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {createError}
+                </div>
+              )}
               <div className="space-y-1">
                 <Label>Название</Label>
                 <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
@@ -465,7 +479,7 @@ export function Dashboard() {
                 </div>
               </div>
               <Button type="submit" className="w-full" disabled={createProject.isPending}>
-                {createProject.isPending ? 'Создание...' : 'Создать'}
+                {createProject.isPending ? 'Создаю проект...' : 'Создать'}
               </Button>
             </form>
           </DialogContent>
