@@ -144,6 +144,7 @@ export function Dashboard() {
   const [selectedDepartmentTab, setSelectedDepartmentTab] = useState<string>('all')
   const [projectSearch, setProjectSearch] = useState('')
   const [onlyMine, setOnlyMine] = useState(false)
+  const [systemLogOpen, setSystemLogOpen] = useState(false)
   const [assignProject, setAssignProject] = useState<Project | null>(null)
   const [assignDepartmentIds, setAssignDepartmentIds] = useState<string[]>([])
   const [form, setForm] = useState({
@@ -175,6 +176,12 @@ export function Dashboard() {
     queryKey: ['dashboard-system-activity'],
     queryFn: () => api.listSystemActivityLogs({ hours: 24, limit: 120 }),
     refetchInterval: 20_000,
+  })
+  const { data: detailedSystemActivity = [] } = useQuery<SystemActivityLog[]>({
+    queryKey: ['dashboard-system-activity-detail', systemLogOpen],
+    queryFn: () => api.listSystemActivityLogs({ hours: 24, limit: 2000 }),
+    enabled: systemLogOpen,
+    refetchInterval: systemLogOpen ? 20_000 : false,
   })
 
   const today = new Date().toISOString().slice(0, 10)
@@ -871,9 +878,9 @@ export function Dashboard() {
           title="Активность системы"
           className="xl:col-span-2"
           action={
-            <Link to="/analytics" className="text-xs text-primary hover:underline">
-              Аналитика →
-            </Link>
+            <button type="button" onClick={() => setSystemLogOpen(true)} className="text-xs text-primary hover:underline">
+              Открыть лог
+            </button>
           }
         >
           <div className="h-64 overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]">
@@ -891,6 +898,41 @@ export function Dashboard() {
           </div>
         </SectionCard>
       </div>
+
+      <Dialog open={systemLogOpen} onOpenChange={setSystemLogOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Лог системы (последние 24 часа)</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[62vh] overflow-auto rounded-md border bg-background p-2">
+            {detailedSystemActivity.length === 0 ? (
+              <p className="px-2 py-2 text-xs text-muted-foreground">[idle] Нет системных событий за последние 24 часа</p>
+            ) : (
+              detailedSystemActivity.map((item, index) => (
+                <div key={item.id} className="px-2 py-1.5 text-xs">
+                  <p className="leading-relaxed">
+                    {new Intl.DateTimeFormat('ru-RU', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }).format(new Date(item.created_at))}{' '}
+                    [{item.level}] {item.category}/{item.source} :: {item.message}
+                  </p>
+                  {item.details && Object.keys(item.details).length > 0 && (
+                    <pre className="mt-1 overflow-auto rounded border bg-muted/30 px-2 py-1 text-[11px] whitespace-pre-wrap break-words">
+                      {JSON.stringify(item.details, null, 2)}
+                    </pre>
+                  )}
+                  {index < detailedSystemActivity.length - 1 && (
+                    <div className="my-2 text-muted-foreground">────────────────────────────────────────</div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
         <DialogContent>
