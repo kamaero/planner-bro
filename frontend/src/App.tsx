@@ -26,7 +26,6 @@ import {
   Lock,
   Moon,
   Sun,
-  LogOut,
   MessageSquare,
 } from 'lucide-react'
 
@@ -203,7 +202,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center gap-1">
             <ThemeToggle />
-            <NotificationBell />
           </div>
         </div>
         <div className="px-3 pb-3">
@@ -310,10 +308,15 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{user?.name}</p>
               <p className="text-xs text-muted-foreground truncate">Участник команды</p>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="mt-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                Выйти
+              </button>
             </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout} aria-label="Выйти">
-              <LogOut className="w-4 h-4" />
-            </Button>
+            <NotificationBell />
           </div>
           <div className="px-4 py-3 space-y-4 flex-1 overflow-y-auto">
             <section>
