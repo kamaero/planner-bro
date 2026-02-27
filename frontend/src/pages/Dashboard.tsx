@@ -866,7 +866,7 @@ export function Dashboard() {
           <button
             type="button"
             onClick={() => setQuoteShift((v) => (v + 1) % IT_QUOTES.length)}
-            className="h-64 w-full overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 text-left font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]"
+            className="flex h-64 w-full flex-col justify-start overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 text-left align-top font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]"
             title="Кликните для новой цитаты"
           >
             <div className="space-y-1">

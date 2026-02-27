@@ -56,7 +56,10 @@ export function NotificationBell() {
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-11 z-20 w-96 max-w-[min(92vw,24rem)] rounded-xl border bg-[hsl(var(--card))] text-card-foreground shadow-xl overflow-hidden backdrop-blur-none opacity-100">
+          <div
+            className="absolute left-0 top-11 z-20 w-96 max-w-[min(92vw,24rem)] rounded-xl border text-card-foreground shadow-xl overflow-hidden backdrop-blur-none"
+            style={{ backgroundColor: 'hsl(var(--card))', opacity: 1 }}
+          >
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <span className="font-semibold text-sm">Уведомления</span>
               {unreadCount > 0 && (
