@@ -426,11 +426,11 @@ async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
     if not member_ids:
         return
     type_ = "deadline_approaching" if days_until > 0 else "deadline_missed"
-    title = f"Deadline {'Approaching' if days_until > 0 else 'Missed'}"
+    title = "Срок подходит" if days_until > 0 else "Срок пропущен"
     body = (
-        f"Task '{task.title}' deadline is in {days_until} day(s)"
+        f"Срок задачи «{task.title}» наступит через {days_until} дн."
         if days_until > 0
-        else f"Task '{task.title}' deadline has passed"
+        else f"Срок задачи «{task.title}» уже прошел"
     )
     deadline_key = f"{task.id}:{days_until}:{task.end_date.isoformat() if task.end_date else 'none'}"
     data = {"task_id": task.id, "project_id": task.project_id, "deadline_key": deadline_key}
@@ -516,7 +516,7 @@ async def notify_check_in_help_requested(
         return
 
     title = "Требуется помощь менеджера"
-    body = f"{actor_name} запросил помощь по задаче «{task.title}». Check-in: {summary}"
+    body = f"{actor_name} запросил помощь по задаче «{task.title}». Отчет: {summary}"
     if blockers:
         body += f" | Блокеры: {blockers}"
     data = {
