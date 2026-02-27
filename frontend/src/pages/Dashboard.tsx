@@ -91,6 +91,14 @@ function daysUntil(dateValue?: string): number | null {
   return Math.round((target.getTime() - startToday.getTime()) / (1000 * 60 * 60 * 24))
 }
 
+function deadlinePulseClass(days: number | null): string {
+  if (days === null) return ''
+  if (days >= 0 && days <= 7) return 'border-red-400 bg-red-50/80 shadow-[0_0_10px_rgba(239,68,68,0.35)] animate-pulse'
+  if (days >= 10 && days <= 14) return 'border-orange-400 bg-orange-50/80 shadow-[0_0_12px_rgba(249,115,22,0.42)] animate-pulse'
+  if (days > 14 && days <= 20) return 'border-emerald-400 bg-emerald-50/80 shadow-[0_0_12px_rgba(16,185,129,0.38)] animate-pulse'
+  return ''
+}
+
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = hex.replace('#', '').trim()
   if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return `rgba(99,102,241,${alpha})`
@@ -247,6 +255,22 @@ export function Dashboard() {
 
   const recentTasks = useMemo(
     () => [...tasks].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 8),
+    [tasks]
+  )
+
+  const skiControlTasks = useMemo(
+    () =>
+      tasks
+        .filter((t) => t.control_ski && t.status !== 'done')
+        .sort((a, b) => {
+          const ad = daysUntil(a.end_date)
+          const bd = daysUntil(b.end_date)
+          if (ad === null && bd === null) return 0
+          if (ad === null) return 1
+          if (bd === null) return -1
+          return ad - bd
+        })
+        .slice(0, 6),
     [tasks]
   )
 
@@ -621,19 +645,7 @@ export function Dashboard() {
                   to={`/projects/${task.project_id}`}
                   className={cn(
                     'block rounded border px-2 py-1.5 text-xs transition-colors',
-                    (() => {
-                      const d = daysUntil(task.end_date)
-                      if (d !== null && d >= 0 && d <= 7) {
-                        return 'border-red-400 bg-red-50/80 shadow-[0_0_10px_rgba(239,68,68,0.35)] animate-pulse'
-                      }
-                      if (d !== null && d >= 10 && d <= 14) {
-                        return 'border-orange-400 bg-orange-50/80 shadow-[0_0_12px_rgba(249,115,22,0.42)] animate-pulse'
-                      }
-                      if (d !== null && d > 14 && d <= 20) {
-                        return 'border-emerald-400 bg-emerald-50/80 shadow-[0_0_12px_rgba(16,185,129,0.38)] animate-pulse'
-                      }
-                      return 'hover:bg-accent'
-                    })()
+                    deadlinePulseClass(daysUntil(task.end_date)) || 'hover:bg-accent'
                   )}
                 >
                   <p className="truncate font-medium">{task.title}</p>
@@ -675,9 +687,27 @@ export function Dashboard() {
               <span className="text-muted-foreground">Эскалации на мне</span>
               <span className="font-semibold">{escalations.length}</span>
             </div>
-            <div className="mt-1 flex items-center justify-between">
-              <span className="text-muted-foreground">Отделов в системе</span>
-              <span className="font-semibold">{departmentTabs.length}</span>
+            <div className="mt-2 border-t pt-2">
+              <p className="mb-1 text-muted-foreground">СКИ контроль ({skiControlTasks.length})</p>
+              <div className="max-h-32 space-y-1 overflow-auto pr-1">
+                {skiControlTasks.length === 0 && <p className="text-[11px] text-muted-foreground">Нет активных задач СКИ</p>}
+                {skiControlTasks.map((task) => {
+                  const d = daysUntil(task.end_date)
+                  return (
+                    <Link
+                      key={task.id}
+                      to={`/projects/${task.project_id}?task=${task.id}`}
+                      className={cn('block rounded border px-2 py-1 text-[11px] transition-colors', deadlinePulseClass(d) || 'hover:bg-accent')}
+                    >
+                      <p className="truncate font-medium">{task.title}</p>
+                      <p className="text-muted-foreground">
+                        {formatDate(task.end_date)}
+                        {d === null ? ' · без дедлайна' : d >= 0 ? ` · ${d} дн.` : ' · просрочено'}
+                      </p>
+                    </Link>
+                  )
+                })}
+              </div>
             </div>
           </div>
         </SectionCard>
