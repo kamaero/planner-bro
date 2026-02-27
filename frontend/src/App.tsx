@@ -14,10 +14,9 @@ import { Chat } from '@/pages/Chat'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useQuery } from '@tanstack/react-query'
-import type { ChatUnreadSummary, SystemActivityLog, User } from '@/types'
+import type { ChatUnreadSummary, User } from '@/types'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -28,7 +27,6 @@ import {
   Moon,
   Sun,
   LogOut,
-  Copy,
   MessageSquare,
 } from 'lucide-react'
 
@@ -57,10 +55,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchQuery, setSearchQuery] = useState('')
-  const [activityDialogOpen, setActivityDialogOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [smtpProbePending, setSmtpProbePending] = useState(false)
-  const [smtpProbeMessage, setSmtpProbeMessage] = useState<string>('')
   const clientErrorFloodGuardRef = useRef<Record<string, number>>({})
   const [searchData, setSearchData] = useState<{
     projects: Array<{ id: string; name: string; status: string }>
@@ -78,11 +72,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     queryKey: ['users'],
     queryFn: api.listUsers,
     refetchInterval: 60_000,
-  })
-  const { data: activityFeed = [] } = useQuery<SystemActivityLog[]>({
-    queryKey: ['system-activity-logs'],
-    queryFn: () => api.listSystemActivityLogs({ hours: 24, limit: 2000 }),
-    refetchInterval: 20_000,
   })
   const { data: chatUnread } = useQuery<ChatUnreadSummary>({
     queryKey: ['chat', 'unread'],
@@ -185,7 +174,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   }, [])
 
   const onlineUserIds = new Set(onlineUsers.map((u) => u.id))
-  const canRunSmtpProbe = user?.role === 'admin' || user?.role === 'manager' || !!user?.can_manage_team
   const teamList = [...teamUsers]
     .filter((u) => u.is_active !== false)
     .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
@@ -196,66 +184,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     return map
   }, [chatUnread])
 
-  const recentActivity = activityFeed.slice(0, 6)
-  const formatTime = (iso: string) =>
-    new Intl.DateTimeFormat('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(iso))
-
-  const headerActivity = recentActivity.slice(0, 2)
-  const levelTone: Record<string, string> = {
-    info: 'text-emerald-600',
-    warning: 'text-amber-600',
-    error: 'text-red-600',
-  }
-  const activityLogText = activityFeed
-    .map((item) => {
-      const details =
-        item.details && Object.keys(item.details).length > 0
-          ? ` :: ${JSON.stringify(item.details, null, 0)}`
-          : ''
-      return `${formatTime(item.created_at)} [${item.level}] ${item.category}/${item.source} :: ${item.message}${details}`
-    })
-    .join('\n────────────────────────────────────────\n')
-
-  const renderActivityDetails = (details?: Record<string, unknown> | null) => {
-    if (!details || Object.keys(details).length === 0) return ''
-    try {
-      return JSON.stringify(details, null, 2)
-    } catch {
-      return String(details)
-    }
-  }
-
-  const copyActivityLog = async () => {
-    if (!activityLogText.trim()) return
-    try {
-      await navigator.clipboard.writeText(activityLogText)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // ignore clipboard errors
-    }
-  }
-
-  const runSmtpHealthcheck = async () => {
-    if (!canRunSmtpProbe || smtpProbePending) return
-    setSmtpProbePending(true)
-    setSmtpProbeMessage('')
-    try {
-      const res = await api.runSmtpHealthcheck()
-      setSmtpProbeMessage(res?.message || 'SMTP health-check выполнен.')
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail
-      setSmtpProbeMessage(typeof detail === 'string' ? `Ошибка: ${detail}` : 'Ошибка SMTP health-check.')
-    } finally {
-      setSmtpProbePending(false)
-    }
-  }
-
   const openDirectChat = (member: User) => {
     navigate(`/chat?mode=direct&peer=${member.id}`)
   }
@@ -263,13 +191,83 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background flex">
       <aside className="w-64 border-r bg-card/60 flex flex-col h-screen sticky top-0">
-        <div className="px-6 py-5 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold">
-            PB
+        <div className="px-4 py-4 flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold">
+              PB
+            </div>
+            <div>
+              <div className="text-sm font-semibold leading-none">Planner Bro</div>
+              <div className="text-xs text-muted-foreground mt-1">ИТ отдел</div>
+            </div>
           </div>
-          <div>
-            <div className="text-sm font-semibold leading-none">Planner Bro</div>
-            <div className="text-xs text-muted-foreground mt-1">ИТ отдел</div>
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <NotificationBell />
+          </div>
+        </div>
+        <div className="px-3 pb-3">
+          <div className="relative">
+            <Input
+              placeholder="Глобальный поиск: проекты, задачи, люди"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchData && (
+              <div className="absolute z-20 mt-1 w-full rounded-lg border bg-card shadow-md p-2 space-y-2 max-h-80 overflow-auto">
+                {searchData.projects.length > 0 && (
+                  <div>
+                    <p className="text-[11px] uppercase text-muted-foreground mb-1">Проекты</p>
+                    {searchData.projects.map((p) => (
+                      <Link
+                        key={p.id}
+                        to={`/projects/${p.id}`}
+                        className="block text-sm px-2 py-1 rounded hover:bg-accent"
+                        onClick={() => {
+                          setSearchQuery('')
+                          setSearchData(null)
+                        }}
+                      >
+                        {p.name}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+                {searchData.tasks.length > 0 && (
+                  <div>
+                    <p className="text-[11px] uppercase text-muted-foreground mb-1">Задачи</p>
+                    {searchData.tasks.map((t) => (
+                      <Link
+                        key={t.id}
+                        to={`/projects/${t.project_id}`}
+                        className="block text-sm px-2 py-1 rounded hover:bg-accent"
+                        onClick={() => {
+                          setSearchQuery('')
+                          setSearchData(null)
+                        }}
+                      >
+                        {t.title}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+                {searchData.users.length > 0 && (
+                  <div>
+                    <p className="text-[11px] uppercase text-muted-foreground mb-1">Люди</p>
+                    {searchData.users.map((u) => (
+                      <p key={u.id} className="text-sm px-2 py-1 text-muted-foreground">
+                        {u.name} · {u.email}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {searchData.projects.length === 0 &&
+                  searchData.tasks.length === 0 &&
+                  searchData.users.length === 0 && (
+                    <p className="text-sm text-muted-foreground px-2 py-1">Ничего не найдено.</p>
+                  )}
+              </div>
+            )}
           </div>
         </div>
         <nav className="px-3 space-y-1">
@@ -353,153 +351,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="border-b bg-card px-6 py-4 flex items-center gap-4">
-          <div className="shrink-0">
-            <p className="text-xs uppercase tracking-widest text-muted-foreground">ИТ проекты</p>
-            <h1 className="text-lg font-semibold">Панель управления</h1>
-          </div>
-          <div className="hidden xl:block min-w-0 flex-1">
-            <button
-              type="button"
-              onClick={() => setActivityDialogOpen(true)}
-              className="w-full text-left rounded-md border bg-background/80 px-3 py-2 font-mono hover:bg-accent/40 transition-colors"
-            >
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Активность системы</p>
-              {headerActivity.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground">[idle] Нет новых событий</p>
-              ) : (
-                <div className="space-y-1">
-                  {headerActivity.map((item) => (
-                    <p key={item.id} className="text-[11px] leading-snug truncate">
-                      <span className="text-muted-foreground">{formatTime(item.created_at)}</span>
-                      {'  '}
-                      <span className={levelTone[item.level] ?? 'text-muted-foreground'}>[{item.level}]</span>
-                      {'  '}
-                      <span className="text-muted-foreground">{item.category}/{item.source}</span>
-                      {' :: '}
-                      <span className="text-muted-foreground">{item.message}</span>
-                    </p>
-                  ))}
-                </div>
-              )}
-            </button>
-          </div>
-          <div className="flex items-center gap-3 ml-auto">
-            <div className="hidden lg:block w-96 relative">
-              <Input
-                placeholder="Глобальный поиск: проекты, задачи, люди"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchData && (
-                <div className="absolute z-20 mt-1 w-full rounded-lg border bg-card shadow-md p-2 space-y-2 max-h-80 overflow-auto">
-                  {searchData.projects.length > 0 && (
-                    <div>
-                      <p className="text-[11px] uppercase text-muted-foreground mb-1">Проекты</p>
-                      {searchData.projects.map((p) => (
-                        <Link
-                          key={p.id}
-                          to={`/projects/${p.id}`}
-                          className="block text-sm px-2 py-1 rounded hover:bg-accent"
-                          onClick={() => {
-                            setSearchQuery('')
-                            setSearchData(null)
-                          }}
-                        >
-                          {p.name}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                  {searchData.tasks.length > 0 && (
-                    <div>
-                      <p className="text-[11px] uppercase text-muted-foreground mb-1">Задачи</p>
-                      {searchData.tasks.map((t) => (
-                        <Link
-                          key={t.id}
-                          to={`/projects/${t.project_id}`}
-                          className="block text-sm px-2 py-1 rounded hover:bg-accent"
-                          onClick={() => {
-                            setSearchQuery('')
-                            setSearchData(null)
-                          }}
-                        >
-                          {t.title}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                  {searchData.users.length > 0 && (
-                    <div>
-                      <p className="text-[11px] uppercase text-muted-foreground mb-1">Люди</p>
-                      {searchData.users.map((u) => (
-                        <p key={u.id} className="text-sm px-2 py-1 text-muted-foreground">
-                          {u.name} · {u.email}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                  {searchData.projects.length === 0 &&
-                    searchData.tasks.length === 0 &&
-                    searchData.users.length === 0 && (
-                      <p className="text-sm text-muted-foreground px-2 py-1">Ничего не найдено.</p>
-                    )}
-                </div>
-              )}
-            </div>
-            <ThemeToggle />
-            <NotificationBell />
-          </div>
-        </header>
-        <Dialog open={activityDialogOpen} onOpenChange={setActivityDialogOpen}>
-          <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>Активность системы (последние 24 часа)</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm text-muted-foreground">
-                  Событий: {activityFeed.length}
-                </p>
-                <div className="flex items-center gap-2">
-                  {canRunSmtpProbe && (
-                    <Button type="button" variant="outline" size="sm" onClick={runSmtpHealthcheck} disabled={smtpProbePending}>
-                      {smtpProbePending ? 'Проверка SMTP...' : 'Проверить SMTP'}
-                    </Button>
-                  )}
-                  <Button type="button" variant="outline" size="sm" onClick={copyActivityLog}>
-                    <Copy className="w-4 h-4 mr-1" />
-                    {copied ? 'Скопировано' : 'Скопировать лог'}
-                  </Button>
-                </div>
-              </div>
-              {smtpProbeMessage && (
-                <p className="text-xs text-muted-foreground">{smtpProbeMessage}</p>
-              )}
-              <div className="max-h-[60vh] space-y-2 overflow-auto rounded-md border bg-background p-2">
-                {activityFeed.length === 0 ? (
-                  <p className="px-2 py-2 text-xs text-muted-foreground">[idle] Нет системных событий за последние 24 часа</p>
-                ) : (
-                  activityFeed.map((item) => (
-                    <div key={item.id} className="rounded-md border bg-card px-3 py-2">
-                      <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-                        <span className="text-muted-foreground">{formatTime(item.created_at)}</span>
-                        <span className={levelTone[item.level] ?? 'text-muted-foreground'}>[{item.level}]</span>
-                        <span className="text-muted-foreground">{item.category}/{item.source}</span>
-                      </div>
-                      <p className="text-xs leading-relaxed">{item.message}</p>
-                      {item.details && Object.keys(item.details).length > 0 && (
-                        <pre className="mt-2 overflow-auto rounded border bg-muted/30 px-2 py-1.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
-                          {renderActivityDetails(item.details)}
-                        </pre>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
         <main className="flex-1 bg-muted/30">{children}</main>
       </div>
     </div>

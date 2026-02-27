@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { useAuthStore } from '@/store/authStore'
-import type { Department, Project, Task, User } from '@/types'
+import type { Department, Project, Task, User, SystemActivityLog } from '@/types'
 
 function cn(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(' ')
@@ -144,7 +144,6 @@ export function Dashboard() {
   const [selectedDepartmentTab, setSelectedDepartmentTab] = useState<string>('all')
   const [projectSearch, setProjectSearch] = useState('')
   const [onlyMine, setOnlyMine] = useState(false)
-  const [escalationBlinkEnabled, setEscalationBlinkEnabled] = useState(true)
   const [assignProject, setAssignProject] = useState<Project | null>(null)
   const [assignDepartmentIds, setAssignDepartmentIds] = useState<string[]>([])
   const [form, setForm] = useState({
@@ -172,6 +171,11 @@ export function Dashboard() {
     queryKey: ['users'],
     queryFn: api.listUsers,
   })
+  const { data: systemActivity = [] } = useQuery<SystemActivityLog[]>({
+    queryKey: ['dashboard-system-activity'],
+    queryFn: () => api.listSystemActivityLogs({ hours: 24, limit: 120 }),
+    refetchInterval: 20_000,
+  })
 
   const today = new Date().toISOString().slice(0, 10)
   const [quoteShift, setQuoteShift] = useState(0)
@@ -196,23 +200,6 @@ export function Dashboard() {
     const exists = departmentTabs.some((dep) => dep.department_id === selectedDepartmentTab)
     if (!exists) setSelectedDepartmentTab('all')
   }, [departmentTabs, selectedDepartmentTab])
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('dashboard_escalation_blink')
-      if (raw === 'off') setEscalationBlinkEnabled(false)
-    } catch {
-      // ignore storage errors in restricted environments
-    }
-  }, [])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('dashboard_escalation_blink', escalationBlinkEnabled ? 'on' : 'off')
-    } catch {
-      // ignore storage errors in restricted environments
-    }
-  }, [escalationBlinkEnabled])
 
   const myProjectIds = useMemo(() => {
     if (!currentUser?.id) return new Set<string>()
@@ -334,7 +321,6 @@ export function Dashboard() {
     [departments]
   )
 
-  const escalationPulse = escalations.length > 0 && escalationBlinkEnabled
   const projectProgressById = useMemo(() => {
     const grouped = new Map<string, { sum: number; count: number }>()
     tasks.forEach((task) => {
@@ -882,36 +868,26 @@ export function Dashboard() {
         </SectionCard>
 
         <SectionCard
-          title="Эскалации"
-          className={cn('xl:col-span-2', escalationPulse && 'border-red-500/90 shadow-[0_0_18px_rgba(239,68,68,0.55)] animate-pulse')}
+          title="Активность системы"
+          className="xl:col-span-2"
           action={
-            <div className="flex items-center gap-2">
-              {escalations.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setEscalationBlinkEnabled((v) => !v)}
-                  className={cn(
-                    'rounded border px-2 py-0.5 text-[11px]',
-                    escalationBlinkEnabled ? 'border-red-400 text-red-600' : 'text-muted-foreground'
-                  )}
-                >
-                  {escalationBlinkEnabled ? 'Мигание: Вкл' : 'Мигание: Выкл'}
-                </button>
-              )}
-              <Link to="/analytics" className="text-xs text-primary hover:underline">
-                Аналитика →
-              </Link>
-            </div>
+            <Link to="/analytics" className="text-xs text-primary hover:underline">
+              Аналитика →
+            </Link>
           }
         >
-          <div className="max-h-64 space-y-2 overflow-auto">
-            {escalations.length === 0 && <p className="text-sm text-muted-foreground">Новых эскалаций нет.</p>}
-            {escalations.slice(0, 8).map((task) => (
-              <Link key={task.id} to={`/projects/${task.project_id}`} className="block rounded border p-2 text-sm hover:bg-accent">
-                <p className="truncate font-medium">{task.title}</p>
-                <p className="text-xs text-muted-foreground">{task.escalation_for || 'Требуется решение руководителя'}</p>
-              </Link>
-            ))}
+          <div className="h-64 overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]">
+            {systemActivity.length === 0 ? (
+              <p className="text-emerald-500/80">[idle] Нет системных событий за 24 часа</p>
+            ) : (
+              <div className="space-y-1">
+                {systemActivity.slice(0, 40).map((item) => (
+                  <p key={item.id} className="truncate">
+                    [{new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}] [{item.level}] {item.source}: {item.message}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
         </SectionCard>
       </div>
