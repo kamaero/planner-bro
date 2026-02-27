@@ -522,21 +522,23 @@ export function Dashboard() {
           title="ИТ проекты по отделам"
           className="xl:col-span-7"
           action={
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setOnlyMine((v) => !v)}
-                className={cn(
-                  'rounded-md border px-2 py-1 text-xs',
-                  onlyMine ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground'
-                )}
-              >
-                Мои проекты и задачи
-              </button>
-              <Input value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} placeholder="Поиск проекта" className="h-8 w-48 text-xs" />
-            </div>
+            <Input value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} placeholder="Поиск проекта" className="h-8 w-48 text-xs" />
           }
         >
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={() => setOnlyMine((v) => !v)}
+              className={cn(
+                'rounded-md border px-3 py-1.5 text-xs font-medium transition-all animate-pulse',
+                onlyMine
+                  ? 'border-blue-600 bg-blue-600/15 text-blue-700 shadow-[0_0_12px_rgba(37,99,235,0.45)]'
+                  : 'border-blue-400/80 bg-blue-500/10 text-blue-700 shadow-[0_0_10px_rgba(59,130,246,0.3)]'
+              )}
+            >
+              Мои проекты и задачи
+            </button>
+          </div>
           <div className="mb-3 flex flex-wrap gap-2">
             <button
               type="button"

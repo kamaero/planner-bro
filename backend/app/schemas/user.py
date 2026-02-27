@@ -46,6 +46,7 @@ class UserOut(UserBase):
     can_bulk_edit: bool = False
     reminder_days: str = "1,3"
     is_active: bool = True
+    last_login_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
