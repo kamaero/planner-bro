@@ -1,6 +1,6 @@
 """add chat attachments and read cursor
 
-Revision ID: 0024_chat_attachments_and_read_cursor
+Revision ID: 0024_chat_attach_read_cursor
 Revises: 0023_chat_messages
 Create Date: 2026-02-27
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0024_chat_attachments_and_read_cursor"
+revision = "0024_chat_attach_read_cursor"
 down_revision = "0023_chat_messages"
 branch_labels = None
 depends_on = None
