@@ -844,21 +844,6 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard
-          title="Мудрость дня"
-          className="xl:col-span-3"
-          action={
-            <Button type="button" variant="outline" size="sm" onClick={() => setQuoteShift((v) => (v + 1) % IT_QUOTES.length)}>
-              Еще цитата
-            </Button>
-          }
-        >
-          <div className="flex h-full min-h-[180px] flex-col justify-between rounded-lg border border-dashed bg-muted/30 p-3">
-            <p className="text-sm leading-relaxed">“{wisdomQuote}”</p>
-            <p className="mt-3 text-xs text-muted-foreground">Обновляется ежедневно + вручную кнопкой.</p>
-          </div>
-        </SectionCard>
-
         <SectionCard title="Мои задачи" className="xl:col-span-2">
           <div className="max-h-64 space-y-2 overflow-auto">
             {myUrgentTasks.length === 0 && <p className="text-sm text-muted-foreground">Личных задач нет.</p>}
@@ -878,6 +863,21 @@ export function Dashboard() {
                 </Link>
               )
             })}
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Мудрость дня"
+          className="xl:col-span-3"
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={() => setQuoteShift((v) => (v + 1) % IT_QUOTES.length)}>
+              Еще цитата
+            </Button>
+          }
+        >
+          <div className="min-h-[180px] rounded-lg border border-dashed bg-muted/30 p-3">
+            <p className="text-sm leading-relaxed">“{wisdomQuote}”</p>
+            <p className="mt-3 text-xs text-muted-foreground">Обновляется ежедневно + вручную кнопкой.</p>
           </div>
         </SectionCard>
 
