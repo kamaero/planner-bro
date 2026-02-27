@@ -254,54 +254,58 @@ export function Analytics() {
         </div>
       </div>
 
-      <div className="rounded-xl border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">Прогресс по проектам</h2>
-        {projectProgress.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Проектов пока нет.</p>
-        ) : (
-          <div className="space-y-3">
-            {projectProgress.map(({ project, total, done, pct }) => (
-              <div key={project.id}>
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <span className="font-medium">{project.name}</span>
-                  <span className="text-muted-foreground">
-                    {done}/{total} задач · {pct}%
-                  </span>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="rounded-xl border bg-card p-5">
+          <h2 className="text-sm font-semibold mb-4">Прогресс по проектам</h2>
+          {projectProgress.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Проектов пока нет.</p>
+          ) : (
+            <div className="space-y-3">
+              {projectProgress.map(({ project, total, done, pct }) => (
+                <div key={project.id}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="font-medium">{project.name}</span>
+                    <span className="text-muted-foreground">
+                      {done}/{total} задач · {pct}%
+                    </span>
+                  </div>
+                  <progress
+                    value={pct}
+                    max={100}
+                    className="w-full h-2 rounded-full overflow-hidden [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-primary [&::-moz-progress-bar]:bg-primary"
+                  />
                 </div>
-                <progress
-                  value={pct}
-                  max={100}
-                  className="w-full h-2 rounded-full overflow-hidden [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-primary [&::-moz-progress-bar]:bg-primary"
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-      {workloadData.length > 0 && (
         <div className="rounded-xl border bg-card p-5">
           <h2 className="text-sm font-semibold mb-4">Нагрузка по команде</h2>
-          <ResponsiveContainer width="100%" height={Math.max(180, workloadData.length * 40)}>
-            <BarChart
-              data={workloadData}
-              layout="vertical"
-              margin={{ top: 0, right: 20, bottom: 0, left: 80 }}
-            >
-              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={75} />
-              <Tooltip />
-              <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {workloadData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={Math.max(180, workloadData.length * 40)}>
+              <BarChart
+                data={workloadData}
+                layout="vertical"
+                margin={{ top: 0, right: 20, bottom: 0, left: 80 }}
+              >
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={75} />
+                <Tooltip />
+                <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-sm text-muted-foreground">Нет данных по нагрузке команды.</p>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Deadline Audit Section */}
       <div className="space-y-4">
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-amber-500" />
-          <h2 className="text-lg font-semibold">Честная статистика дедлайнов</h2>
+          <h2 className="text-lg font-semibold">Статистика дедлайнов</h2>
         </div>
 
         {deadlineStats ? (

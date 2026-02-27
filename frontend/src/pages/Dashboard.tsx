@@ -91,6 +91,15 @@ function deadlinePulseClass(days: number | null): string {
   return ''
 }
 
+function myTaskUrgencyClass(days: number | null): string {
+  if (days === null) return 'hover:bg-accent'
+  if (days < 0) return 'border-red-600 bg-red-100/90 shadow-[0_0_14px_rgba(220,38,38,0.55)] animate-pulse'
+  if (days <= 1) return 'border-red-500 bg-red-50/90 shadow-[0_0_12px_rgba(239,68,68,0.5)] animate-pulse'
+  if (days <= 3) return 'border-red-400 bg-red-50/80 shadow-[0_0_10px_rgba(248,113,113,0.42)] animate-pulse'
+  if (days <= 7) return 'border-orange-400 bg-orange-50/75 shadow-[0_0_10px_rgba(249,115,22,0.35)]'
+  return 'hover:bg-accent'
+}
+
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = hex.replace('#', '').trim()
   if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return `rgba(99,102,241,${alpha})`
@@ -210,6 +219,25 @@ export function Dashboard() {
       })
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       .slice(0, 8)
+  }, [tasks, currentUser?.id])
+
+  const myUrgentTasks = useMemo(() => {
+    if (!currentUser?.id) return [] as Task[]
+    return tasks
+      .filter((t) => {
+        if (t.status === 'done') return false
+        const assignedIds = t.assignee_ids ?? []
+        return t.created_by_id === currentUser.id || t.assigned_to_id === currentUser.id || assignedIds.includes(currentUser.id)
+      })
+      .sort((a, b) => {
+        const ad = daysUntil(a.end_date)
+        const bd = daysUntil(b.end_date)
+        const scoreA = ad === null ? 10_000 : ad
+        const scoreB = bd === null ? 10_000 : bd
+        if (scoreA !== scoreB) return scoreA - scoreB
+        return b.updated_at.localeCompare(a.updated_at)
+      })
+      .slice(0, 10)
   }, [tasks, currentUser?.id])
 
   const projectsForSelectedTab = useMemo(() => {
@@ -785,8 +813,8 @@ export function Dashboard() {
         </SectionCard>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <SectionCard title="Последние обновленные задачи" action={<Users2 className="h-4 w-4 text-muted-foreground" />}>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+        <SectionCard title="Последние обновленные задачи" className="xl:col-span-2" action={<Users2 className="h-4 w-4 text-muted-foreground" />}>
           <div className="max-h-64 space-y-1 overflow-auto">
             {recentTasks.map((task: Task) => (
               <Link key={task.id} to={`/projects/${task.project_id}`} className="flex items-center justify-between rounded px-2 py-1.5 text-sm hover:bg-accent">
@@ -797,9 +825,31 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
+        <SectionCard title="Мои задачи" className="xl:col-span-1">
+          <div className="max-h-64 space-y-2 overflow-auto">
+            {myUrgentTasks.length === 0 && <p className="text-sm text-muted-foreground">Личных задач нет.</p>}
+            {myUrgentTasks.map((task) => {
+              const d = daysUntil(task.end_date)
+              return (
+                <Link
+                  key={task.id}
+                  to={`/projects/${task.project_id}?task=${task.id}`}
+                  className={cn('block rounded border px-2 py-1.5 text-xs transition-colors', myTaskUrgencyClass(d))}
+                >
+                  <p className="truncate font-medium">{task.title}</p>
+                  <p className="text-muted-foreground">
+                    {TASK_STATUS_LABEL[task.status] ?? task.status} · {formatDate(task.end_date)}
+                    {d === null ? ' · без дедлайна' : d < 0 ? ' · просрочено' : ` · ${d} дн.`}
+                  </p>
+                </Link>
+              )
+            })}
+          </div>
+        </SectionCard>
+
         <SectionCard
           title="Эскалации"
-          className={cn(escalationPulse && 'border-red-500/90 shadow-[0_0_18px_rgba(239,68,68,0.55)] animate-pulse')}
+          className={cn('xl:col-span-1', escalationPulse && 'border-red-500/90 shadow-[0_0_18px_rgba(239,68,68,0.55)] animate-pulse')}
           action={
             <div className="flex items-center gap-2">
               {escalations.length > 0 && (
