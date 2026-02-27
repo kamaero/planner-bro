@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     SMTP_USE_STARTTLS: bool = True
     EMAILS_FROM: str = "noreply@planner-bro.com"
     SMTP_TIMEOUT_SECONDS: float = 8.0
+    SMTP_MAX_ATTEMPTS: int = 3
+    SMTP_RETRY_BASE_DELAY_SECONDS: float = 0.7
 
     # Team status reminders
     TEAM_STATUS_REMINDER_ENABLED: bool = True

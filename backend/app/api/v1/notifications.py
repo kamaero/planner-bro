@@ -16,8 +16,11 @@ from app.schemas.notification import (
     EmailDispatchLogOut,
     SystemActivityLogOut,
     ClientErrorReportIn,
+    SMTPHealthCheckIn,
+    SMTPHealthCheckOut,
 )
 from app.services.system_activity_service import log_system_activity
+from app.services.notification_service import _send_email_to_recipients
 
 router = APIRouter(tags=["notifications"])
 
@@ -84,17 +87,21 @@ async def mark_all_read(
 async def list_email_activity(
     hours: int = Query(default=24, ge=1, le=168),
     limit: int = Query(default=500, ge=1, le=2000),
+    include_probe: bool = Query(default=False),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     _ = current_user  # authenticated access only
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-    result = await db.execute(
+    stmt = (
         select(EmailDispatchLog)
         .where(EmailDispatchLog.created_at >= cutoff)
         .order_by(EmailDispatchLog.created_at.desc())
         .limit(limit)
     )
+    if not include_probe:
+        stmt = stmt.where(EmailDispatchLog.source != "smtp_probe")
+    result = await db.execute(stmt)
     rows = result.scalars().all()
     return [
         EmailDispatchLogOut(
@@ -119,6 +126,7 @@ async def list_system_activity(
     level: str | None = Query(default=None),
     category: str | None = Query(default=None),
     source: str | None = Query(default=None),
+    include_probe: bool = Query(default=False),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -136,8 +144,46 @@ async def list_system_activity(
         stmt = stmt.where(SystemActivityLog.category == category)
     if source:
         stmt = stmt.where(SystemActivityLog.source == source)
+    if not include_probe:
+        stmt = stmt.where(~SystemActivityLog.message.ilike("smtp_probe:%"))
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.post("/notifications/activity/smtp-healthcheck", response_model=SMTPHealthCheckOut)
+async def smtp_healthcheck(
+    data: SMTPHealthCheckIn,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user.role not in ("admin", "manager") and not bool(current_user.can_manage_team):
+        raise HTTPException(status_code=403, detail="Only admin/manager can run SMTP health check")
+
+    recipient = (data.recipient or current_user.email or "").strip().lower()
+    if "@" not in recipient:
+        raise HTTPException(status_code=400, detail="Recipient email is invalid")
+
+    source = "smtp_healthcheck"
+    subject = "PlannerBro SMTP health-check"
+    body = (
+        f"SMTP health-check from PlannerBro.\n"
+        f"Requested by: {current_user.email}\n"
+        f"Time (UTC): {datetime.now(timezone.utc).isoformat()}"
+    )
+    await _send_email_to_recipients(
+        db,
+        recipients=[recipient],
+        subject=subject,
+        body=body,
+        source=source,
+        payload={"kind": "smtp_healthcheck", "initiator": current_user.email},
+    )
+    return SMTPHealthCheckOut(
+        ok=True,
+        recipient=recipient,
+        source=source,
+        message="SMTP health-check sent (see activity log for final status).",
+    )
 
 
 @router.post("/notifications/activity/client-error", status_code=202)

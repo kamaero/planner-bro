@@ -51,3 +51,14 @@ class ClientErrorReportIn(BaseModel):
     url: Optional[str] = None
     user_agent: Optional[str] = None
     context: Optional[dict[str, Any]] = None
+
+
+class SMTPHealthCheckIn(BaseModel):
+    recipient: Optional[str] = None
+
+
+class SMTPHealthCheckOut(BaseModel):
+    ok: bool
+    recipient: str
+    source: str
+    message: str

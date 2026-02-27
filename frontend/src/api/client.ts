@@ -235,7 +235,10 @@ export const api = {
     level?: string
     category?: string
     source?: string
+    include_probe?: boolean
   }) => apiClient.get('/notifications/activity/system', { params }).then((r) => r.data),
+  runSmtpHealthcheck: (data?: { recipient?: string }) =>
+    apiClient.post('/notifications/activity/smtp-healthcheck', data ?? {}).then((r) => r.data),
   reportClientError: (data: {
     message: string
     stack?: string

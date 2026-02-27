@@ -112,52 +112,77 @@ async def _send_email_to_recipients(
             )
         await db.commit()
         return
+    max_attempts = max(1, int(settings.SMTP_MAX_ATTEMPTS))
+    base_delay = max(0.0, float(settings.SMTP_RETRY_BASE_DELAY_SECONDS))
     for email in recipients:
         msg = MIMEText(body, "plain")
         msg["Subject"] = subject
         msg["From"] = settings.EMAILS_FROM
         msg["To"] = email
-        try:
-            kwargs = {
-                "hostname": settings.SMTP_HOST,
-                "port": settings.SMTP_PORT,
-                "use_tls": settings.SMTP_USE_TLS,
-                "start_tls": settings.SMTP_USE_STARTTLS,
-                "timeout": settings.SMTP_TIMEOUT_SECONDS,
-            }
-            if settings.SMTP_USER:
-                kwargs["username"] = settings.SMTP_USER
-            if settings.SMTP_PASSWORD:
-                kwargs["password"] = settings.SMTP_PASSWORD
-            await aiosmtplib.send(msg, **kwargs)
-            await _record_email_dispatch(
-                db,
-                recipient=email,
-                subject=subject,
-                status="sent",
-                source=source,
-                payload=payload,
-            )
-        except Exception as exc:
-            logger.warning(
-                "SMTP send failed: source=%s recipient=%s host=%s port=%s tls=%s starttls=%s err=%s",
-                source,
-                email,
-                settings.SMTP_HOST,
-                settings.SMTP_PORT,
-                settings.SMTP_USE_TLS,
-                settings.SMTP_USE_STARTTLS,
-                repr(exc),
-            )
-            await _record_email_dispatch(
-                db,
-                recipient=email,
-                subject=subject,
-                status="failed",
-                source=source,
-                error_text=f"{exc.__class__.__name__}: {str(exc)}"[:1000],
-                payload=payload,
-            )
+
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                kwargs = {
+                    "hostname": settings.SMTP_HOST,
+                    "port": settings.SMTP_PORT,
+                    "use_tls": settings.SMTP_USE_TLS,
+                    "start_tls": settings.SMTP_USE_STARTTLS,
+                    "timeout": settings.SMTP_TIMEOUT_SECONDS,
+                }
+                if settings.SMTP_USER:
+                    kwargs["username"] = settings.SMTP_USER
+                if settings.SMTP_PASSWORD:
+                    kwargs["password"] = settings.SMTP_PASSWORD
+                await aiosmtplib.send(msg, **kwargs)
+                await _record_email_dispatch(
+                    db,
+                    recipient=email,
+                    subject=subject,
+                    status="sent",
+                    source=source,
+                    payload={**(payload or {}), "attempts": attempt},
+                )
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt < max_attempts:
+                    delay = base_delay * attempt
+                    logger.warning(
+                        "SMTP send retry: source=%s recipient=%s attempt=%s/%s delay=%.2fs err=%s",
+                        source,
+                        email,
+                        attempt,
+                        max_attempts,
+                        delay,
+                        repr(exc),
+                    )
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    continue
+                logger.warning(
+                    "SMTP send failed: source=%s recipient=%s host=%s port=%s tls=%s starttls=%s attempts=%s err=%s",
+                    source,
+                    email,
+                    settings.SMTP_HOST,
+                    settings.SMTP_PORT,
+                    settings.SMTP_USE_TLS,
+                    settings.SMTP_USE_STARTTLS,
+                    max_attempts,
+                    repr(exc),
+                )
+                await _record_email_dispatch(
+                    db,
+                    recipient=email,
+                    subject=subject,
+                    status="failed",
+                    source=source,
+                    error_text=f"{exc.__class__.__name__}: {str(exc)}"[:1000],
+                    payload={**(payload or {}), "attempts": max_attempts},
+                )
+        if last_exc is None:
+            continue
     await db.commit()
 
 

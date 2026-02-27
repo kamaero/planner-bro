@@ -57,6 +57,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [activityDialogOpen, setActivityDialogOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [smtpProbePending, setSmtpProbePending] = useState(false)
+  const [smtpProbeMessage, setSmtpProbeMessage] = useState<string>('')
   const clientErrorFloodGuardRef = useRef<Record<string, number>>({})
   const [searchData, setSearchData] = useState<{
     projects: Array<{ id: string; name: string; status: string }>
@@ -176,6 +178,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   }, [])
 
   const onlineUserIds = new Set(onlineUsers.map((u) => u.id))
+  const canRunSmtpProbe = user?.role === 'admin' || user?.role === 'manager' || !!user?.can_manage_team
   const teamList = [...teamUsers]
     .filter((u) => u.is_active !== false)
     .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
@@ -213,6 +216,21 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       setTimeout(() => setCopied(false), 1500)
     } catch {
       // ignore clipboard errors
+    }
+  }
+
+  const runSmtpHealthcheck = async () => {
+    if (!canRunSmtpProbe || smtpProbePending) return
+    setSmtpProbePending(true)
+    setSmtpProbeMessage('')
+    try {
+      const res = await api.runSmtpHealthcheck()
+      setSmtpProbeMessage(res?.message || 'SMTP health-check выполнен.')
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail
+      setSmtpProbeMessage(typeof detail === 'string' ? `Ошибка: ${detail}` : 'Ошибка SMTP health-check.')
+    } finally {
+      setSmtpProbePending(false)
     }
   }
 
@@ -389,11 +407,21 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                 <p className="text-sm text-muted-foreground">
                   Событий: {activityFeed.length}
                 </p>
-                <Button type="button" variant="outline" size="sm" onClick={copyActivityLog}>
-                  <Copy className="w-4 h-4 mr-1" />
-                  {copied ? 'Скопировано' : 'Скопировать лог'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {canRunSmtpProbe && (
+                    <Button type="button" variant="outline" size="sm" onClick={runSmtpHealthcheck} disabled={smtpProbePending}>
+                      {smtpProbePending ? 'Проверка SMTP...' : 'Проверить SMTP'}
+                    </Button>
+                  )}
+                  <Button type="button" variant="outline" size="sm" onClick={copyActivityLog}>
+                    <Copy className="w-4 h-4 mr-1" />
+                    {copied ? 'Скопировано' : 'Скопировать лог'}
+                  </Button>
+                </div>
               </div>
+              {smtpProbeMessage && (
+                <p className="text-xs text-muted-foreground">{smtpProbeMessage}</p>
+              )}
               <pre className="max-h-[60vh] overflow-auto rounded-md border bg-background px-3 py-3 text-xs leading-relaxed whitespace-pre-wrap break-words">
                 {activityLogText || '[idle] Нет системных событий за последние 24 часа'}
               </pre>
