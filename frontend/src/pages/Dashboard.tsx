@@ -256,7 +256,7 @@ export function Dashboard() {
         .filter((t) => {
           if (!t.end_date || t.status === 'done') return false
           const days = daysUntil(t.end_date)
-          return days !== null && days >= 0 && days <= 14
+          return days !== null && days >= 0 && days <= 20
         })
         .sort((a, b) => {
           const ad = daysUntil(a.end_date) ?? Number.MAX_SAFE_INTEGER
@@ -623,8 +623,14 @@ export function Dashboard() {
                     'block rounded border px-2 py-1.5 text-xs transition-colors',
                     (() => {
                       const d = daysUntil(task.end_date)
-                      if (d !== null && d <= 14) {
+                      if (d !== null && d >= 5 && d <= 7) {
+                        return 'border-red-400 bg-red-50/80 shadow-[0_0_10px_rgba(239,68,68,0.35)] animate-pulse'
+                      }
+                      if (d !== null && d >= 10 && d <= 14) {
                         return 'border-orange-400 bg-orange-50/80 shadow-[0_0_12px_rgba(249,115,22,0.42)] animate-pulse'
+                      }
+                      if (d !== null && d > 14 && d <= 20) {
+                        return 'border-emerald-400 bg-emerald-50/80 shadow-[0_0_12px_rgba(16,185,129,0.38)] animate-pulse'
                       }
                       return 'hover:bg-accent'
                     })()
