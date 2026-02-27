@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from app.services.system_activity_service import log_system_activity
 import aiosmtplib
 from email.mime.text import MIMEText
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +123,7 @@ async def _send_email_to_recipients(
                 "port": settings.SMTP_PORT,
                 "use_tls": settings.SMTP_USE_TLS,
                 "start_tls": settings.SMTP_USE_STARTTLS,
+                "timeout": settings.SMTP_TIMEOUT_SECONDS,
             }
             if settings.SMTP_USER:
                 kwargs["username"] = settings.SMTP_USER
@@ -156,6 +159,35 @@ async def _send_email_to_recipients(
                 payload=payload,
             )
     await db.commit()
+
+
+def _send_email_to_recipients_background(
+    recipients: list[str],
+    subject: str,
+    body: str,
+    source: str,
+    payload: dict | None = None,
+) -> None:
+    async def _runner() -> None:
+        try:
+            async with AsyncSessionLocal() as bg_db:
+                await _send_email_to_recipients(
+                    bg_db,
+                    recipients,
+                    subject,
+                    body,
+                    source=source,
+                    payload=payload,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Background email dispatch failed: source=%s recipients=%s err=%s",
+                source,
+                recipients,
+                repr(exc),
+            )
+
+    asyncio.create_task(_runner())
 
 
 async def _get_project_member_ids(db: AsyncSession, project_id: str) -> list[str]:
@@ -217,8 +249,7 @@ async def notify_task_assigned(db: AsyncSession, task: Task, assignee_id: str):
     if assignee:
         email = _preferred_email(assignee, datetime.now(timezone.utc))
         if email:
-            await _send_email_to_recipients(
-                db,
+            _send_email_to_recipients_background(
                 [email],
                 title,
                 body,
@@ -259,8 +290,7 @@ async def notify_project_assigned(
     if user:
         email = _preferred_email(user, datetime.now(timezone.utc))
         if email:
-            await _send_email_to_recipients(
-                db,
+            _send_email_to_recipients_background(
                 [email],
                 title,
                 body,
@@ -522,8 +552,7 @@ async def notify_team_status_reminder(
         return
     target_email = _preferred_email(user, datetime.now(timezone.utc))
     if target_email:
-        await _send_email_to_recipients(
-            db,
+        _send_email_to_recipients_background(
             [target_email],
             title,
             body,
