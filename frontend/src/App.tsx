@@ -221,12 +221,16 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 
   const senderColor = (senderId: string) => {
     const palette = [
-      'text-sky-700 bg-sky-50 border-sky-200',
-      'text-emerald-700 bg-emerald-50 border-emerald-200',
-      'text-amber-700 bg-amber-50 border-amber-200',
-      'text-rose-700 bg-rose-50 border-rose-200',
-      'text-violet-700 bg-violet-50 border-violet-200',
-      'text-cyan-700 bg-cyan-50 border-cyan-200',
+      'text-sky-800 bg-sky-50 border-sky-300',
+      'text-emerald-800 bg-emerald-50 border-emerald-300',
+      'text-amber-800 bg-amber-50 border-amber-300',
+      'text-rose-800 bg-rose-50 border-rose-300',
+      'text-violet-800 bg-violet-50 border-violet-300',
+      'text-cyan-800 bg-cyan-50 border-cyan-300',
+      'text-fuchsia-800 bg-fuchsia-50 border-fuchsia-300',
+      'text-lime-800 bg-lime-50 border-lime-300',
+      'text-indigo-800 bg-indigo-50 border-indigo-300',
+      'text-orange-800 bg-orange-50 border-orange-300',
     ]
     let hash = 0
     for (let i = 0; i < senderId.length; i += 1) hash = (hash * 31 + senderId.charCodeAt(i)) >>> 0
@@ -563,9 +567,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                       const tone = senderColor(msg.sender_id)
                       return (
                         <div key={msg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[80%] rounded border px-2 py-1.5 text-sm ${mine ? 'bg-primary text-primary-foreground border-primary' : tone}`}>
+                          <div className={`max-w-[80%] rounded border px-2 py-1.5 text-sm ${tone} ${mine ? 'ring-1 ring-primary/40' : ''}`}>
                             {chatMode === 'global' && (
-                              <p className={`mb-1 text-[10px] ${mine ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
+                              <p className="mb-1 text-[10px] text-muted-foreground">
                                 {msg.sender_name} · {formatTime(msg.created_at)}
                               </p>
                             )}
@@ -578,14 +582,14 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                                     href={att.download_url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className={`block text-[11px] underline ${mine ? 'text-primary-foreground/90' : 'text-foreground'}`}
+                                    className="block text-[11px] underline text-foreground"
                                   >
                                     📎 {att.filename}
                                   </a>
                                 ))}
                               </div>
                             )}
-                            <p className={`mt-1 text-[10px] ${mine ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                            <p className="mt-1 text-[10px] text-muted-foreground">
                               {formatTime(msg.created_at)}
                             </p>
                           </div>
