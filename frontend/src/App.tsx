@@ -10,13 +10,14 @@ import { Team } from '@/pages/Team'
 import { TeamBoard } from '@/pages/TeamBoard'
 import { Analytics } from '@/pages/Analytics'
 import { TeamStorage } from '@/pages/TeamStorage'
+import { Chat } from '@/pages/Chat'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useQuery } from '@tanstack/react-query'
-import type { ChatMessage, ChatUnreadSummary, SystemActivityLog, User } from '@/types'
+import type { ChatUnreadSummary, SystemActivityLog, User } from '@/types'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -29,7 +30,6 @@ import {
   LogOut,
   Copy,
   MessageSquare,
-  Paperclip,
 } from 'lucide-react'
 
 function ThemeToggle() {
@@ -58,13 +58,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const [searchQuery, setSearchQuery] = useState('')
   const [activityDialogOpen, setActivityDialogOpen] = useState(false)
-  const [chatDialogOpen, setChatDialogOpen] = useState(false)
-  const [chatMode, setChatMode] = useState<'global' | 'direct'>('global')
-  const [chatPeer, setChatPeer] = useState<User | null>(null)
-  const [chatInput, setChatInput] = useState('')
-  const [chatFile, setChatFile] = useState<File | null>(null)
-  const chatFileRef = useRef<HTMLInputElement | null>(null)
-  const [chatSending, setChatSending] = useState(false)
   const [copied, setCopied] = useState(false)
   const [smtpProbePending, setSmtpProbePending] = useState(false)
   const [smtpProbeMessage, setSmtpProbeMessage] = useState<string>('')
@@ -90,18 +83,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     queryKey: ['system-activity-logs'],
     queryFn: () => api.listSystemActivityLogs({ hours: 24, limit: 2000 }),
     refetchInterval: 20_000,
-  })
-  const { data: globalChat = [], refetch: refetchGlobalChat } = useQuery<ChatMessage[]>({
-    queryKey: ['chat', 'global'],
-    queryFn: () => api.listGlobalChatMessages({ limit: 200 }),
-    enabled: chatDialogOpen && chatMode === 'global',
-    refetchInterval: chatDialogOpen && chatMode === 'global' ? 10_000 : false,
-  })
-  const { data: directChat = [], refetch: refetchDirectChat } = useQuery<ChatMessage[]>({
-    queryKey: ['chat', 'direct', chatPeer?.id],
-    queryFn: () => api.listDirectChatMessages(chatPeer!.id, { limit: 200 }),
-    enabled: chatDialogOpen && chatMode === 'direct' && !!chatPeer?.id,
-    refetchInterval: chatDialogOpen && chatMode === 'direct' && !!chatPeer?.id ? 10_000 : false,
   })
   const { data: chatUnread } = useQuery<ChatUnreadSummary>({
     queryKey: ['chat', 'unread'],
@@ -209,33 +190,11 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     .filter((u) => u.is_active !== false)
     .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
   const teamChatList = teamList.filter((u) => u.id !== user?.id)
-  const chatMessages = useMemo(
-    () => (chatMode === 'global' ? globalChat : directChat),
-    [chatMode, globalChat, directChat]
-  )
   const unreadDirectMap = useMemo(() => {
     const map = new Map<string, number>()
     for (const item of chatUnread?.direct ?? []) map.set(item.user_id, item.unread_count)
     return map
   }, [chatUnread])
-
-  const senderColor = (senderId: string) => {
-    const palette = [
-      'text-sky-800 bg-sky-50 border-sky-300',
-      'text-emerald-800 bg-emerald-50 border-emerald-300',
-      'text-amber-800 bg-amber-50 border-amber-300',
-      'text-rose-800 bg-rose-50 border-rose-300',
-      'text-violet-800 bg-violet-50 border-violet-300',
-      'text-cyan-800 bg-cyan-50 border-cyan-300',
-      'text-fuchsia-800 bg-fuchsia-50 border-fuchsia-300',
-      'text-lime-800 bg-lime-50 border-lime-300',
-      'text-indigo-800 bg-indigo-50 border-indigo-300',
-      'text-orange-800 bg-orange-50 border-orange-300',
-    ]
-    let hash = 0
-    for (let i = 0; i < senderId.length; i += 1) hash = (hash * 31 + senderId.charCodeAt(i)) >>> 0
-    return palette[hash % palette.length]
-  }
 
   const recentActivity = activityFeed.slice(0, 6)
   const formatTime = (iso: string) =>
@@ -297,52 +256,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const openGlobalChat = () => {
-    setChatMode('global')
-    setChatPeer(null)
-    setChatFile(null)
-    setChatDialogOpen(true)
-  }
-
   const openDirectChat = (member: User) => {
-    setChatMode('direct')
-    setChatPeer(member)
-    setChatFile(null)
-    setChatDialogOpen(true)
-  }
-
-  const sendChatMessage = async () => {
-    const body = chatInput.trim()
-    if ((!body && !chatFile) || chatSending) return
-    if (chatMode === 'direct' && !chatPeer?.id) return
-    setChatSending(true)
-    try {
-      if (chatFile) {
-        await api.sendChatMessageWithFile(
-          chatMode === 'global'
-            ? { room_type: 'global', body: body || undefined, file: chatFile }
-            : { room_type: 'direct', recipient_id: chatPeer!.id, body: body || undefined, file: chatFile }
-        )
-      } else {
-        await api.sendChatMessage(
-          chatMode === 'global'
-            ? { room_type: 'global', body }
-            : { room_type: 'direct', recipient_id: chatPeer!.id, body }
-        )
-      }
-      setChatInput('')
-      setChatFile(null)
-      if (chatFileRef.current) chatFileRef.current.value = ''
-      if (chatMode === 'global') {
-        await refetchGlobalChat()
-      } else {
-        await refetchDirectChat()
-      }
-    } catch {
-      // ignore send error here; user can retry
-    } finally {
-      setChatSending(false)
-    }
+    navigate(`/chat?mode=direct&peer=${member.id}`)
   }
 
   return (
@@ -375,10 +290,13 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               </Link>
             )
           })}
-          <button
-            type="button"
-            onClick={openGlobalChat}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-accent"
+          <Link
+            to="/chat"
+            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              location.pathname.startsWith('/chat')
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+            }`}
           >
             <MessageSquare className="w-4 h-4" />
             Общий чат
@@ -387,7 +305,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                 {chatUnread?.global_unread_count}
               </span>
             )}
-          </button>
+          </Link>
         </nav>
         <div className="mt-4 border-t flex-1 min-h-0 flex flex-col">
           <div className="px-4 py-4 flex items-center gap-3 border-b">
@@ -582,88 +500,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </DialogContent>
         </Dialog>
-        <Dialog open={chatDialogOpen} onOpenChange={setChatDialogOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>
-                {chatMode === 'global' ? 'Общий чат команды' : `Личный чат: ${chatPeer?.name ?? '—'}`}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div className="max-h-[52vh] min-h-[40vh] overflow-auto rounded border bg-background p-3">
-                {chatMessages.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Сообщений пока нет.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {chatMessages.map((msg) => {
-                      const mine = msg.sender_id === user?.id
-                      const tone = senderColor(msg.sender_id)
-                      return (
-                        <div key={msg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[80%] rounded border px-2 py-1.5 text-sm ${tone} ${mine ? 'ring-1 ring-primary/40' : ''}`}>
-                            {chatMode === 'global' && (
-                              <p className="mb-1 text-[10px] text-muted-foreground">
-                                {msg.sender_name} · {formatTime(msg.created_at)}
-                              </p>
-                            )}
-                            <p className="whitespace-pre-wrap break-words">{msg.body}</p>
-                            {!!msg.attachments?.length && (
-                              <div className="mt-1 space-y-1">
-                                {msg.attachments.map((att) => (
-                                  <a
-                                    key={att.id}
-                                    href={att.download_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="block text-[11px] underline text-foreground"
-                                  >
-                                    📎 {att.filename}
-                                  </a>
-                                ))}
-                              </div>
-                            )}
-                            <p className="mt-1 text-[10px] text-muted-foreground">
-                              {formatTime(msg.created_at)}
-                            </p>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-              <div className="flex items-end gap-2">
-                <Input
-                  placeholder={chatMode === 'global' ? 'Написать в общий чат...' : `Сообщение для ${chatPeer?.name ?? 'коллеги'}...`}
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      void sendChatMessage()
-                    }
-                  }}
-                />
-                <input
-                  ref={chatFileRef}
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => setChatFile(e.target.files?.[0] ?? null)}
-                />
-                <Button type="button" variant="outline" onClick={() => chatFileRef.current?.click()}>
-                  <Paperclip className="h-4 w-4" />
-                </Button>
-                <Button onClick={() => void sendChatMessage()} disabled={chatSending || (!chatInput.trim() && !chatFile)}>
-                  <MessageSquare className="mr-1 h-4 w-4" />
-                  Отправить
-                </Button>
-              </div>
-              {chatFile && (
-                <p className="text-xs text-muted-foreground">Вложение: {chatFile.name}</p>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
         <main className="flex-1 bg-muted/30">{children}</main>
       </div>
     </div>
@@ -784,6 +620,16 @@ export function App() {
           <AuthGuard>
             <AppLayout>
               <TeamStorage />
+            </AppLayout>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/chat"
+        element={
+          <AuthGuard>
+            <AppLayout>
+              <Chat />
             </AppLayout>
           </AuthGuard>
         }
