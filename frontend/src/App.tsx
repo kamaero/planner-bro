@@ -260,7 +260,16 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           : ''
       return `${formatTime(item.created_at)} [${item.level}] ${item.category}/${item.source} :: ${item.message}${details}`
     })
-    .join('\n')
+    .join('\n────────────────────────────────────────\n')
+
+  const renderActivityDetails = (details?: Record<string, unknown> | null) => {
+    if (!details || Object.keys(details).length === 0) return ''
+    try {
+      return JSON.stringify(details, null, 2)
+    } catch {
+      return String(details)
+    }
+  }
 
   const copyActivityLog = async () => {
     if (!activityLogText.trim()) return
@@ -549,9 +558,27 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               {smtpProbeMessage && (
                 <p className="text-xs text-muted-foreground">{smtpProbeMessage}</p>
               )}
-              <pre className="max-h-[60vh] overflow-auto rounded-md border bg-background px-3 py-3 text-xs leading-relaxed whitespace-pre-wrap break-words">
-                {activityLogText || '[idle] Нет системных событий за последние 24 часа'}
-              </pre>
+              <div className="max-h-[60vh] space-y-2 overflow-auto rounded-md border bg-background p-2">
+                {activityFeed.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">[idle] Нет системных событий за последние 24 часа</p>
+                ) : (
+                  activityFeed.map((item) => (
+                    <div key={item.id} className="rounded-md border bg-card px-3 py-2">
+                      <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                        <span className="text-muted-foreground">{formatTime(item.created_at)}</span>
+                        <span className={levelTone[item.level] ?? 'text-muted-foreground'}>[{item.level}]</span>
+                        <span className="text-muted-foreground">{item.category}/{item.source}</span>
+                      </div>
+                      <p className="text-xs leading-relaxed">{item.message}</p>
+                      {item.details && Object.keys(item.details).length > 0 && (
+                        <pre className="mt-2 overflow-auto rounded border bg-muted/30 px-2 py-1.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+                          {renderActivityDetails(item.details)}
+                        </pre>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </DialogContent>
         </Dialog>

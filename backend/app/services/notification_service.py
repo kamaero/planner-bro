@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -73,20 +73,43 @@ async def _record_email_dispatch(
             payload=payload or None,
         )
     )
-    await log_system_activity(
-        db,
-        source="smtp",
-        category="email",
-        level="error" if status == "failed" else ("warning" if status == "skipped" else "info"),
-        message=f"{source}: {subject}",
-        details={
-            "status": status,
-            "recipient": recipient,
-            "error_text": error_text,
-            "payload": payload or {},
-        },
-        commit=False,
-    )
+    # Keep system activity monitor focused on real incidents.
+    if status == "failed":
+        await log_system_activity(
+            db,
+            source="smtp",
+            category="email",
+            level="error",
+            message=f"{source}: {subject}",
+            details={
+                "status": status,
+                "recipient": recipient,
+                "error_text": error_text,
+                "payload": payload or {},
+            },
+            commit=False,
+        )
+
+
+async def _was_task_assigned_email_sent_recently(
+    db: AsyncSession,
+    recipient: str,
+    task_id: str,
+    window_minutes: int = 30,
+) -> bool:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max(1, window_minutes))
+    existing = (
+        await db.execute(
+            select(EmailDispatchLog.id).where(
+                EmailDispatchLog.source == "task_assigned",
+                EmailDispatchLog.status == "sent",
+                EmailDispatchLog.recipient == recipient,
+                EmailDispatchLog.created_at >= cutoff,
+                EmailDispatchLog.payload["task_id"].astext == task_id,
+            )
+        )
+    ).scalar_one_or_none()
+    return existing is not None
 
 
 async def _send_email_to_recipients(
@@ -274,6 +297,8 @@ async def notify_task_assigned(db: AsyncSession, task: Task, assignee_id: str):
     if assignee:
         email = _preferred_email(assignee, datetime.now(timezone.utc))
         if email:
+            if await _was_task_assigned_email_sent_recently(db, email, task.id):
+                return
             _send_email_to_recipients_background(
                 [email],
                 title,
