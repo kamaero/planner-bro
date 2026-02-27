@@ -623,7 +623,7 @@ export function Dashboard() {
                     'block rounded border px-2 py-1.5 text-xs transition-colors',
                     (() => {
                       const d = daysUntil(task.end_date)
-                      if (d !== null && d >= 5 && d <= 7) {
+                      if (d !== null && d >= 0 && d <= 7) {
                         return 'border-red-400 bg-red-50/80 shadow-[0_0_10px_rgba(239,68,68,0.35)] animate-pulse'
                       }
                       if (d !== null && d >= 10 && d <= 14) {
