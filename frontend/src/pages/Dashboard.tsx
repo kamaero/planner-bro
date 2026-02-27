@@ -580,7 +580,7 @@ export function Dashboard() {
             ))}
           </div>
 
-          <div className="max-h-[500px] space-y-1.5 overflow-auto pr-1">
+          <div className="max-h-[590px] space-y-1.5 overflow-auto pr-1">
             {projectsForSelectedTab.length === 0 && <p className="text-sm text-muted-foreground">Проектов не найдено.</p>}
             {projectsForSelectedTab.map((project) => (
               <div
