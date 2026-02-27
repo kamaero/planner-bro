@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useCreateProject, useCreateTask, useDepartmentDashboard, useProjects, useAllTasks, useEscalations, useUpdateProject } from '@/hooks/useProjects'
 import { api } from '@/api/client'
-import { Plus, FolderOpen, Clock, AlertTriangle, CheckCircle2, Building2, Users2 } from 'lucide-react'
+import { Plus, Building2, Users2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -60,18 +60,6 @@ function SectionCard({ title, action, children, className }: { title: string; ac
   )
 }
 
-function MetricCard({ label, value, icon, tone }: { label: string; value: number; icon: React.ReactNode; tone: string }) {
-  return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <div className={cn('rounded-lg p-2', tone)}>{icon}</div>
-      </div>
-      <p className="text-2xl font-semibold tabular-nums">{value}</p>
-    </div>
-  )
-}
-
 function formatDate(value?: string) {
   if (!value) return '—'
   return new Date(value).toLocaleDateString('ru')
@@ -113,6 +101,7 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 export function Dashboard() {
+  const URGENT_INBOX_PROJECT_NAME = 'Срочные задачи (вне проектов)'
   const { data: projects = [], isLoading: projectsLoading } = useProjects()
   const { tasks, isLoading: tasksLoading } = useAllTasks()
   const { data: escalations = [] } = useEscalations()
@@ -149,7 +138,6 @@ export function Dashboard() {
     department_ids: [] as string[],
   })
   const [urgentForm, setUrgentForm] = useState({
-    project_id: '',
     title: '',
     description: '',
     assignee_id: '',
@@ -180,11 +168,6 @@ export function Dashboard() {
     const exists = departmentTabs.some((dep) => dep.department_id === selectedDepartmentTab)
     if (!exists) setSelectedDepartmentTab('all')
   }, [departmentTabs, selectedDepartmentTab])
-
-  useEffect(() => {
-    if (urgentForm.project_id || projects.length === 0) return
-    setUrgentForm((prev) => ({ ...prev, project_id: projects[0].id }))
-  }, [projects, urgentForm.project_id])
 
   useEffect(() => {
     try {
@@ -242,20 +225,6 @@ export function Dashboard() {
       return hay.includes(q)
     })
   }, [projects, departmentTabs, selectedDepartmentTab, projectSearch, onlyMine, myProjectIds])
-
-  const activeProjects = useMemo(
-    () => projects.filter((p) => p.status !== 'completed' && (!p.end_date || p.end_date >= today)).length,
-    [projects, today]
-  )
-  const inProgressProjects = useMemo(
-    () => projects.filter((p) => tasks.some((t) => t.project_id === p.id && (t.status === 'in_progress' || t.status === 'testing' || t.status === 'review'))).length,
-    [projects, tasks]
-  )
-  const overdueProjects = useMemo(
-    () => projects.filter((p) => p.status !== 'completed' && !!p.end_date && p.end_date < today).length,
-    [projects, today]
-  )
-  const doneProjects = useMemo(() => projects.filter((p) => p.status === 'completed').length, [projects])
 
   const weekSignals = useMemo(() => {
     const created = tasks.filter((t) => t.created_at >= sevenDaysAgo).length
@@ -384,9 +353,20 @@ export function Dashboard() {
 
   const handleCreateUrgentTask = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!urgentForm.project_id || !urgentForm.title.trim()) return
+    if (!urgentForm.title.trim()) return
+    let targetProject = projects.find((p) => p.name === URGENT_INBOX_PROJECT_NAME)
+    if (!targetProject) {
+      targetProject = await createProject.mutateAsync({
+        name: URGENT_INBOX_PROJECT_NAME,
+        description: 'Служебный inbox для срочных задач без привязки к рабочим проектам.',
+        color: '#ef4444',
+        status: 'active',
+        priority: 'high',
+      })
+    }
+    if (!targetProject?.id) return
     await createTask.mutateAsync({
-      projectId: urgentForm.project_id,
+      projectId: targetProject.id,
       data: {
         title: urgentForm.title.trim(),
         description: urgentForm.description.trim() || undefined,
@@ -556,13 +536,6 @@ export function Dashboard() {
             </form>
           </DialogContent>
         </Dialog>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard label="Активные" value={activeProjects} icon={<FolderOpen className="h-4 w-4 text-blue-600" />} tone="bg-blue-50" />
-        <MetricCard label="В работе" value={inProgressProjects} icon={<Clock className="h-4 w-4 text-indigo-600" />} tone="bg-indigo-50" />
-        <MetricCard label="Просрочено" value={overdueProjects} icon={<AlertTriangle className="h-4 w-4 text-red-600" />} tone="bg-red-50" />
-        <MetricCard label="Завершено" value={doneProjects} icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} tone="bg-emerald-50" />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,6fr)_minmax(0,3fr)_minmax(0,2fr)_minmax(0,3fr)]">
@@ -764,17 +737,6 @@ export function Dashboard() {
 
         <SectionCard title="Срочные задачи" className="xl:col-span-1">
           <form className="space-y-2" onSubmit={handleCreateUrgentTask}>
-            <select
-              value={urgentForm.project_id}
-              onChange={(e) => setUrgentForm((f) => ({ ...f, project_id: e.target.value }))}
-              className="w-full rounded border bg-background px-2 py-1.5 text-xs"
-              required
-            >
-              <option value="">Проект</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>{project.name}</option>
-              ))}
-            </select>
             <Input
               value={urgentForm.title}
               onChange={(e) => setUrgentForm((f) => ({ ...f, title: e.target.value }))}
@@ -815,6 +777,7 @@ export function Dashboard() {
               Контроль СКИ
             </label>
             <p className="text-[11px] text-muted-foreground">По умолчанию: приоритет Высокий</p>
+            <p className="text-[11px] text-muted-foreground">Создаются в отдельном inbox «Срочные задачи (вне проектов)»</p>
             <Button type="submit" className="w-full" size="sm" disabled={createTask.isPending}>
               {createTask.isPending ? 'Создание...' : 'Добавить срочную задачу'}
             </Button>
