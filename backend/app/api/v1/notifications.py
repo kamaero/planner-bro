@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
@@ -72,12 +74,18 @@ async def mark_all_read(
 
 @router.get("/notifications/activity/email", response_model=list[EmailDispatchLogOut])
 async def list_email_activity(
+    hours: int = Query(default=24, ge=1, le=168),
+    limit: int = Query(default=500, ge=1, le=2000),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     _ = current_user  # authenticated access only
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     result = await db.execute(
-        select(EmailDispatchLog).order_by(EmailDispatchLog.created_at.desc()).limit(100)
+        select(EmailDispatchLog)
+        .where(EmailDispatchLog.created_at >= cutoff)
+        .order_by(EmailDispatchLog.created_at.desc())
+        .limit(limit)
     )
     rows = result.scalars().all()
     return [

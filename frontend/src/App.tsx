@@ -13,6 +13,7 @@ import { TeamStorage } from '@/pages/TeamStorage'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useQuery } from '@tanstack/react-query'
 import type { EmailDispatchLog, User } from '@/types'
@@ -26,6 +27,7 @@ import {
   Moon,
   Sun,
   LogOut,
+  Copy,
 } from 'lucide-react'
 
 function ThemeToggle() {
@@ -53,6 +55,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchQuery, setSearchQuery] = useState('')
+  const [activityDialogOpen, setActivityDialogOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [searchData, setSearchData] = useState<{
     projects: Array<{ id: string; name: string; status: string }>
     tasks: Array<{ id: string; title: string; project_id: string; status: string }>
@@ -72,7 +76,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   })
   const { data: activityFeed = [] } = useQuery<EmailDispatchLog[]>({
     queryKey: ['email-dispatch-logs'],
-    queryFn: api.listEmailDispatchLogs,
+    queryFn: () => api.listEmailDispatchLogs({ hours: 24, limit: 1000 }),
     refetchInterval: 20_000,
   })
 
@@ -122,13 +126,37 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
 
   const recentActivity = activityFeed.slice(0, 6)
-  const formatSidebarTime = (iso: string) =>
+  const formatTime = (iso: string) =>
     new Intl.DateTimeFormat('ru-RU', {
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
     }).format(new Date(iso))
+
+  const headerActivity = recentActivity.slice(0, 2)
+  const statusTone: Record<EmailDispatchLog['status'], string> = {
+    sent: 'text-emerald-600',
+    failed: 'text-red-600',
+    skipped: 'text-amber-600',
+  }
+  const activityLogText = activityFeed
+    .map((item) => {
+      const base = `${formatTime(item.created_at)} [${item.status}] ${item.source} -> ${item.recipient_masked} :: ${item.subject}`
+      return item.error_text ? `${base} :: ${item.error_text}` : base
+    })
+    .join('\n')
+
+  const copyActivityLog = async () => {
+    if (!activityLogText.trim()) return
+    try {
+      await navigator.clipboard.writeText(activityLogText)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // ignore clipboard errors
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -161,7 +189,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             )
           })}
         </nav>
-        <div className="mt-auto border-t">
+        <div className="mt-4 border-t flex-1 min-h-0 flex flex-col">
           <div className="px-4 py-4 flex items-center gap-3 border-b">
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{user?.name}</p>
@@ -171,7 +199,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               <LogOut className="w-4 h-4" />
             </Button>
           </div>
-          <div className="px-4 py-3 space-y-4 max-h-[42vh] overflow-y-auto">
+          <div className="px-4 py-3 space-y-4 flex-1 overflow-y-auto">
             <section>
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
                 Команда · {teamList.length} · Онлайн {onlineUsers.length}
@@ -191,41 +219,44 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
             </section>
 
-            <section>
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
-                Активность системы
-              </p>
-              {recentActivity.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Пока нет событий.</p>
-              ) : (
-                <div className="space-y-2">
-                  {recentActivity.map((item) => (
-                    <div key={item.id} className="rounded-md border px-2 py-1.5 bg-background/80">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-medium truncate">{item.subject}</p>
-                        <span className="text-[10px] text-muted-foreground shrink-0">
-                          {formatSidebarTime(item.created_at)}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground line-clamp-2">
-                        [{item.status}] {item.source} • {item.recipient_masked}
-                        {item.error_text ? ` • ${item.error_text}` : ''}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
           </div>
         </div>
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="border-b bg-card px-6 py-4 flex items-center justify-between">
-          <div>
+        <header className="border-b bg-card px-6 py-4 flex items-center gap-4">
+          <div className="shrink-0">
             <p className="text-xs uppercase tracking-widest text-muted-foreground">ИТ проекты</p>
             <h1 className="text-lg font-semibold">Панель управления</h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="hidden xl:block min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => setActivityDialogOpen(true)}
+              className="w-full text-left rounded-md border bg-background/80 px-3 py-2 font-mono hover:bg-accent/40 transition-colors"
+            >
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Активность системы</p>
+              {headerActivity.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">[idle] Нет новых событий SMTP</p>
+              ) : (
+                <div className="space-y-1">
+                  {headerActivity.map((item) => (
+                    <p key={item.id} className="text-[11px] leading-snug truncate">
+                      <span className="text-muted-foreground">{formatTime(item.created_at)}</span>
+                      {'  '}
+                      <span className={statusTone[item.status]}>[{item.status}]</span>
+                      {'  '}
+                      <span className="text-muted-foreground">{item.source}</span>
+                      {' -> '}
+                      <span className="text-foreground">{item.recipient_masked}</span>
+                      {' :: '}
+                      <span className="text-muted-foreground">{item.subject}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
+            </button>
+          </div>
+          <div className="flex items-center gap-3 ml-auto">
             <div className="hidden lg:block w-96 relative">
               <Input
                 placeholder="Глобальный поиск: проекты, задачи, люди"
@@ -292,6 +323,27 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             <NotificationBell />
           </div>
         </header>
+        <Dialog open={activityDialogOpen} onOpenChange={setActivityDialogOpen}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Активность системы (SMTP, последние 24 часа)</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">
+                  Событий: {activityFeed.length}
+                </p>
+                <Button type="button" variant="outline" size="sm" onClick={copyActivityLog}>
+                  <Copy className="w-4 h-4 mr-1" />
+                  {copied ? 'Скопировано' : 'Скопировать лог'}
+                </Button>
+              </div>
+              <pre className="max-h-[60vh] overflow-auto rounded-md border bg-background px-3 py-3 text-xs leading-relaxed whitespace-pre-wrap break-words">
+                {activityLogText || '[idle] Нет событий SMTP за последние 24 часа'}
+              </pre>
+            </div>
+          </DialogContent>
+        </Dialog>
         <main className="flex-1 bg-muted/30">{children}</main>
       </div>
     </div>
