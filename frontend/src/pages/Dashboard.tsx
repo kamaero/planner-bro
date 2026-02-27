@@ -98,18 +98,18 @@ function daysUntil(dateValue?: string): number | null {
 
 function deadlinePulseClass(days: number | null): string {
   if (days === null) return ''
-  if (days >= 0 && days <= 7) return 'border-red-400 bg-red-50/80 shadow-[0_0_10px_rgba(239,68,68,0.35)] animate-pulse'
-  if (days >= 10 && days <= 14) return 'border-orange-400 bg-orange-50/80 shadow-[0_0_12px_rgba(249,115,22,0.42)] animate-pulse'
-  if (days > 14 && days <= 20) return 'border-emerald-400 bg-emerald-50/80 shadow-[0_0_12px_rgba(16,185,129,0.38)] animate-pulse'
+  if (days >= 0 && days <= 7) return 'border-red-400 shadow-[0_0_10px_rgba(239,68,68,0.35)] animate-pulse'
+  if (days >= 10 && days <= 14) return 'border-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.42)] animate-pulse'
+  if (days > 14 && days <= 20) return 'border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.38)] animate-pulse'
   return ''
 }
 
 function myTaskUrgencyClass(days: number | null): string {
   if (days === null) return 'hover:bg-accent'
-  if (days < 0) return 'border-red-600 bg-red-100/90 shadow-[0_0_14px_rgba(220,38,38,0.55)] animate-pulse'
-  if (days <= 1) return 'border-red-500 bg-red-50/90 shadow-[0_0_12px_rgba(239,68,68,0.5)] animate-pulse'
-  if (days <= 3) return 'border-red-400 bg-red-50/80 shadow-[0_0_10px_rgba(248,113,113,0.42)] animate-pulse'
-  if (days <= 7) return 'border-orange-400 bg-orange-50/75 shadow-[0_0_10px_rgba(249,115,22,0.35)]'
+  if (days < 0) return 'border-red-600 shadow-[0_0_14px_rgba(220,38,38,0.55)] animate-pulse'
+  if (days <= 1) return 'border-red-500 shadow-[0_0_12px_rgba(239,68,68,0.5)] animate-pulse'
+  if (days <= 3) return 'border-red-400 shadow-[0_0_10px_rgba(248,113,113,0.42)] animate-pulse'
+  if (days <= 7) return 'border-orange-400 shadow-[0_0_10px_rgba(249,115,22,0.35)]'
   return 'hover:bg-accent'
 }
 
