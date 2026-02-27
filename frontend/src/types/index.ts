@@ -123,10 +123,26 @@ export interface ChatMessage {
   id: string
   room_type: 'global' | 'direct'
   sender_id: string
+  sender_name: string
   recipient_id?: string | null
   body: string
+  attachments?: ChatAttachment[]
   read_at?: string | null
   created_at: string
+}
+
+export interface ChatAttachment {
+  id: string
+  filename: string
+  content_type?: string | null
+  size: number
+  created_at: string
+  download_url: string
+}
+
+export interface ChatUnreadSummary {
+  global_unread_count: number
+  direct: Array<{ user_id: string; unread_count: number }>
 }
 
 export interface EmailDispatchLog {

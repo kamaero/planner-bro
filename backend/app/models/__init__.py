@@ -7,7 +7,7 @@ from app.models.email_dispatch_log import EmailDispatchLog
 from app.models.system_activity_log import SystemActivityLog
 from app.models.ai import AIIngestionJob, AITaskDraft
 from app.models.deadline_change import DeadlineChange
-from app.models.chat import ChatMessage
+from app.models.chat import ChatMessage, ChatAttachment, ChatReadCursor
 
 __all__ = [
     "User",
@@ -28,4 +28,6 @@ __all__ = [
     "AITaskDraft",
     "DeadlineChange",
     "ChatMessage",
+    "ChatAttachment",
+    "ChatReadCursor",
 ]

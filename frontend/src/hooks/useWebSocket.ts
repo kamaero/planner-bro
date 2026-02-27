@@ -45,6 +45,7 @@ export function useWebSocket() {
           case WS_EVENTS.CHAT_MESSAGE:
             qc.invalidateQueries({ queryKey: ['chat', 'global'] })
             qc.invalidateQueries({ queryKey: ['chat', 'direct'] })
+            qc.invalidateQueries({ queryKey: ['chat', 'unread'] })
             break
         }
       } catch {

@@ -252,8 +252,21 @@ export const api = {
     apiClient.get('/chat/global/messages', { params }).then((r) => r.data),
   listDirectChatMessages: (peerId: string, params?: { limit?: number }) =>
     apiClient.get(`/chat/direct/${peerId}/messages`, { params }).then((r) => r.data),
+  getChatUnreadSummary: () => apiClient.get('/chat/unread-summary').then((r) => r.data),
   sendChatMessage: (data: { room_type: 'global' | 'direct'; recipient_id?: string; body: string }) =>
     apiClient.post('/chat/messages', data).then((r) => r.data),
+  sendChatMessageWithFile: (data: { room_type: 'global' | 'direct'; recipient_id?: string; body?: string; file: File }) => {
+    const form = new FormData()
+    form.append('room_type', data.room_type)
+    if (data.recipient_id) form.append('recipient_id', data.recipient_id)
+    if (data.body) form.append('body', data.body)
+    form.append('upload', data.file)
+    return apiClient
+      .post('/chat/messages/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  },
 
   // Devices
   registerDevice: (token: string, platform: string) =>
