@@ -868,9 +868,12 @@ export function Dashboard() {
             </Button>
           }
         >
-          <div className="min-h-[180px] rounded-lg border border-dashed bg-muted/30 p-3">
-            <p className="text-sm leading-relaxed">“{wisdomQuote}”</p>
-            <p className="mt-3 text-xs text-muted-foreground">Обновляется ежедневно + вручную кнопкой.</p>
+          <div className="h-64 overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]">
+            <div className="space-y-1">
+              <p>[{new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}] [wisdom_bot] quote_loaded</p>
+              <p className="whitespace-pre-wrap">“{wisdomQuote}”</p>
+              <p className="text-emerald-500/80">[info] Обновляется ежедневно + вручную кнопкой.</p>
+            </div>
           </div>
         </SectionCard>
 
