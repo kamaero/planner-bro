@@ -50,7 +50,7 @@ const TASK_STATUS_LABEL: Record<string, string> = {
 
 function SectionCard({ title, action, children, className }: { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn('rounded-xl border bg-card p-4', className)}>
+    <div className={cn('h-full rounded-xl border bg-card p-4', className)}>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{title}</h2>
         {action}
@@ -566,10 +566,10 @@ export function Dashboard() {
         </Dialog>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,6fr)_minmax(0,3fr)_minmax(0,2fr)_minmax(0,3fr)]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         <SectionCard
           title="ИТ проекты по отделам"
-          className="xl:col-span-1"
+          className="xl:col-span-5"
           action={
             <Input value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} placeholder="Поиск проекта" className="h-8 w-48 text-xs" />
           }
@@ -672,7 +672,7 @@ export function Dashboard() {
           )}
         </SectionCard>
 
-        <SectionCard title="Статусы и дедлайны" className="xl:col-span-1">
+        <SectionCard title="Статусы и дедлайны" className="xl:col-span-3">
           <div className="space-y-3">
             {Object.entries(statusStats).map(([key, value]) => (
               <div key={key}>
@@ -714,7 +714,7 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Сигналы контроля" className="xl:col-span-1">
+        <SectionCard title="Сигналы контроля" className="xl:col-span-2">
           <div className="grid grid-cols-2 gap-2 text-center">
             <div className="rounded border p-2">
               <p className="text-[11px] text-muted-foreground">Создано 7д</p>
@@ -763,7 +763,7 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Срочные задачи" className="xl:col-span-1">
+        <SectionCard title="Срочные задачи" className="xl:col-span-2">
           <form className="space-y-2" onSubmit={handleCreateUrgentTask}>
             <Input
               value={urgentForm.title}
@@ -813,8 +813,8 @@ export function Dashboard() {
         </SectionCard>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-        <SectionCard title="Последние обновленные задачи" className="xl:col-span-2" action={<Users2 className="h-4 w-4 text-muted-foreground" />}>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        <SectionCard title="Последние обновленные задачи" className="xl:col-span-8" action={<Users2 className="h-4 w-4 text-muted-foreground" />}>
           <div className="max-h-64 space-y-1 overflow-auto">
             {recentTasks.map((task: Task) => (
               <Link key={task.id} to={`/projects/${task.project_id}`} className="flex items-center justify-between rounded px-2 py-1.5 text-sm hover:bg-accent">
@@ -825,7 +825,7 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Мои задачи" className="xl:col-span-1">
+        <SectionCard title="Мои задачи" className="xl:col-span-2">
           <div className="max-h-64 space-y-2 overflow-auto">
             {myUrgentTasks.length === 0 && <p className="text-sm text-muted-foreground">Личных задач нет.</p>}
             {myUrgentTasks.map((task) => {
@@ -849,7 +849,7 @@ export function Dashboard() {
 
         <SectionCard
           title="Эскалации"
-          className={cn('xl:col-span-1', escalationPulse && 'border-red-500/90 shadow-[0_0_18px_rgba(239,68,68,0.55)] animate-pulse')}
+          className={cn('xl:col-span-2', escalationPulse && 'border-red-500/90 shadow-[0_0_18px_rgba(239,68,68,0.55)] animate-pulse')}
           action={
             <div className="flex items-center gap-2">
               {escalations.length > 0 && (
