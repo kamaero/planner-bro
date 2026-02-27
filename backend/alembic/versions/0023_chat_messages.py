@@ -7,6 +7,7 @@ Create Date: 2026-02-27
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = "0023_chat_messages"
@@ -25,7 +26,11 @@ def upgrade() -> None:
         "chat_messages",
         sa.Column("id", sa.String(), nullable=False),
         sa.Column("sender_id", sa.String(), nullable=False),
-        sa.Column("room_type", sa.Enum("global", "direct", name="chat_room_type"), nullable=False),
+        sa.Column(
+            "room_type",
+            postgresql.ENUM("global", "direct", name="chat_room_type", create_type=False),
+            nullable=False,
+        ),
         sa.Column("recipient_id", sa.String(), nullable=True),
         sa.Column("body", sa.String(length=2000), nullable=False),
         sa.Column("read_at", sa.DateTime(timezone=True), nullable=True),
@@ -47,4 +52,3 @@ def downgrade() -> None:
     op.drop_index("ix_chat_messages_sender_id", table_name="chat_messages")
     op.drop_table("chat_messages")
     op.execute("DROP TYPE IF EXISTS chat_room_type")
-
