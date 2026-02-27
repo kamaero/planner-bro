@@ -119,6 +119,16 @@ export interface Notification {
   created_at: string
 }
 
+export interface ChatMessage {
+  id: string
+  room_type: 'global' | 'direct'
+  sender_id: string
+  recipient_id?: string | null
+  body: string
+  read_at?: string | null
+  created_at: string
+}
+
 export interface EmailDispatchLog {
   id: string
   recipient: string

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useThemeStore } from '@/store/themeStore'
@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useQuery } from '@tanstack/react-query'
-import type { SystemActivityLog, User } from '@/types'
+import type { ChatMessage, SystemActivityLog, User } from '@/types'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -28,6 +28,7 @@ import {
   Sun,
   LogOut,
   Copy,
+  MessageSquare,
 } from 'lucide-react'
 
 function ThemeToggle() {
@@ -56,6 +57,11 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const [searchQuery, setSearchQuery] = useState('')
   const [activityDialogOpen, setActivityDialogOpen] = useState(false)
+  const [chatDialogOpen, setChatDialogOpen] = useState(false)
+  const [chatMode, setChatMode] = useState<'global' | 'direct'>('global')
+  const [chatPeer, setChatPeer] = useState<User | null>(null)
+  const [chatInput, setChatInput] = useState('')
+  const [chatSending, setChatSending] = useState(false)
   const [copied, setCopied] = useState(false)
   const [smtpProbePending, setSmtpProbePending] = useState(false)
   const [smtpProbeMessage, setSmtpProbeMessage] = useState<string>('')
@@ -81,6 +87,18 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     queryKey: ['system-activity-logs'],
     queryFn: () => api.listSystemActivityLogs({ hours: 24, limit: 2000 }),
     refetchInterval: 20_000,
+  })
+  const { data: globalChat = [], refetch: refetchGlobalChat } = useQuery<ChatMessage[]>({
+    queryKey: ['chat', 'global'],
+    queryFn: () => api.listGlobalChatMessages({ limit: 200 }),
+    enabled: chatDialogOpen && chatMode === 'global',
+    refetchInterval: chatDialogOpen && chatMode === 'global' ? 10_000 : false,
+  })
+  const { data: directChat = [], refetch: refetchDirectChat } = useQuery<ChatMessage[]>({
+    queryKey: ['chat', 'direct', chatPeer?.id],
+    queryFn: () => api.listDirectChatMessages(chatPeer!.id, { limit: 200 }),
+    enabled: chatDialogOpen && chatMode === 'direct' && !!chatPeer?.id,
+    refetchInterval: chatDialogOpen && chatMode === 'direct' && !!chatPeer?.id ? 10_000 : false,
   })
 
   const handleLogout = async () => {
@@ -182,6 +200,11 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const teamList = [...teamUsers]
     .filter((u) => u.is_active !== false)
     .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+  const teamChatList = teamList.filter((u) => u.id !== user?.id)
+  const chatMessages = useMemo(
+    () => (chatMode === 'global' ? globalChat : directChat),
+    [chatMode, globalChat, directChat]
+  )
 
   const recentActivity = activityFeed.slice(0, 6)
   const formatTime = (iso: string) =>
@@ -234,6 +257,42 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const openGlobalChat = () => {
+    setChatMode('global')
+    setChatPeer(null)
+    setChatDialogOpen(true)
+  }
+
+  const openDirectChat = (member: User) => {
+    setChatMode('direct')
+    setChatPeer(member)
+    setChatDialogOpen(true)
+  }
+
+  const sendChatMessage = async () => {
+    const body = chatInput.trim()
+    if (!body || chatSending) return
+    if (chatMode === 'direct' && !chatPeer?.id) return
+    setChatSending(true)
+    try {
+      await api.sendChatMessage(
+        chatMode === 'global'
+          ? { room_type: 'global', body }
+          : { room_type: 'direct', recipient_id: chatPeer!.id, body }
+      )
+      setChatInput('')
+      if (chatMode === 'global') {
+        await refetchGlobalChat()
+      } else {
+        await refetchDirectChat()
+      }
+    } catch {
+      // ignore send error here; user can retry
+    } finally {
+      setChatSending(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background flex">
       <aside className="w-64 border-r bg-card/60 flex flex-col h-screen sticky top-0">
@@ -277,19 +336,33 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="px-4 py-3 space-y-4 flex-1 overflow-y-auto">
             <section>
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
-                Команда · {teamList.length} · Онлайн {onlineUsers.length}
-              </p>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Команда · {teamList.length} · Онлайн {onlineUsers.length}
+                </p>
+                <button
+                  type="button"
+                  className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent"
+                  onClick={openGlobalChat}
+                >
+                  Общий чат
+                </button>
+              </div>
               <div className="space-y-1.5">
-                {teamList.map((member) => {
+                {teamChatList.map((member) => {
                   const isOnline = onlineUserIds.has(member.id)
                   return (
-                    <div key={member.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <button
+                      key={member.id}
+                      type="button"
+                      onClick={() => openDirectChat(member)}
+                      className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-sm text-muted-foreground hover:bg-accent"
+                    >
                       <span
                         className={`w-2 h-2 rounded-full shrink-0 ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}
                       />
                       <span className="truncate">{member.name}</span>
-                    </div>
+                    </button>
                   )
                 })}
               </div>
@@ -425,6 +498,55 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               <pre className="max-h-[60vh] overflow-auto rounded-md border bg-background px-3 py-3 text-xs leading-relaxed whitespace-pre-wrap break-words">
                 {activityLogText || '[idle] Нет системных событий за последние 24 часа'}
               </pre>
+            </div>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={chatDialogOpen} onOpenChange={setChatDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>
+                {chatMode === 'global' ? 'Общий чат команды' : `Личный чат: ${chatPeer?.name ?? '—'}`}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="max-h-[52vh] min-h-[40vh] overflow-auto rounded border bg-background p-3">
+                {chatMessages.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Сообщений пока нет.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {chatMessages.map((msg) => {
+                      const mine = msg.sender_id === user?.id
+                      return (
+                        <div key={msg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[80%] rounded px-2 py-1.5 text-sm ${mine ? 'bg-primary text-primary-foreground' : 'bg-accent'}`}>
+                            <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+                            <p className={`mt-1 text-[10px] ${mine ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                              {formatTime(msg.created_at)}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-end gap-2">
+                <Input
+                  placeholder={chatMode === 'global' ? 'Написать в общий чат...' : `Сообщение для ${chatPeer?.name ?? 'коллеги'}...`}
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      void sendChatMessage()
+                    }
+                  }}
+                />
+                <Button onClick={() => void sendChatMessage()} disabled={chatSending || !chatInput.trim()}>
+                  <MessageSquare className="mr-1 h-4 w-4" />
+                  Отправить
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>

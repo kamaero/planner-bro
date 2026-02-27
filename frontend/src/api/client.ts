@@ -248,6 +248,12 @@ export const api = {
   }) => apiClient.post('/notifications/activity/client-error', data).then((r) => r.data),
   markRead: (id: string) => apiClient.patch(`/notifications/${id}/read`).then((r) => r.data),
   markAllRead: () => apiClient.post('/notifications/read-all').then((r) => r.data),
+  listGlobalChatMessages: (params?: { limit?: number }) =>
+    apiClient.get('/chat/global/messages', { params }).then((r) => r.data),
+  listDirectChatMessages: (peerId: string, params?: { limit?: number }) =>
+    apiClient.get(`/chat/direct/${peerId}/messages`, { params }).then((r) => r.data),
+  sendChatMessage: (data: { room_type: 'global' | 'direct'; recipient_id?: string; body: string }) =>
+    apiClient.post('/chat/messages', data).then((r) => r.data),
 
   // Devices
   registerDevice: (token: string, platform: string) =>

@@ -42,6 +42,10 @@ export function useWebSocket() {
             qc.invalidateQueries({ queryKey: ['ai-jobs'] })
             qc.invalidateQueries({ queryKey: ['ai-drafts'] })
             break
+          case WS_EVENTS.CHAT_MESSAGE:
+            qc.invalidateQueries({ queryKey: ['chat', 'global'] })
+            qc.invalidateQueries({ queryKey: ['chat', 'direct'] })
+            break
         }
       } catch {
         // ignore parse errors
