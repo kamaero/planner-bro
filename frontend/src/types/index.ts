@@ -131,6 +131,16 @@ export interface EmailDispatchLog {
   created_at: string
 }
 
+export interface SystemActivityLog {
+  id: string
+  source: string
+  category: string
+  level: 'info' | 'warning' | 'error' | string
+  message: string
+  details?: Record<string, unknown> | null
+  created_at: string
+}
+
 export interface TokenPair {
   access_token: string
   refresh_token: string

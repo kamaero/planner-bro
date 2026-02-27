@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useThemeStore } from '@/store/themeStore'
@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useQuery } from '@tanstack/react-query'
-import type { EmailDispatchLog, User } from '@/types'
+import type { SystemActivityLog, User } from '@/types'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -57,6 +57,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [activityDialogOpen, setActivityDialogOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const clientErrorFloodGuardRef = useRef<Record<string, number>>({})
   const [searchData, setSearchData] = useState<{
     projects: Array<{ id: string; name: string; status: string }>
     tasks: Array<{ id: string; title: string; project_id: string; status: string }>
@@ -74,9 +75,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     queryFn: api.listUsers,
     refetchInterval: 60_000,
   })
-  const { data: activityFeed = [] } = useQuery<EmailDispatchLog[]>({
-    queryKey: ['email-dispatch-logs'],
-    queryFn: () => api.listEmailDispatchLogs({ hours: 24, limit: 1000 }),
+  const { data: activityFeed = [] } = useQuery<SystemActivityLog[]>({
+    queryKey: ['system-activity-logs'],
+    queryFn: () => api.listSystemActivityLogs({ hours: 24, limit: 2000 }),
     refetchInterval: 20_000,
   })
 
@@ -120,6 +121,60 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [searchQuery])
 
+  useEffect(() => {
+    const reportClientError = (payload: {
+      message: string
+      stack?: string
+      context?: Record<string, unknown>
+    }) => {
+      const key = `${payload.message}::${payload.stack ?? ''}`.slice(0, 500)
+      const now = Date.now()
+      const last = clientErrorFloodGuardRef.current[key] ?? 0
+      if (now - last < 60_000) return
+      clientErrorFloodGuardRef.current[key] = now
+      void api.reportClientError({
+        message: payload.message,
+        stack: payload.stack,
+        url: window.location.href,
+        user_agent: navigator.userAgent,
+        context: payload.context,
+      }).catch(() => {
+        // do not break UX if telemetry endpoint fails
+      })
+    }
+
+    const onWindowError = (event: ErrorEvent) => {
+      reportClientError({
+        message: event.message || 'window.error',
+        stack: event.error?.stack,
+        context: { type: 'window.error', filename: event.filename, lineno: event.lineno, colno: event.colno },
+      })
+    }
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason
+      const message =
+        typeof reason === 'string'
+          ? reason
+          : typeof reason?.message === 'string'
+            ? reason.message
+            : 'Unhandled promise rejection'
+      const stack = typeof reason?.stack === 'string' ? reason.stack : undefined
+      reportClientError({
+        message,
+        stack,
+        context: { type: 'unhandledrejection' },
+      })
+    }
+
+    window.addEventListener('error', onWindowError)
+    window.addEventListener('unhandledrejection', onUnhandledRejection)
+    return () => {
+      window.removeEventListener('error', onWindowError)
+      window.removeEventListener('unhandledrejection', onUnhandledRejection)
+    }
+  }, [])
+
   const onlineUserIds = new Set(onlineUsers.map((u) => u.id))
   const teamList = [...teamUsers]
     .filter((u) => u.is_active !== false)
@@ -135,15 +190,18 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     }).format(new Date(iso))
 
   const headerActivity = recentActivity.slice(0, 2)
-  const statusTone: Record<EmailDispatchLog['status'], string> = {
-    sent: 'text-emerald-600',
-    failed: 'text-red-600',
-    skipped: 'text-amber-600',
+  const levelTone: Record<string, string> = {
+    info: 'text-emerald-600',
+    warning: 'text-amber-600',
+    error: 'text-red-600',
   }
   const activityLogText = activityFeed
     .map((item) => {
-      const base = `${formatTime(item.created_at)} [${item.status}] ${item.source} -> ${item.recipient_masked} :: ${item.subject}`
-      return item.error_text ? `${base} :: ${item.error_text}` : base
+      const details =
+        item.details && Object.keys(item.details).length > 0
+          ? ` :: ${JSON.stringify(item.details, null, 0)}`
+          : ''
+      return `${formatTime(item.created_at)} [${item.level}] ${item.category}/${item.source} :: ${item.message}${details}`
     })
     .join('\n')
 
@@ -236,20 +294,18 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Активность системы</p>
               {headerActivity.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground">[idle] Нет новых событий SMTP</p>
+                <p className="text-[11px] text-muted-foreground">[idle] Нет новых событий</p>
               ) : (
                 <div className="space-y-1">
                   {headerActivity.map((item) => (
                     <p key={item.id} className="text-[11px] leading-snug truncate">
                       <span className="text-muted-foreground">{formatTime(item.created_at)}</span>
                       {'  '}
-                      <span className={statusTone[item.status]}>[{item.status}]</span>
+                      <span className={levelTone[item.level] ?? 'text-muted-foreground'}>[{item.level}]</span>
                       {'  '}
-                      <span className="text-muted-foreground">{item.source}</span>
-                      {' -> '}
-                      <span className="text-foreground">{item.recipient_masked}</span>
+                      <span className="text-muted-foreground">{item.category}/{item.source}</span>
                       {' :: '}
-                      <span className="text-muted-foreground">{item.subject}</span>
+                      <span className="text-muted-foreground">{item.message}</span>
                     </p>
                   ))}
                 </div>
@@ -326,7 +382,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         <Dialog open={activityDialogOpen} onOpenChange={setActivityDialogOpen}>
           <DialogContent className="max-w-4xl">
             <DialogHeader>
-              <DialogTitle>Активность системы (SMTP, последние 24 часа)</DialogTitle>
+              <DialogTitle>Активность системы (последние 24 часа)</DialogTitle>
             </DialogHeader>
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -339,7 +395,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                 </Button>
               </div>
               <pre className="max-h-[60vh] overflow-auto rounded-md border bg-background px-3 py-3 text-xs leading-relaxed whitespace-pre-wrap break-words">
-                {activityLogText || '[idle] Нет событий SMTP за последние 24 часа'}
+                {activityLogText || '[idle] Нет системных событий за последние 24 часа'}
               </pre>
             </div>
           </DialogContent>

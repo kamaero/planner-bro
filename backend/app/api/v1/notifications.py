@@ -9,7 +9,15 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.models.notification import Notification
 from app.models.email_dispatch_log import EmailDispatchLog
-from app.schemas.notification import NotificationOut, DeviceRegisterRequest, EmailDispatchLogOut
+from app.models.system_activity_log import SystemActivityLog
+from app.schemas.notification import (
+    NotificationOut,
+    DeviceRegisterRequest,
+    EmailDispatchLogOut,
+    SystemActivityLogOut,
+    ClientErrorReportIn,
+)
+from app.services.system_activity_service import log_system_activity
 
 router = APIRouter(tags=["notifications"])
 
@@ -102,6 +110,59 @@ async def list_email_activity(
         )
         for row in rows
     ]
+
+
+@router.get("/notifications/activity/system", response_model=list[SystemActivityLogOut])
+async def list_system_activity(
+    hours: int = Query(default=24, ge=1, le=168),
+    limit: int = Query(default=1000, ge=1, le=5000),
+    level: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ = current_user  # authenticated access only
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    stmt = (
+        select(SystemActivityLog)
+        .where(SystemActivityLog.created_at >= cutoff)
+        .order_by(SystemActivityLog.created_at.desc())
+        .limit(limit)
+    )
+    if level:
+        stmt = stmt.where(SystemActivityLog.level == level)
+    if category:
+        stmt = stmt.where(SystemActivityLog.category == category)
+    if source:
+        stmt = stmt.where(SystemActivityLog.source == source)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@router.post("/notifications/activity/client-error", status_code=202)
+async def report_client_error(
+    data: ClientErrorReportIn,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await log_system_activity(
+        db,
+        source="frontend",
+        category="frontend_error",
+        level="error",
+        message=data.message,
+        details={
+            "user_id": current_user.id,
+            "user_email": current_user.email,
+            "url": data.url,
+            "user_agent": data.user_agent,
+            "stack": data.stack,
+            "context": data.context or {},
+        },
+        commit=True,
+    )
+    return {"status": "accepted"}
 
 
 @router.post("/devices/register")

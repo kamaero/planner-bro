@@ -10,6 +10,7 @@ from app.models.task import Task
 from app.core.firebase import send_push_to_multiple
 from app.services.websocket_manager import ws_manager
 from app.services import events as ev
+from app.services.system_activity_service import log_system_activity
 import aiosmtplib
 from email.mime.text import MIMEText
 from app.core.config import settings
@@ -69,6 +70,20 @@ async def _record_email_dispatch(
             error_text=(error_text or None),
             payload=payload or None,
         )
+    )
+    await log_system_activity(
+        db,
+        source="smtp",
+        category="email",
+        level="error" if status == "failed" else ("warning" if status == "skipped" else "info"),
+        message=f"{source}: {subject}",
+        details={
+            "status": status,
+            "recipient": recipient,
+            "error_text": error_text,
+            "payload": payload or {},
+        },
+        commit=False,
     )
 
 

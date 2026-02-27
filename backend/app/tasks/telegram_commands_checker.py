@@ -10,6 +10,7 @@ from app.services.telegram_service import (
     set_summaries_enabled,
     set_updates_offset,
 )
+from app.services.system_activity_service import log_system_activity_standalone
 from app.tasks.celery_app import celery_app
 from app.tasks.telegram_summary_checker import send_critical_tasks_summary, send_projects_summary
 from redis import asyncio as redis_async
@@ -90,6 +91,13 @@ async def _async_check_telegram_commands() -> None:
             if not sender_id:
                 continue
             if not await _is_authorized(sender_id, chat_id, command):
+                await log_system_activity_standalone(
+                    source="telegram_bot",
+                    category="telegram",
+                    level="warning",
+                    message=f"Telegram command rejected: {command}",
+                    details={"chat_id": chat_id, "sender_id": sender_id, "sender_name": str(sender_name)},
+                )
                 await send_chat_message(
                     chat_id,
                     f"⛔ Команда {escape_html(command)} отклонена. "
@@ -99,11 +107,25 @@ async def _async_check_telegram_commands() -> None:
 
             if command == "/start":
                 await set_summaries_enabled(True)
+                await log_system_activity_standalone(
+                    source="telegram_bot",
+                    category="telegram",
+                    level="info",
+                    message="Telegram summaries enabled via /start",
+                    details={"chat_id": chat_id, "sender_id": sender_id},
+                )
                 await send_chat_message(chat_id, "✅ Сводки PlannerBro включены.")
                 continue
 
             if command == "/stop":
                 await set_summaries_enabled(False)
+                await log_system_activity_standalone(
+                    source="telegram_bot",
+                    category="telegram",
+                    level="warning",
+                    message="Telegram summaries stopped via /stop",
+                    details={"chat_id": chat_id, "sender_id": sender_id},
+                )
                 await send_chat_message(chat_id, "⏸ Сводки PlannerBro остановлены.")
                 continue
 
@@ -112,11 +134,32 @@ async def _async_check_telegram_commands() -> None:
                 lock_key = f"telegram:stats:cooldown:{chat_id}"
                 is_allowed = await redis.set(lock_key, "1", ex=60, nx=True)
                 if not is_allowed:
+                    await log_system_activity_standalone(
+                        source="telegram_bot",
+                        category="telegram",
+                        level="warning",
+                        message="Telegram /stats ignored due cooldown",
+                        details={"chat_id": chat_id, "sender_id": sender_id},
+                    )
                     continue
+                await log_system_activity_standalone(
+                    source="telegram_bot",
+                    category="telegram",
+                    level="info",
+                    message="Telegram /stats accepted",
+                    details={"chat_id": chat_id, "sender_id": sender_id},
+                )
                 await send_chat_message(chat_id, "📊 Готовлю сводку...")
                 send_projects_summary.delay(compact=True, force=True)
                 send_critical_tasks_summary.delay(compact=True, force=True)
         except Exception as exc:
+            await log_system_activity_standalone(
+                source="telegram_bot",
+                category="telegram_error",
+                level="error",
+                message="Telegram command processing failed",
+                details={"chat_id": chat_id, "error": str(exc)},
+            )
             err = str(exc).lower()
             if "429" not in err and "too many requests" not in err:
                 try:

@@ -229,6 +229,20 @@ export const api = {
   listNotifications: () => apiClient.get('/notifications').then((r) => r.data),
   listEmailDispatchLogs: (params?: { hours?: number; limit?: number }) =>
     apiClient.get('/notifications/activity/email', { params }).then((r) => r.data),
+  listSystemActivityLogs: (params?: {
+    hours?: number
+    limit?: number
+    level?: string
+    category?: string
+    source?: string
+  }) => apiClient.get('/notifications/activity/system', { params }).then((r) => r.data),
+  reportClientError: (data: {
+    message: string
+    stack?: string
+    url?: string
+    user_agent?: string
+    context?: Record<string, unknown>
+  }) => apiClient.post('/notifications/activity/client-error', data).then((r) => r.data),
   markRead: (id: string) => apiClient.patch(`/notifications/${id}/read`).then((r) => r.data),
   markAllRead: () => apiClient.post('/notifications/read-all').then((r) => r.data),
 

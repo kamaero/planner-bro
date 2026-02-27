@@ -31,3 +31,23 @@ class EmailDispatchLogOut(BaseModel):
     error_text: Optional[str] = None
     payload: Optional[dict[str, Any]] = None
     created_at: datetime
+
+
+class SystemActivityLogOut(BaseModel):
+    id: str
+    source: str
+    category: str
+    level: str
+    message: str
+    details: Optional[dict[str, Any]] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ClientErrorReportIn(BaseModel):
+    message: str
+    stack: Optional[str] = None
+    url: Optional[str] = None
+    user_agent: Optional[str] = None
+    context: Optional[dict[str, Any]] = None

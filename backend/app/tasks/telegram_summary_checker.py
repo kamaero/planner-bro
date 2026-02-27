@@ -16,6 +16,7 @@ from app.services.telegram_service import (
     get_summaries_enabled,
     send_telegram_message,
 )
+from app.services.system_activity_service import log_system_activity_standalone
 from app.tasks.celery_app import celery_app
 
 
@@ -121,7 +122,23 @@ async def _async_send_projects_summary(compact: bool = False, force: bool = Fals
         f"\n<b>{'Краткий список' if compact else 'Топ проектов'}:</b>\n"
         f"{chr(10).join(top_lines) if top_lines else '• Нет проектов'}"
     )
-    await send_telegram_message(text)
+    try:
+        await send_telegram_message(text)
+        await log_system_activity_standalone(
+            source="telegram_bot",
+            category="telegram",
+            level="info",
+            message="Telegram projects summary sent",
+            details={"compact": compact, "force": force, "projects_count": active_count},
+        )
+    except Exception as exc:
+        await log_system_activity_standalone(
+            source="telegram_bot",
+            category="telegram_error",
+            level="error",
+            message="Telegram projects summary failed",
+            details={"compact": compact, "force": force, "error": str(exc)},
+        )
 
 
 async def _async_send_critical_tasks_summary(compact: bool = False, force: bool = False) -> None:
@@ -186,4 +203,20 @@ async def _async_send_critical_tasks_summary(compact: bool = False, force: bool 
         f"<b>{'Краткий фокус-лист' if compact else 'Фокус-лист'}:</b>\n"
         f"{chr(10).join(lines) if lines else '• Нет критических задач'}"
     )
-    await send_telegram_message(text)
+    try:
+        await send_telegram_message(text)
+        await log_system_activity_standalone(
+            source="telegram_bot",
+            category="telegram",
+            level="info",
+            message="Telegram critical tasks summary sent",
+            details={"compact": compact, "force": force, "tasks_count": len(tasks)},
+        )
+    except Exception as exc:
+        await log_system_activity_standalone(
+            source="telegram_bot",
+            category="telegram_error",
+            level="error",
+            message="Telegram critical tasks summary failed",
+            details={"compact": compact, "force": force, "error": str(exc)},
+        )

@@ -1,7 +1,8 @@
 import asyncio
 import logging
+import traceback
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from sqlalchemy import select, text
@@ -12,6 +13,7 @@ from app.core.firebase import init_firebase
 from app.core.security import decode_token
 from app.api.v1 import auth, projects, tasks, users, notifications, vault
 from app.services.websocket_manager import ws_manager
+from app.services.system_activity_service import log_system_activity_standalone
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -55,6 +57,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def capture_unhandled_errors(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as exc:
+        await log_system_activity_standalone(
+            source="backend",
+            category="backend_error",
+            level="error",
+            message=f"{request.method} {request.url.path} failed: {exc.__class__.__name__}",
+            details={
+                "error": str(exc),
+                "path": request.url.path,
+                "method": request.method,
+                "query": dict(request.query_params),
+                "traceback": traceback.format_exc(limit=20),
+            },
+        )
+        raise
 
 # Routers
 app.include_router(auth.router, prefix="/api/v1")

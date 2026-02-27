@@ -16,6 +16,7 @@ from app.services.ms_project_import_service import parse_ms_project_content
 from app.services.ai_ingestion_service import extract_text_for_ai, generate_task_drafts_from_text
 from app.services.websocket_manager import ws_manager
 from app.services import events as ev
+from app.services.system_activity_service import log_system_activity
 from app.tasks.celery_app import celery_app
 
 
@@ -83,6 +84,20 @@ async def _async_process_file_for_ai(job_id: str):
         job.status = "processing"
         job.started_at = _now_utc()
         job.error_message = None
+        await log_system_activity(
+            db,
+            source="ai_worker",
+            category="ai",
+            level="info",
+            message=f"AI ingestion job started: {job.id}",
+            details={
+                "job_id": job.id,
+                "project_id": job.project_id,
+                "project_file_id": job.project_file_id,
+                "created_by_id": job.created_by_id,
+            },
+            commit=False,
+        )
         await db.commit()
 
         file_record = (
@@ -100,6 +115,19 @@ async def _async_process_file_for_ai(job_id: str):
             job.status = "failed"
             job.error_message = "Project/file not found"
             job.finished_at = _now_utc()
+            await log_system_activity(
+                db,
+                source="ai_worker",
+                category="ai",
+                level="error",
+                message=f"AI ingestion job failed: {job.id} (project/file not found)",
+                details={
+                    "job_id": job.id,
+                    "project_id": job.project_id,
+                    "project_file_id": job.project_file_id,
+                },
+                commit=False,
+            )
             await db.commit()
             return
 
@@ -176,6 +204,20 @@ async def _async_process_file_for_ai(job_id: str):
             job.status = "completed"
             job.drafts_count = created_count
             job.finished_at = _now_utc()
+            await log_system_activity(
+                db,
+                source="ai_worker",
+                category="ai",
+                level="info",
+                message=f"AI ingestion completed: {job.id}",
+                details={
+                    "job_id": job.id,
+                    "project_id": project.id,
+                    "project_file_id": file_record.id,
+                    "drafts_count": created_count,
+                },
+                commit=False,
+            )
             await db.commit()
             await ws_manager.broadcast_to_project(
                 project.id,
@@ -191,6 +233,20 @@ async def _async_process_file_for_ai(job_id: str):
             job.status = "failed"
             job.error_message = str(exc)[:2000]
             job.finished_at = _now_utc()
+            await log_system_activity(
+                db,
+                source="ai_worker",
+                category="ai",
+                level="error",
+                message=f"AI ingestion failed: {job.id}",
+                details={
+                    "job_id": job.id,
+                    "project_id": job.project_id,
+                    "project_file_id": job.project_file_id,
+                    "error": str(exc),
+                },
+                commit=False,
+            )
             await db.commit()
             await ws_manager.broadcast_to_project(
                 project.id,

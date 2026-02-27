@@ -40,6 +40,7 @@ from app.services.notification_service import (
     notify_task_assigned,
     notify_project_assigned,
 )
+from app.services.system_activity_service import log_system_activity
 from app.services.ms_project_import_service import parse_ms_project_content
 from app.services.vault_crypto import encrypt_file
 from app.tasks.ai_ingestion import process_file_for_ai
@@ -672,6 +673,22 @@ async def upload_project_file(
     db.add(job)
     await db.commit()
     process_file_for_ai.delay(job.id)
+    await log_system_activity(
+        db,
+        source="backend",
+        category="file_upload",
+        level="info",
+        message=f"Uploaded file '{upload.filename}' in project {project_id}",
+        details={
+            "project_id": project_id,
+            "file_id": file_id,
+            "filename": upload.filename,
+            "size": size,
+            "uploaded_by_id": current_user.id,
+            "ai_job_id": job.id,
+        },
+        commit=True,
+    )
     return file_out
 
 
@@ -694,6 +711,20 @@ async def import_tasks_from_ms_project(
     try:
         parsed = parse_ms_project_content(content, filename=upload.filename)
     except ValueError as exc:
+        await log_system_activity(
+            db,
+            source="backend",
+            category="file_processing",
+            level="error",
+            message=f"MS Project import failed for '{upload.filename}'",
+            details={
+                "project_id": project_id,
+                "filename": upload.filename,
+                "uploaded_by_id": current_user.id,
+                "error": str(exc),
+            },
+            commit=True,
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if not parsed.tasks:
@@ -762,6 +793,22 @@ async def import_tasks_from_ms_project(
         linked_to_parent += 1
 
     await db.commit()
+    await log_system_activity(
+        db,
+        source="backend",
+        category="file_processing",
+        level="info",
+        message=f"Imported {len(parsed.tasks)} tasks from '{upload.filename}'",
+        details={
+            "project_id": project_id,
+            "filename": upload.filename,
+            "uploaded_by_id": current_user.id,
+            "created": len(parsed.tasks),
+            "skipped": parsed.skipped_count,
+            "linked_to_parent": linked_to_parent,
+        },
+        commit=True,
+    )
     return MSProjectImportResult(
         total_in_file=len(parsed.tasks) + parsed.skipped_count,
         created=len(parsed.tasks),
@@ -818,6 +865,20 @@ async def delete_project_file(
     path = Path(record.storage_path)
     if path.exists():
         path.unlink()
+    await log_system_activity(
+        db,
+        source="backend",
+        category="file_delete",
+        level="warning",
+        message=f"Deleted file '{record.filename}' from project {project_id}",
+        details={
+            "project_id": project_id,
+            "file_id": file_id,
+            "filename": record.filename,
+            "deleted_by_id": current_user.id,
+        },
+        commit=False,
+    )
     await db.delete(record)
     await db.commit()
 
@@ -870,6 +931,20 @@ async def start_ai_processing_for_file(
     await db.refresh(job)
 
     process_file_for_ai.delay(job.id)
+    await log_system_activity(
+        db,
+        source="backend",
+        category="ai",
+        level="info",
+        message=f"AI processing started for file {file_id}",
+        details={
+            "project_id": project_id,
+            "file_id": file_id,
+            "job_id": job.id,
+            "requested_by_id": current_user.id,
+        },
+        commit=True,
+    )
     return job
 
 
