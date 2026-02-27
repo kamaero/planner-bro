@@ -48,6 +48,19 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   done: 'Выполнено',
 }
 
+const IT_QUOTES = [
+  'Любой баг становится фичей, если его не чинить достаточно долго.',
+  'Работает в проде? Значит, трогать это нужно очень аккуратно.',
+  'Нет ничего более постоянного, чем временное IT-решение.',
+  'Дедлайн был вчера, но зато архитектура сегодня красивая.',
+  'Если всё упало, начни с перезапуска. Потом сделай вид, что так и было.',
+  'Логи не врут. Просто иногда говорят намеками.',
+  'Код без комментариев как квест: интересно, но больно.',
+  'Тесты пишут не для QA, а для будущего себя в пятницу вечером.',
+  'Автоматизируй рутину: у человека есть дела поважнее паники.',
+  'Главное правило релиза: сначала бэкап, потом смелость.',
+]
+
 function SectionCard({ title, action, children, className }: { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
     <div className={cn('h-full rounded-xl border bg-card p-4', className)}>
@@ -161,11 +174,17 @@ export function Dashboard() {
   })
 
   const today = new Date().toISOString().slice(0, 10)
+  const [quoteShift, setQuoteShift] = useState(0)
   const sevenDaysAgo = useMemo(() => {
     const d = new Date()
     d.setDate(d.getDate() - 7)
     return d.toISOString()
   }, [])
+  const wisdomQuote = useMemo(() => {
+    const dateSeed = Number(today.replace(/-/g, '')) || 0
+    const index = (dateSeed + quoteShift) % IT_QUOTES.length
+    return IT_QUOTES[index]
+  }, [today, quoteShift])
 
   const departmentTabs = useMemo(
     () => dashboardData?.departments ?? [],
@@ -814,7 +833,7 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <SectionCard title="Последние обновленные задачи" className="xl:col-span-8" action={<Users2 className="h-4 w-4 text-muted-foreground" />}>
+        <SectionCard title="Последние обновленные задачи" className="xl:col-span-5" action={<Users2 className="h-4 w-4 text-muted-foreground" />}>
           <div className="max-h-64 space-y-1 overflow-auto">
             {recentTasks.map((task: Task) => (
               <Link key={task.id} to={`/projects/${task.project_id}`} className="flex items-center justify-between rounded px-2 py-1.5 text-sm hover:bg-accent">
@@ -822,6 +841,21 @@ export function Dashboard() {
                 <span className="ml-3 shrink-0 text-xs text-muted-foreground">{TASK_STATUS_LABEL[task.status]}</span>
               </Link>
             ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Мудрость дня"
+          className="xl:col-span-3"
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={() => setQuoteShift((v) => (v + 1) % IT_QUOTES.length)}>
+              Еще цитата
+            </Button>
+          }
+        >
+          <div className="flex h-full min-h-[180px] flex-col justify-between rounded-lg border border-dashed bg-muted/30 p-3">
+            <p className="text-sm leading-relaxed">“{wisdomQuote}”</p>
+            <p className="mt-3 text-xs text-muted-foreground">Обновляется ежедневно + вручную кнопкой.</p>
           </div>
         </SectionCard>
 
