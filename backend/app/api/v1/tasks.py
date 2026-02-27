@@ -136,9 +136,13 @@ async def _sync_task_assignees(
     task.assigned_to_id = unique_ids[0] if unique_ids else None
 
 
-def _serialize_assignee_ids(task: Task) -> list[str]:
-    if task.assignee_links:
-        return [link.user_id for link in task.assignee_links]
+async def _serialize_assignee_ids(task: Task, db: AsyncSession) -> list[str]:
+    # Avoid lazy-loading relationships in async request handlers (MissingGreenlet).
+    rows = (
+        await db.execute(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id))
+    ).scalars().all()
+    if rows:
+        return rows
     return [task.assigned_to_id] if task.assigned_to_id else []
 
 
@@ -309,7 +313,7 @@ async def create_task(
         await _sync_task_assignees(task, assignee_ids, project_id, db)
 
     # Notify assignee
-    for uid in _serialize_assignee_ids(task):
+    for uid in await _serialize_assignee_ids(task, db):
         await notify_task_assigned(db, task, uid)
 
     await notify_new_task(db, task)
@@ -436,7 +440,7 @@ async def update_task(
     await _sync_task_assignees(task, assignee_ids, task.project_id, db)
 
     # Notify new assignee
-    new_assignee_ids = set(_serialize_assignee_ids(task))
+    new_assignee_ids = set(await _serialize_assignee_ids(task, db))
     old_assignee_ids = {old_assignee} if old_assignee else set()
     for uid in sorted(new_assignee_ids - old_assignee_ids):
         await notify_task_assigned(db, task, uid)
@@ -684,7 +688,7 @@ async def bulk_update_tasks(
                 "assignee_changed",
                 f"{old_assignee or ''}->{task.assigned_to_id or ''}",
             )
-            for uid in _serialize_assignee_ids(task):
+            for uid in await _serialize_assignee_ids(task, db):
                 await notify_task_assigned(db, task, uid)
 
         await _log_task_event(
