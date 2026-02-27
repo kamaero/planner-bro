@@ -844,7 +844,7 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Мои задачи" className="xl:col-span-2">
+        <SectionCard title="Мои задачи" className="xl:col-span-3">
           <div className="max-h-64 space-y-2 overflow-auto">
             {myUrgentTasks.length === 0 && <p className="text-sm text-muted-foreground">Личных задач нет.</p>}
             {myUrgentTasks.map((task) => {
@@ -868,7 +868,7 @@ export function Dashboard() {
 
         <SectionCard
           title="Мудрость дня"
-          className="xl:col-span-3"
+          className="xl:col-span-2"
           action={
             <Button type="button" variant="outline" size="sm" onClick={() => setQuoteShift((v) => (v + 1) % IT_QUOTES.length)}>
               Еще цитата
