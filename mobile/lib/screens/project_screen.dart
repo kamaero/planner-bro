@@ -136,6 +136,9 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
   Future<void> _openTaskEditor(Task task) async {
     var selectedStatus = task.status;
     var progress = task.progressPercent.toDouble();
+    final membersFuture = _loadProjectMembers();
+    final initialAssigneeId = task.assignee?.id;
+    String? selectedAssigneeId = initialAssigneeId;
     final nextStepController = TextEditingController(text: task.nextStep ?? '');
     final commentController = TextEditingController();
     final reasonController = TextEditingController();
@@ -169,6 +172,9 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
                       ? null
                       : nextStepController.text.trim(),
                 };
+                if (selectedAssigneeId != initialAssigneeId) {
+                  payload['assigned_to_id'] = selectedAssigneeId;
+                }
                 if (hasDeadlineChanged) {
                   payload['end_date'] = selectedDeadline == null
                       ? null
@@ -235,6 +241,49 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
                           if (value != null) {
                             setSheetState(() => selectedStatus = value);
                           }
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      FutureBuilder<List<_AssigneeOption>>(
+                        future: membersFuture,
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: LinearProgressIndicator(minHeight: 2),
+                            );
+                          }
+                          final members =
+                              snapshot.data ?? const <_AssigneeOption>[];
+                          final hasSelected = members.any(
+                            (member) => member.id == selectedAssigneeId,
+                          );
+                          if (!hasSelected) {
+                            selectedAssigneeId = null;
+                          }
+                          return DropdownButtonFormField<String?>(
+                            initialValue: selectedAssigneeId,
+                            decoration: const InputDecoration(
+                              labelText: 'Ответственный',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: [
+                              const DropdownMenuItem<String?>(
+                                value: null,
+                                child: Text('Не назначен'),
+                              ),
+                              ...members.map(
+                                (member) => DropdownMenuItem<String?>(
+                                  value: member.id,
+                                  child: Text(member.label),
+                                ),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              setSheetState(() => selectedAssigneeId = value);
+                            },
+                          );
                         },
                       ),
                       const SizedBox(height: 12),
