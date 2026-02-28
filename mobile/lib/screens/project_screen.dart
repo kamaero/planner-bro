@@ -9,7 +9,9 @@ import '../core/api_client.dart';
 
 class ProjectScreen extends ConsumerStatefulWidget {
   final String projectId;
-  const ProjectScreen({super.key, required this.projectId});
+  final String? initialTaskId;
+
+  const ProjectScreen({super.key, required this.projectId, this.initialTaskId});
 
   @override
   ConsumerState<ProjectScreen> createState() => _ProjectScreenState();
@@ -19,6 +21,7 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   int _activeTab = 0;
+  bool _handledInitialTaskOpen = false;
   static const Map<String, String> _statusLabels = {
     'planning': 'Планирование',
     'tz': 'ТЗ',
@@ -84,32 +87,35 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
         body: tasksAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Center(child: Text('Error: $e')),
-          data: (tasks) => TabBarView(
-            controller: _tabController,
-            children: [
-              // Task list
-              RefreshIndicator(
-                onRefresh: () =>
-                    ref.refresh(tasksProvider(widget.projectId).future),
-                child: tasks.isEmpty
-                    ? const Center(child: Text('No tasks yet'))
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: tasks.length,
-                        itemBuilder: (ctx, i) => TaskCardWidget(
-                          task: tasks[i],
-                          onTap: () => _openTaskEditor(tasks[i]),
+          data: (tasks) {
+            _maybeOpenInitialTask(tasks);
+            return TabBarView(
+              controller: _tabController,
+              children: [
+                // Task list
+                RefreshIndicator(
+                  onRefresh: () =>
+                      ref.refresh(tasksProvider(widget.projectId).future),
+                  child: tasks.isEmpty
+                      ? const Center(child: Text('No tasks yet'))
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: tasks.length,
+                          itemBuilder: (ctx, i) => TaskCardWidget(
+                            task: tasks[i],
+                            onTap: () => _openTaskEditor(tasks[i]),
+                          ),
                         ),
-                      ),
-              ),
-              // Gantt
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.all(16),
-                child: GanttWidget(tasks: tasks),
-              ),
-            ],
-          ),
+                ),
+                // Gantt
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.all(16),
+                  child: GanttWidget(tasks: tasks),
+                ),
+              ],
+            );
+          },
         ),
         floatingActionButton: _activeTab == 0
             ? FloatingActionButton.extended(
@@ -589,6 +595,29 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
     members
         .sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
     return members;
+  }
+
+  void _maybeOpenInitialTask(List<Task> tasks) {
+    if (_handledInitialTaskOpen) return;
+    final initialTaskId = widget.initialTaskId?.trim();
+    if (initialTaskId == null || initialTaskId.isEmpty) return;
+    Task? target;
+    for (final task in tasks) {
+      if (task.id == initialTaskId) {
+        target = task;
+        break;
+      }
+    }
+    _handledInitialTaskOpen = true;
+    if (target == null) return;
+    if (_activeTab != 0) {
+      _tabController.animateTo(0);
+      setState(() => _activeTab = 0);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _openTaskEditor(target!);
+    });
   }
 }
 

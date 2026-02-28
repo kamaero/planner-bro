@@ -38,8 +38,10 @@ final _router = GoRouter(
     GoRoute(path: '/', builder: (_, __) => const DashboardScreen()),
     GoRoute(
       path: '/projects/:id',
-      builder: (_, state) =>
-          ProjectScreen(projectId: state.pathParameters['id']!),
+      builder: (_, state) => ProjectScreen(
+        projectId: state.pathParameters['id']!,
+        initialTaskId: state.uri.queryParameters['task'],
+      ),
     ),
     GoRoute(
         path: '/notifications',

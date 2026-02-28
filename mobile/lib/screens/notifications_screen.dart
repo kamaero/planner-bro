@@ -130,7 +130,12 @@ class NotificationsScreen extends ConsumerWidget {
     required AppNotification notification,
   }) {
     final projectId = _projectIdFrom(notification);
+    final taskId = _taskIdFrom(notification);
     if (projectId != null) {
+      if (taskId != null) {
+        context.push('/projects/$projectId?task=$taskId');
+        return;
+      }
       context.push('/projects/$projectId');
     }
   }
