@@ -191,6 +191,10 @@ final myTasksProvider = FutureProvider<List<UserTaskEntry>>((ref) async {
   entries.sort((a, b) {
     final byUrgency = a.urgencyRank.compareTo(b.urgencyRank);
     if (byUrgency != 0) return byUrgency;
+    final byPriority = _priorityRank(a.task.priority).compareTo(
+      _priorityRank(b.task.priority),
+    );
+    if (byPriority != 0) return byPriority;
     final aDeadline = a.task.endDate;
     final bDeadline = b.task.endDate;
     if (aDeadline == null && bDeadline == null) return 0;
@@ -220,4 +224,19 @@ int _taskUrgencyRank(Task task) {
   if (dayDiff <= 2) return 2; // very soon
   if (dayDiff <= 7) return 3; // this week
   return 10;
+}
+
+int _priorityRank(String priority) {
+  switch (priority) {
+    case 'critical':
+      return 0;
+    case 'high':
+      return 1;
+    case 'medium':
+      return 2;
+    case 'low':
+      return 3;
+    default:
+      return 9;
+  }
 }
