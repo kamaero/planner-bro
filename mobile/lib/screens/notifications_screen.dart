@@ -42,6 +42,8 @@ class NotificationsScreen extends ConsumerWidget {
                 final n = notifications[i];
                 final projectId = _projectIdFrom(n);
                 final taskId = _taskIdFrom(n);
+                final canMarkDone =
+                    taskId != null && n.type != 'project_updated';
                 return ListTile(
                   leading: CircleAvatar(
                     backgroundColor: n.isRead
@@ -85,9 +87,21 @@ class NotificationsScreen extends ConsumerWidget {
                     ],
                   ),
                   isThreeLine: true,
-                  trailing: projectId == null
-                      ? null
-                      : IconButton(
+                  trailing: Wrap(
+                    spacing: 4,
+                    children: [
+                      if (canMarkDone)
+                        IconButton(
+                          tooltip: 'Выполнено',
+                          icon: const Icon(Icons.check_circle_outline),
+                          onPressed: () => _markTaskDone(
+                            context: context,
+                            ref: ref,
+                            taskId: taskId,
+                          ),
+                        ),
+                      if (projectId != null)
+                        IconButton(
                           tooltip: 'Открыть',
                           icon: const Icon(Icons.open_in_new),
                           onPressed: () => _openByNotification(
@@ -95,6 +109,8 @@ class NotificationsScreen extends ConsumerWidget {
                             notification: n,
                           ),
                         ),
+                    ],
+                  ),
                   onTap: () async {
                     if (!n.isRead) {
                       await apiClient.patch('/notifications/${n.id}/read', {});
@@ -137,6 +153,26 @@ class NotificationsScreen extends ConsumerWidget {
         return;
       }
       context.push('/projects/$projectId');
+    }
+  }
+
+  Future<void> _markTaskDone({
+    required BuildContext context,
+    required WidgetRef ref,
+    required String taskId,
+  }) async {
+    try {
+      await apiClient.patch('/tasks/$taskId/status', {'status': 'done'});
+      ref.invalidate(notificationsProvider);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Задача отмечена как выполненная')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось обновить задачу: $e')),
+      );
     }
   }
 
