@@ -402,6 +402,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                               fontWeight: FontWeight.w600,
                                             ),
                                           ),
+                                          if (task.updatedAt != null) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              _updatedLabel(task.updatedAt!),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall,
+                                            ),
+                                          ],
                                         ],
                                       ),
                                     ),
@@ -530,5 +539,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       }).toList();
     }
     return entries;
+  }
+
+  String _updatedLabel(DateTime updatedAt) {
+    final now = DateTime.now();
+    final local = updatedAt.toLocal();
+    final taskDate = DateTime(local.year, local.month, local.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final diff = today.difference(taskDate).inDays;
+    if (diff <= 0) return 'Обновлено сегодня';
+    if (diff == 1) return 'Обновлено вчера';
+    if (diff == 2) return 'Обновлено позавчера';
+    if (diff < 7) return 'Обновлено на неделе';
+    return 'Обновлено ранее';
   }
 }
