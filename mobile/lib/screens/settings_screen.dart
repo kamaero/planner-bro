@@ -33,7 +33,7 @@ class SettingsScreen extends ConsumerWidget {
                   ListTile(
                     leading: const Icon(Icons.badge),
                     title: const Text('Роль'),
-                    subtitle: Text(user.role),
+                    subtitle: Text(_roleLabel(user.role)),
                   ),
                   const Divider(),
                   ListTile(
@@ -41,6 +41,25 @@ class SettingsScreen extends ConsumerWidget {
                     title: const Text('Выйти',
                         style: TextStyle(color: Colors.red)),
                     onTap: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Выход'),
+                          content:
+                              const Text('Выйти из текущей учетной записи?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(false),
+                              child: const Text('Отмена'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.of(context).pop(true),
+                              child: const Text('Выйти'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm != true) return;
                       await ref.read(authProvider.notifier).logout();
                       if (context.mounted) context.go('/login');
                     },
@@ -49,5 +68,15 @@ class SettingsScreen extends ConsumerWidget {
               ),
       ),
     );
+  }
+
+  String _roleLabel(String role) {
+    const labels = {
+      'admin': 'Администратор',
+      'manager': 'Руководитель',
+      'member': 'Сотрудник',
+      'user': 'Пользователь',
+    };
+    return labels[role] ?? role;
   }
 }
