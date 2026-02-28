@@ -150,6 +150,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                                       onPressed: () => _markTaskDone(
                                         context: context,
                                         ref: ref,
+                                        notificationId: n.id,
                                         taskId: taskId,
                                       ),
                                     ),
@@ -157,21 +158,26 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                                     IconButton(
                                       tooltip: 'Открыть',
                                       icon: const Icon(Icons.open_in_new),
-                                      onPressed: () => _openByNotification(
-                                        context: context,
-                                        notification: n,
-                                      ),
+                                      onPressed: () async {
+                                        await _markNotificationRead(
+                                          ref: ref,
+                                          notification: n,
+                                        );
+                                        if (!context.mounted) return;
+                                        _openByNotification(
+                                          context: context,
+                                          notification: n,
+                                        );
+                                      },
                                     ),
                                 ],
                               ),
                               onTap: () async {
-                                if (!n.isRead) {
-                                  await apiClient.patch(
-                                    '/notifications/${n.id}/read',
-                                    {},
-                                  );
-                                  ref.invalidate(notificationsProvider);
-                                }
+                                await _markNotificationRead(
+                                  ref: ref,
+                                  notification: n,
+                                );
+                                if (!context.mounted) return;
                                 _openByNotification(
                                   context: context,
                                   notification: n,
@@ -221,10 +227,12 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   Future<void> _markTaskDone({
     required BuildContext context,
     required WidgetRef ref,
+    required String notificationId,
     required String taskId,
   }) async {
     try {
       await apiClient.patch('/tasks/$taskId/status', {'status': 'done'});
+      await _markNotificationReadById(ref: ref, notificationId: notificationId);
       ref.invalidate(notificationsProvider);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -236,6 +244,22 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
         SnackBar(content: Text('Не удалось обновить задачу: $e')),
       );
     }
+  }
+
+  Future<void> _markNotificationRead({
+    required WidgetRef ref,
+    required AppNotification notification,
+  }) async {
+    if (notification.isRead) return;
+    await _markNotificationReadById(ref: ref, notificationId: notification.id);
+  }
+
+  Future<void> _markNotificationReadById({
+    required WidgetRef ref,
+    required String notificationId,
+  }) async {
+    await apiClient.patch('/notifications/$notificationId/read', {});
+    ref.invalidate(notificationsProvider);
   }
 
   IconData _iconForType(String type) {
