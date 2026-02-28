@@ -3,6 +3,7 @@ class AppNotification {
   final String type;
   final String title;
   final String body;
+  final Map<String, dynamic>? data;
   final bool isRead;
   final DateTime createdAt;
 
@@ -11,6 +12,7 @@ class AppNotification {
     required this.type,
     required this.title,
     required this.body,
+    this.data,
     required this.isRead,
     required this.createdAt,
   });
@@ -21,6 +23,7 @@ class AppNotification {
         type: json['type'] as String,
         title: json['title'] as String,
         body: json['body'] as String,
+        data: (json['data'] as Map?)?.cast<String, dynamic>(),
         isRead: json['is_read'] as bool,
         createdAt: DateTime.parse(json['created_at'] as String),
       );
