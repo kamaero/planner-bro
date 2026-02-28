@@ -88,7 +88,7 @@ class GanttWidget extends StatelessWidget {
                     height: 20,
                     margin: const EdgeInsets.symmetric(vertical: 14),
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.7),
+                      color: color.withValues(alpha: 0.7),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     alignment: Alignment.centerLeft,

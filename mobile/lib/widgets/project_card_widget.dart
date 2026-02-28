@@ -91,9 +91,11 @@ class _StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: (colors[status] ?? Colors.grey).withOpacity(0.1),
+        color: (colors[status] ?? Colors.grey).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: (colors[status] ?? Colors.grey).withOpacity(0.3)),
+        border: Border.all(
+          color: (colors[status] ?? Colors.grey).withValues(alpha: 0.3),
+        ),
       ),
       child: Text(
         status.replaceAll('_', ' '),

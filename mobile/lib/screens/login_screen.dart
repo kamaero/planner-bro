@@ -73,7 +73,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               Text(
                 _isRegister ? 'Create your account' : 'Sign in to your account',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                 textAlign: TextAlign.center,
               ),
@@ -109,7 +111,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 const SizedBox(height: 8),
                 Text(
                   _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 13),
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.error, fontSize: 13),
                 ),
               ],
               const SizedBox(height: 24),
@@ -127,7 +130,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               TextButton(
                 onPressed: () => setState(() => _isRegister = !_isRegister),
                 child: Text(
-                  _isRegister ? 'Already have an account? Sign in' : "Don't have an account? Sign up",
+                  _isRegister
+                      ? 'Already have an account? Sign in'
+                      : "Don't have an account? Sign up",
                 ),
               ),
               const Spacer(),

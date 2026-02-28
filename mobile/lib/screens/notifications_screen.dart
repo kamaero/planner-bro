@@ -90,7 +90,9 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: n.isRead
-                                    ? Theme.of(ctx).colorScheme.surfaceVariant
+                                    ? Theme.of(ctx)
+                                        .colorScheme
+                                        .surfaceContainerHighest
                                     : Theme.of(ctx)
                                         .colorScheme
                                         .primaryContainer,
