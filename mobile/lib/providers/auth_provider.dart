@@ -18,7 +18,6 @@ class AuthNotifier extends AsyncNotifier<User?> {
   }
 
   Future<void> login(String email, String password) async {
-    state = const AsyncLoading();
     try {
       final tokens = await apiClient
           .post('/auth/login', {'email': email, 'password': password});
@@ -28,13 +27,11 @@ class AuthNotifier extends AsyncNotifier<User?> {
       await FirebaseService.syncDeviceToken();
       state = AsyncData(User.fromJson(userData));
     } catch (e) {
-      state = AsyncError(e, StackTrace.current);
       rethrow;
     }
   }
 
   Future<void> register(String email, String password, String name) async {
-    state = const AsyncLoading();
     try {
       final tokens = await apiClient.post('/auth/register', {
         'email': email,
@@ -47,7 +44,6 @@ class AuthNotifier extends AsyncNotifier<User?> {
       await FirebaseService.syncDeviceToken();
       state = AsyncData(User.fromJson(userData));
     } catch (e) {
-      state = AsyncError(e, StackTrace.current);
       rethrow;
     }
   }
