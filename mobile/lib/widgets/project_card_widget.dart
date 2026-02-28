@@ -57,7 +57,7 @@ class ProjectCardWidget extends StatelessWidget {
                         const SizedBox(width: 8),
                         if (project.endDate != null)
                           Text(
-                            'Due ${_formatDate(project.endDate!)}',
+                            'Срок: ${_formatDate(project.endDate!)}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                       ],
@@ -82,9 +82,19 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final labels = <String, String>{
+      'planning': 'Планирование',
+      'tz': 'ТЗ',
+      'active': 'В работе',
+      'testing': 'Тестирование',
+      'on_hold': 'На паузе',
+      'completed': 'Завершено',
+    };
     final colors = <String, Color>{
       'planning': Colors.blue,
+      'tz': Colors.indigo,
       'active': Colors.green,
+      'testing': Colors.purple,
       'on_hold': Colors.orange,
       'completed': Colors.grey,
     };
@@ -98,7 +108,7 @@ class _StatusChip extends StatelessWidget {
         ),
       ),
       child: Text(
-        status.replaceAll('_', ' '),
+        labels[status] ?? status.replaceAll('_', ' '),
         style: TextStyle(fontSize: 11, color: colors[status] ?? Colors.grey),
       ),
     );
