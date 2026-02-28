@@ -187,11 +187,29 @@ class AnalyticsScreen extends ConsumerWidget {
     return Row(
       children: [
         Expanded(child: Text(label)),
-        Text('усп $sent'),
+        Text(
+          'усп $sent',
+          style: const TextStyle(
+            color: Colors.green,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(width: 10),
-        Text('ош $failed'),
+        Text(
+          'ош $failed',
+          style: const TextStyle(
+            color: Colors.red,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(width: 10),
-        Text('проп $skipped'),
+        Text(
+          'проп $skipped',
+          style: const TextStyle(
+            color: Colors.orange,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ],
     );
   }
