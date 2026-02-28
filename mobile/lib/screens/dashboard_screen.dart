@@ -403,11 +403,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                                 .bodySmall,
                                           ),
                                           const SizedBox(height: 4),
-                                          Text(
-                                            'Статус: ${_statusLabel(task.status)}',
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall,
+                                          Row(
+                                            children: [
+                                              Text(
+                                                'Статус: ${_statusLabel(task.status)}',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall,
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                'Приоритет: ${_priorityLabel(task.priority)}',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.copyWith(
+                                                      color: _priorityColor(
+                                                        task.priority,
+                                                      ),
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                              ),
+                                            ],
                                           ),
                                           const SizedBox(height: 6),
                                           Text(
@@ -526,6 +544,31 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       'done': 'Выполнено',
     };
     return labels[status] ?? status;
+  }
+
+  String _priorityLabel(String priority) {
+    const labels = {
+      'critical': 'Критический',
+      'high': 'Высокий',
+      'medium': 'Средний',
+      'low': 'Низкий',
+    };
+    return labels[priority] ?? priority;
+  }
+
+  Color _priorityColor(String priority) {
+    switch (priority) {
+      case 'critical':
+        return Colors.red.shade700;
+      case 'high':
+        return Colors.orange.shade700;
+      case 'medium':
+        return Colors.amber.shade800;
+      case 'low':
+        return Colors.blue.shade700;
+      default:
+        return Colors.grey.shade700;
+    }
   }
 
   List<UserTaskEntry> _filterMyTasks(
