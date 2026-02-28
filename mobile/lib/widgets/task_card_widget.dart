@@ -62,6 +62,16 @@ class TaskCardWidget extends StatelessWidget {
                       '${task.endDate!.day}/${task.endDate!.month}/${task.endDate!.year}',
                       style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
+                    const SizedBox(width: 12),
+                  ],
+                  if (task.updatedAt != null) ...[
+                    const Icon(Icons.update_outlined,
+                        size: 14, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Text(
+                      _updatedLabel(task.updatedAt!),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
                   ],
                 ],
               ),
@@ -71,6 +81,19 @@ class TaskCardWidget extends StatelessWidget {
       ),
     );
   }
+}
+
+String _updatedLabel(DateTime updatedAt) {
+  final now = DateTime.now();
+  final local = updatedAt.toLocal();
+  final taskDate = DateTime(local.year, local.month, local.day);
+  final today = DateTime(now.year, now.month, now.day);
+  final diff = today.difference(taskDate).inDays;
+  if (diff <= 0) return 'обновлено сегодня';
+  if (diff == 1) return 'обновлено вчера';
+  if (diff == 2) return 'обновлено позавчера';
+  if (diff < 7) return 'обновлено на неделе';
+  return 'обновлено давно';
 }
 
 class _PriorityDot extends StatelessWidget {
