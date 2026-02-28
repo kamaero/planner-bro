@@ -11,6 +11,7 @@ import 'screens/dashboard_screen.dart';
 import 'screens/project_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/analytics_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,9 +37,13 @@ final _router = GoRouter(
     GoRoute(path: '/', builder: (_, __) => const DashboardScreen()),
     GoRoute(
       path: '/projects/:id',
-      builder: (_, state) => ProjectScreen(projectId: state.pathParameters['id']!),
+      builder: (_, state) =>
+          ProjectScreen(projectId: state.pathParameters['id']!),
     ),
-    GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
+    GoRoute(
+        path: '/notifications',
+        builder: (_, __) => const NotificationsScreen()),
+    GoRoute(path: '/analytics', builder: (_, __) => const AnalyticsScreen()),
     GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
   ],
   initialLocation: '/login',
@@ -72,7 +77,7 @@ class PlannerBroApp extends ConsumerWidget {
           brightness: Brightness.light,
         ),
         useMaterial3: true,
-        cardTheme: const CardTheme(elevation: 2),
+        cardTheme: const CardThemeData(elevation: 2),
         appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0),
       ),
       darkTheme: ThemeData(

@@ -18,6 +18,10 @@ class DashboardScreen extends ConsumerWidget {
         title: const Text('planner-bro'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.analytics_outlined),
+            onPressed: () => context.push('/analytics'),
+          ),
+          IconButton(
             icon: const Icon(Icons.notifications_outlined),
             onPressed: () => context.push('/notifications'),
           ),
@@ -33,7 +37,9 @@ class DashboardScreen extends ConsumerWidget {
         data: (projects) {
           if (projects.isEmpty) {
             return const Center(
-              child: Text('No projects yet.\nAsk your manager to add you to a project.', textAlign: TextAlign.center),
+              child: Text(
+                  'No projects yet.\nAsk your manager to add you to a project.',
+                  textAlign: TextAlign.center),
             );
           }
           return RefreshIndicator(

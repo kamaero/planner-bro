@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         applicationId = "com.plannerbro.planner_bro"
-        minSdk = 21
+        minSdkVersion = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = 1
         versionName = "1.0.0"
