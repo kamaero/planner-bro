@@ -420,16 +420,50 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                                 ),
                                               ),
                                               if (task.status != 'done')
-                                                IconButton(
-                                                  tooltip: 'Выполнено',
+                                                PopupMenuButton<String>(
+                                                  tooltip:
+                                                      'Быстро сменить статус',
                                                   icon: const Icon(
-                                                    Icons.check_circle_outline,
+                                                    Icons.more_vert,
                                                     size: 20,
                                                   ),
-                                                  onPressed: () =>
-                                                      _markTaskDone(
+                                                  onSelected: (status) =>
+                                                      _updateTaskStatus(
                                                     taskId: task.id,
+                                                    status: status,
                                                   ),
+                                                  itemBuilder: (context) {
+                                                    return [
+                                                      const PopupMenuItem(
+                                                        value: 'todo',
+                                                        child: Text(
+                                                          'К выполнению',
+                                                        ),
+                                                      ),
+                                                      const PopupMenuItem(
+                                                        value: 'in_progress',
+                                                        child: Text('В работе'),
+                                                      ),
+                                                      const PopupMenuItem(
+                                                        value: 'testing',
+                                                        child: Text(
+                                                          'Тестирование',
+                                                        ),
+                                                      ),
+                                                      const PopupMenuItem(
+                                                        value: 'review',
+                                                        child: Text(
+                                                          'На проверке',
+                                                        ),
+                                                      ),
+                                                      const PopupMenuDivider(),
+                                                      const PopupMenuItem(
+                                                        value: 'done',
+                                                        child:
+                                                            Text('Выполнено'),
+                                                      ),
+                                                    ];
+                                                  },
                                                 ),
                                             ],
                                           ),
@@ -554,14 +588,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Colors.green.shade700;
   }
 
-  Future<void> _markTaskDone({required String taskId}) async {
+  Future<void> _updateTaskStatus({
+    required String taskId,
+    required String status,
+  }) async {
     try {
-      await apiClient.patch('/tasks/$taskId/status', {'status': 'done'});
+      await apiClient.patch('/tasks/$taskId/status', {'status': status});
       ref.invalidate(myTasksProvider);
       ref.invalidate(projectsProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Задача переведена в Выполнено')),
+        SnackBar(content: Text('Статус обновлён: ${_statusLabel(status)}')),
       );
     } catch (e) {
       if (!mounted) return;
