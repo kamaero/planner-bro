@@ -1,6 +1,7 @@
-from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional, Any
+from typing import Any, Optional
+
+from pydantic import BaseModel, Field
 
 
 class NotificationOut(BaseModel):
@@ -64,13 +65,37 @@ class SMTPHealthCheckOut(BaseModel):
     message: str
 
 
+class ReportDigestFilters(BaseModel):
+    deadline_window_days: int = Field(default=5, ge=0, le=60)
+    priorities: list[str] = Field(default_factory=lambda: ["high", "critical"])
+    include_control_ski: bool = True
+    include_escalations: bool = True
+    include_without_deadline: bool = False
+    anti_noise_enabled: bool = True
+    anti_noise_ttl_minutes: int = Field(default=360, ge=15, le=1440)
+
+
 class ReportDispatchSettingsOut(BaseModel):
     telegram_summaries_enabled: bool
     email_analytics_enabled: bool
     email_analytics_recipients: str
+    digest_filters: ReportDigestFilters
 
 
 class ReportDispatchSettingsUpdateIn(BaseModel):
     telegram_summaries_enabled: bool
     email_analytics_enabled: bool
     email_analytics_recipients: str = ""
+    digest_filters: Optional[ReportDigestFilters] = None
+
+
+class ReportDeliveryStatusOut(BaseModel):
+    generated_at: datetime
+    window_hours: int
+    email_sent: int
+    email_failed: int
+    email_skipped: int
+    telegram_sent: int
+    telegram_failed: int
+    last_email_sent_at: Optional[datetime] = None
+    last_telegram_sent_at: Optional[datetime] = None

@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone, timedelta
 import logging
+from email.mime.multipart import MIMEMultipart
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.notification import Notification
@@ -119,6 +120,7 @@ async def _send_email_to_recipients(
     body: str,
     source: str,
     payload: dict | None = None,
+    html_body: str | None = None,
 ) -> None:
     if not recipients:
         return
@@ -138,7 +140,12 @@ async def _send_email_to_recipients(
     max_attempts = max(1, int(settings.SMTP_MAX_ATTEMPTS))
     base_delay = max(0.0, float(settings.SMTP_RETRY_BASE_DELAY_SECONDS))
     for email in recipients:
-        msg = MIMEText(body, "plain")
+        if html_body:
+            msg = MIMEMultipart("alternative")
+            msg.attach(MIMEText(body, "plain", "utf-8"))
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+        else:
+            msg = MIMEText(body, "plain", "utf-8")
         msg["Subject"] = subject
         msg["From"] = settings.EMAILS_FROM
         msg["To"] = email

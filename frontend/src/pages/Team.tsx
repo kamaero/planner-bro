@@ -50,6 +50,15 @@ export function Team() {
     telegram_summaries_enabled: true,
     email_analytics_enabled: true,
     email_analytics_recipients: '',
+    digest_filters: {
+      deadline_window_days: 5,
+      priorities: ['high', 'critical'],
+      include_control_ski: true,
+      include_escalations: true,
+      include_without_deadline: false,
+      anti_noise_enabled: true,
+      anti_noise_ttl_minutes: 360,
+    },
   })
   const [reportSettingsLoading, setReportSettingsLoading] = useState(false)
   const [reportSettingsSaving, setReportSettingsSaving] = useState(false)
@@ -420,6 +429,7 @@ export function Team() {
         telegram_summaries_enabled: reportSettings.telegram_summaries_enabled,
         email_analytics_enabled: reportSettings.email_analytics_enabled,
         email_analytics_recipients: reportSettings.email_analytics_recipients,
+        digest_filters: reportSettings.digest_filters,
       })
       setReportSettings(saved)
       setReportSettingsMessage('Настройки рассылки сохранены')
@@ -977,6 +987,159 @@ export function Team() {
                   <p className="text-xs text-muted-foreground">
                     Через запятую. Менеджеры/админы команды добавляются автоматически.
                   </p>
+                </div>
+
+                <div className="rounded-lg border p-3 space-y-3">
+                  <p className="text-sm font-medium">Умные фильтры дайджеста</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="digest-deadline-window">Окно по дедлайну (дней)</Label>
+                      <Input
+                        id="digest-deadline-window"
+                        type="number"
+                        min={0}
+                        max={60}
+                        value={reportSettings.digest_filters?.deadline_window_days ?? 5}
+                        onChange={(e) =>
+                          setReportSettings((prev) => ({
+                            ...prev,
+                            digest_filters: {
+                              ...(prev.digest_filters ?? {}),
+                              deadline_window_days: Number(e.target.value || 0),
+                              priorities: prev.digest_filters?.priorities ?? ['high', 'critical'],
+                              include_control_ski: prev.digest_filters?.include_control_ski ?? true,
+                              include_escalations: prev.digest_filters?.include_escalations ?? true,
+                              include_without_deadline: prev.digest_filters?.include_without_deadline ?? false,
+                              anti_noise_enabled: prev.digest_filters?.anti_noise_enabled ?? true,
+                              anti_noise_ttl_minutes: prev.digest_filters?.anti_noise_ttl_minutes ?? 360,
+                            },
+                          }))
+                        }
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="digest-anti-noise-ttl">Анти-шум (минут)</Label>
+                      <Input
+                        id="digest-anti-noise-ttl"
+                        type="number"
+                        min={15}
+                        max={1440}
+                        value={reportSettings.digest_filters?.anti_noise_ttl_minutes ?? 360}
+                        onChange={(e) =>
+                          setReportSettings((prev) => ({
+                            ...prev,
+                            digest_filters: {
+                              ...(prev.digest_filters ?? {}),
+                              anti_noise_ttl_minutes: Number(e.target.value || 360),
+                              deadline_window_days: prev.digest_filters?.deadline_window_days ?? 5,
+                              priorities: prev.digest_filters?.priorities ?? ['high', 'critical'],
+                              include_control_ski: prev.digest_filters?.include_control_ski ?? true,
+                              include_escalations: prev.digest_filters?.include_escalations ?? true,
+                              include_without_deadline: prev.digest_filters?.include_without_deadline ?? false,
+                              anti_noise_enabled: prev.digest_filters?.anti_noise_enabled ?? true,
+                            },
+                          }))
+                        }
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={reportSettings.digest_filters?.include_control_ski ?? true}
+                        onChange={(e) =>
+                          setReportSettings((prev) => ({
+                            ...prev,
+                            digest_filters: {
+                              ...(prev.digest_filters ?? {}),
+                              include_control_ski: e.target.checked,
+                              deadline_window_days: prev.digest_filters?.deadline_window_days ?? 5,
+                              priorities: prev.digest_filters?.priorities ?? ['high', 'critical'],
+                              include_escalations: prev.digest_filters?.include_escalations ?? true,
+                              include_without_deadline: prev.digest_filters?.include_without_deadline ?? false,
+                              anti_noise_enabled: prev.digest_filters?.anti_noise_enabled ?? true,
+                              anti_noise_ttl_minutes: prev.digest_filters?.anti_noise_ttl_minutes ?? 360,
+                            },
+                          }))
+                        }
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                      Включать СКИ
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={reportSettings.digest_filters?.include_escalations ?? true}
+                        onChange={(e) =>
+                          setReportSettings((prev) => ({
+                            ...prev,
+                            digest_filters: {
+                              ...(prev.digest_filters ?? {}),
+                              include_escalations: e.target.checked,
+                              deadline_window_days: prev.digest_filters?.deadline_window_days ?? 5,
+                              priorities: prev.digest_filters?.priorities ?? ['high', 'critical'],
+                              include_control_ski: prev.digest_filters?.include_control_ski ?? true,
+                              include_without_deadline: prev.digest_filters?.include_without_deadline ?? false,
+                              anti_noise_enabled: prev.digest_filters?.anti_noise_enabled ?? true,
+                              anti_noise_ttl_minutes: prev.digest_filters?.anti_noise_ttl_minutes ?? 360,
+                            },
+                          }))
+                        }
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                      Включать эскалации
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={reportSettings.digest_filters?.include_without_deadline ?? false}
+                        onChange={(e) =>
+                          setReportSettings((prev) => ({
+                            ...prev,
+                            digest_filters: {
+                              ...(prev.digest_filters ?? {}),
+                              include_without_deadline: e.target.checked,
+                              deadline_window_days: prev.digest_filters?.deadline_window_days ?? 5,
+                              priorities: prev.digest_filters?.priorities ?? ['high', 'critical'],
+                              include_control_ski: prev.digest_filters?.include_control_ski ?? true,
+                              include_escalations: prev.digest_filters?.include_escalations ?? true,
+                              anti_noise_enabled: prev.digest_filters?.anti_noise_enabled ?? true,
+                              anti_noise_ttl_minutes: prev.digest_filters?.anti_noise_ttl_minutes ?? 360,
+                            },
+                          }))
+                        }
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                      Включать задачи без дедлайна
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={reportSettings.digest_filters?.anti_noise_enabled ?? true}
+                        onChange={(e) =>
+                          setReportSettings((prev) => ({
+                            ...prev,
+                            digest_filters: {
+                              ...(prev.digest_filters ?? {}),
+                              anti_noise_enabled: e.target.checked,
+                              deadline_window_days: prev.digest_filters?.deadline_window_days ?? 5,
+                              priorities: prev.digest_filters?.priorities ?? ['high', 'critical'],
+                              include_control_ski: prev.digest_filters?.include_control_ski ?? true,
+                              include_escalations: prev.digest_filters?.include_escalations ?? true,
+                              include_without_deadline: prev.digest_filters?.include_without_deadline ?? false,
+                              anti_noise_ttl_minutes: prev.digest_filters?.anti_noise_ttl_minutes ?? 360,
+                            },
+                          }))
+                        }
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                      Включить анти-шум
+                    </label>
+                  </div>
                 </div>
 
                 <Button type="submit" disabled={reportSettingsLoading || reportSettingsSaving}>

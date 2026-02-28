@@ -245,7 +245,18 @@ export const api = {
     telegram_summaries_enabled: boolean
     email_analytics_enabled: boolean
     email_analytics_recipients: string
+    digest_filters?: {
+      deadline_window_days: number
+      priorities: string[]
+      include_control_ski: boolean
+      include_escalations: boolean
+      include_without_deadline: boolean
+      anti_noise_enabled: boolean
+      anti_noise_ttl_minutes: number
+    }
   }) => apiClient.put('/notifications/report-settings', data).then((r) => r.data),
+  getReportDeliveryStatus: (params?: { hours?: number }) =>
+    apiClient.get('/notifications/report-delivery/status', { params }).then((r) => r.data),
   reportClientError: (data: {
     message: string
     stack?: string

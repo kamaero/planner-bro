@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -20,6 +20,7 @@ from app.schemas.notification import (
     SMTPHealthCheckOut,
     ReportDispatchSettingsOut,
     ReportDispatchSettingsUpdateIn,
+    ReportDeliveryStatusOut,
 )
 from app.services.system_activity_service import log_system_activity
 from app.services.notification_service import _send_email_to_recipients
@@ -242,8 +243,71 @@ async def put_report_settings(
         telegram_summaries_enabled=data.telegram_summaries_enabled,
         email_analytics_enabled=data.email_analytics_enabled,
         email_analytics_recipients=data.email_analytics_recipients,
+        digest_filters=data.digest_filters.model_dump() if data.digest_filters else None,
     )
     return ReportDispatchSettingsOut(**updated)
+
+
+@router.get("/notifications/report-delivery/status", response_model=ReportDeliveryStatusOut)
+async def get_report_delivery_status(
+    hours: int = Query(default=24, ge=1, le=168),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _can_manage_reports(current_user):
+        raise HTTPException(status_code=403, detail="Only admin/manager can read report delivery status")
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    email_rows = (
+        await db.execute(
+            select(EmailDispatchLog.status, EmailDispatchLog.created_at)
+            .where(
+                EmailDispatchLog.created_at >= cutoff,
+                EmailDispatchLog.source.ilike("analytics_email_digest%"),
+            )
+            .order_by(EmailDispatchLog.created_at.desc())
+        )
+    ).all()
+
+    email_sent = sum(1 for status, _ in email_rows if status == "sent")
+    email_failed = sum(1 for status, _ in email_rows if status == "failed")
+    email_skipped = sum(1 for status, _ in email_rows if status == "skipped")
+    last_email_sent_at = next((created_at for status, created_at in email_rows if status == "sent"), None)
+
+    telegram_rows = (
+        await db.execute(
+            select(SystemActivityLog.level, SystemActivityLog.message, SystemActivityLog.created_at)
+            .where(
+                SystemActivityLog.created_at >= cutoff,
+                SystemActivityLog.source == "telegram_bot",
+                or_(
+                    SystemActivityLog.message.ilike("Telegram projects summary%"),
+                    SystemActivityLog.message.ilike("Telegram critical tasks summary%"),
+                ),
+            )
+            .order_by(SystemActivityLog.created_at.desc())
+        )
+    ).all()
+
+    telegram_sent = sum(1 for _, message, _ in telegram_rows if "sent" in message.lower())
+    telegram_failed = sum(1 for level, _, _ in telegram_rows if level == "error")
+    last_telegram_sent_at = next(
+        (created_at for _, message, created_at in telegram_rows if "sent" in message.lower()),
+        None,
+    )
+
+    return ReportDeliveryStatusOut(
+        generated_at=datetime.now(timezone.utc),
+        window_hours=hours,
+        email_sent=email_sent,
+        email_failed=email_failed,
+        email_skipped=email_skipped,
+        telegram_sent=telegram_sent,
+        telegram_failed=telegram_failed,
+        last_email_sent_at=last_email_sent_at,
+        last_telegram_sent_at=last_telegram_sent_at,
+    )
 
 
 @router.post("/devices/register")

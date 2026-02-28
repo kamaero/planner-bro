@@ -1,22 +1,34 @@
 import asyncio
+from dataclasses import dataclass
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
-from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.user import User
 from app.services.analytics_digest_service import (
+    build_digest_fingerprint,
     collect_analytics_digest,
+    format_email_digest_html,
     format_email_digest_subject,
     format_email_digest_text,
+    normalize_digest_filters,
 )
 from app.services.notification_service import _send_email_to_recipients
 from app.services.report_settings_service import (
     get_email_analytics_enabled,
     get_email_analytics_recipients,
+    get_report_digest_filters,
+    should_send_digest,
 )
 from app.services.system_activity_service import log_system_activity_standalone
 from app.tasks.celery_app import celery_app
+
+
+@dataclass(slots=True)
+class RecipientSpec:
+    email: str
+    user: User | None
+    scope_key: str
 
 
 @celery_app.task(name="app.tasks.analytics_email_digest_checker.send_email_analytics_digest")
@@ -24,32 +36,50 @@ def send_email_analytics_digest(compact: bool = False, force: bool = False):
     asyncio.run(_async_send_email_analytics_digest(compact=compact, force=force))
 
 
-def _explicit_recipients() -> list[str]:
-    raw = (settings.EMAIL_ANALYTICS_RECIPIENTS or "").strip()
-    if not raw:
-        return []
-    return [item.strip().lower() for item in raw.split(",") if item.strip()]
+def _preferred_email(user: User) -> str:
+    return (user.work_email or user.email or "").strip().lower()
 
 
-async def _recipients_from_team(db) -> list[str]:
-    rows = (
+def _role_rank(user: User) -> int:
+    if user.role == "admin":
+        return 4
+    if user.role == "manager":
+        return 3
+    if user.can_manage_team:
+        return 2
+    return 1
+
+
+async def _resolve_recipient_specs(db) -> list[RecipientSpec]:
+    users = (
         await db.execute(
-            select(User.email, User.work_email)
-            .where(
+            select(User).where(
                 User.is_active == True,  # noqa: E712
-                or_(
-                    User.role.in_(("admin", "manager")),
-                    User.can_manage_team == True,  # noqa: E712
-                ),
             )
         )
-    ).all()
-    recipients: list[str] = []
-    for email, work_email in rows:
-        target = (work_email or email or "").strip().lower()
-        if target:
-            recipients.append(target)
-    return recipients
+    ).scalars().all()
+
+    by_email: dict[str, RecipientSpec] = {}
+    for user in users:
+        email = _preferred_email(user)
+        if "@" not in email:
+            continue
+        spec = RecipientSpec(email=email, user=user, scope_key=f"user:{user.id}")
+        existing = by_email.get(email)
+        if not existing:
+            by_email[email] = spec
+            continue
+        if existing.user is None or _role_rank(user) > _role_rank(existing.user):
+            by_email[email] = spec
+
+    runtime_recipients = await get_email_analytics_recipients()
+    for raw_email in runtime_recipients.split(","):
+        email = raw_email.strip().lower()
+        if "@" not in email or email in by_email:
+            continue
+        by_email[email] = RecipientSpec(email=email, user=None, scope_key="global")
+
+    return list(by_email.values())
 
 
 async def _async_send_email_analytics_digest(compact: bool = False, force: bool = False) -> None:
@@ -57,49 +87,83 @@ async def _async_send_email_analytics_digest(compact: bool = False, force: bool 
     if not runtime_enabled and not force:
         return
 
+    digest_filters_raw = await get_report_digest_filters()
+    digest_filters = normalize_digest_filters(digest_filters_raw)
+    anti_noise_enabled = bool(digest_filters_raw.get("anti_noise_enabled", True))
+    anti_noise_ttl_minutes = int(digest_filters_raw.get("anti_noise_ttl_minutes", 360))
+
+    sent_count = 0
+    skipped_noise_count = 0
+    failed_count = 0
+
     async with AsyncSessionLocal() as db:
-        digest = await collect_analytics_digest(db, compact=compact)
+        recipient_specs = await _resolve_recipient_specs(db)
+        for spec in recipient_specs:
+            try:
+                digest = await collect_analytics_digest(
+                    db,
+                    compact=compact,
+                    viewer=spec.user,
+                    filters=digest_filters,
+                )
+                fingerprint = build_digest_fingerprint(digest, section="all")
+                if anti_noise_enabled and not force:
+                    can_send = await should_send_digest(
+                        channel="email",
+                        recipient_key=spec.email,
+                        digest_key=spec.scope_key,
+                        fingerprint=fingerprint,
+                        ttl_minutes=anti_noise_ttl_minutes,
+                    )
+                    if not can_send:
+                        skipped_noise_count += 1
+                        continue
 
-        runtime_recipients = await get_email_analytics_recipients()
-        recipients = [item.strip().lower() for item in runtime_recipients.split(",") if item.strip()]
-        if not recipients:
-            recipients = _explicit_recipients()
-        recipients.extend(await _recipients_from_team(db))
-        recipients = list(dict.fromkeys(recipients))
-        if not recipients:
-            return
+                subject = format_email_digest_subject(digest)
+                text_body = format_email_digest_text(digest, compact=compact)
+                html_body = format_email_digest_html(digest, compact=compact)
+                await _send_email_to_recipients(
+                    db,
+                    recipients=[spec.email],
+                    subject=subject,
+                    body=text_body,
+                    html_body=html_body,
+                    source="analytics_email_digest_scoped",
+                    payload={
+                        "compact": compact,
+                        "force": force,
+                        "scope": spec.scope_key,
+                        "projects_count": digest.active_projects_count,
+                        "critical_tasks_count": digest.critical_tasks_count,
+                    },
+                )
+                sent_count += 1
+            except Exception as exc:
+                failed_count += 1
+                await log_system_activity_standalone(
+                    source="analytics_email",
+                    category="email_error",
+                    level="error",
+                    message="Scoped analytics email digest failed",
+                    details={
+                        "compact": compact,
+                        "force": force,
+                        "recipient": spec.email,
+                        "scope": spec.scope_key,
+                        "error": str(exc),
+                    },
+                )
 
-        subject = format_email_digest_subject(digest)
-        body = format_email_digest_text(digest, compact=compact)
-        await _send_email_to_recipients(
-            db,
-            recipients,
-            subject,
-            body,
-            source="analytics_email_digest",
-            payload={
-                "compact": compact,
-                "force": force,
-                "projects_count": digest.active_projects_count,
-                "critical_tasks_count": digest.critical_tasks_count,
-                "recipients": len(recipients),
-            },
-        )
-
-    try:
-        await log_system_activity_standalone(
-            source="analytics_email",
-            category="email",
-            level="info",
-            message="Analytics email digest sent",
-            details={
-                "compact": compact,
-                "force": force,
-                "projects_count": digest.active_projects_count,
-                "critical_tasks_count": digest.critical_tasks_count,
-                "recipients": len(recipients),
-            },
-        )
-    except Exception:
-        # keep task resilient; email send already completed
-        pass
+    await log_system_activity_standalone(
+        source="analytics_email",
+        category="email",
+        level="info",
+        message="Scoped analytics email digest completed",
+        details={
+            "compact": compact,
+            "force": force,
+            "sent": sent_count,
+            "skipped_noise": skipped_noise_count,
+            "failed": failed_count,
+        },
+    )

@@ -45,7 +45,7 @@ async def _is_authorized(user_id: str, chat_id: str, command: str) -> bool:
             return user_id in explicit
         return user_id in admins
 
-    # /stats: all chat admins (and explicit IDs as override)
+    # /stats and /digest: all chat admins (and explicit IDs as override)
     return user_id in admins or user_id in explicit
 
 
@@ -82,7 +82,7 @@ async def _async_check_telegram_commands() -> None:
 
             text = message.get("text") or ""
             command = _normalize_command(text)
-            if command not in {"/start", "/stop", "/stats"}:
+            if command not in {"/start", "/stop", "/stats", "/digest"}:
                 continue
 
             sender = message.get("from") or {}
@@ -152,6 +152,32 @@ async def _async_check_telegram_commands() -> None:
                 await send_chat_message(chat_id, "📊 Готовлю сводку...")
                 send_projects_summary.delay(compact=True, force=True)
                 send_critical_tasks_summary.delay(compact=True, force=True)
+                continue
+
+            if command == "/digest":
+                redis = _redis()
+                lock_key = f"telegram:digest:cooldown:{chat_id}"
+                is_allowed = await redis.set(lock_key, "1", ex=30, nx=True)
+                if not is_allowed:
+                    await log_system_activity_standalone(
+                        source="telegram_bot",
+                        category="telegram",
+                        level="warning",
+                        message="Telegram /digest ignored due cooldown",
+                        details={"chat_id": chat_id, "sender_id": sender_id},
+                    )
+                    continue
+                compact = "compact" in text.lower()
+                await log_system_activity_standalone(
+                    source="telegram_bot",
+                    category="telegram",
+                    level="info",
+                    message="Telegram /digest accepted",
+                    details={"chat_id": chat_id, "sender_id": sender_id, "compact": compact},
+                )
+                await send_chat_message(chat_id, "📬 Формирую полный дайджест...")
+                send_projects_summary.delay(compact=compact, force=True)
+                send_critical_tasks_summary.delay(compact=compact, force=True)
         except Exception as exc:
             await log_system_activity_standalone(
                 source="telegram_bot",

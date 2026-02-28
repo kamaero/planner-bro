@@ -173,6 +173,27 @@ export interface ReportDispatchSettings {
   telegram_summaries_enabled: boolean
   email_analytics_enabled: boolean
   email_analytics_recipients: string
+  digest_filters?: {
+    deadline_window_days: number
+    priorities: string[]
+    include_control_ski: boolean
+    include_escalations: boolean
+    include_without_deadline: boolean
+    anti_noise_enabled: boolean
+    anti_noise_ttl_minutes: number
+  }
+}
+
+export interface ReportDeliveryStatus {
+  generated_at: string
+  window_hours: number
+  email_sent: number
+  email_failed: number
+  email_skipped: number
+  telegram_sent: number
+  telegram_failed: number
+  last_email_sent_at?: string | null
+  last_telegram_sent_at?: string | null
 }
 
 export interface TokenPair {
