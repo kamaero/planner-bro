@@ -40,6 +40,16 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.telegram_summary_checker.send_critical_tasks_summary",
         "schedule": crontab(minute=0, hour=5),
     },
+    # Asia/Yekaterinburg (UTC+5): Mon 08:10 => Mon 03:10 UTC
+    "email-analytics-summary-mon-0810-yekt": {
+        "task": "app.tasks.analytics_email_digest_checker.send_email_analytics_digest",
+        "schedule": crontab(minute=10, hour=3, day_of_week="mon"),
+    },
+    # Asia/Yekaterinburg (UTC+5): Fri 16:10 => Fri 11:10 UTC
+    "email-analytics-summary-fri-1610-yekt": {
+        "task": "app.tasks.analytics_email_digest_checker.send_email_analytics_digest",
+        "schedule": crontab(minute=10, hour=11, day_of_week="fri"),
+    },
     "telegram-commands-poll-every-30s": {
         "task": "app.tasks.telegram_commands_checker.check_telegram_commands",
         "schedule": 30.0,
@@ -53,6 +63,7 @@ celery_app.conf.imports = (
     "app.tasks.status_update_reminder_checker",
     "app.tasks.management_audit_checker",
     "app.tasks.telegram_summary_checker",
+    "app.tasks.analytics_email_digest_checker",
     "app.tasks.telegram_commands_checker",
     "app.tasks.ai_ingestion",
 )

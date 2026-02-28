@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     TEAM_STATUS_REMINDER_SOON_DEADLINE_WINDOW_DAYS: int = 7
     MANAGEMENT_AUDIT_ENABLED: bool = True
     MANAGEMENT_AUDIT_EMAIL: str = "aerokamero@gmail.com"
+    EMAIL_ANALYTICS_ENABLED: bool = True
+    EMAIL_ANALYTICS_RECIPIENTS: str = ""
 
     # Telegram summaries
     TELEGRAM_BOT_ENABLED: bool = False
