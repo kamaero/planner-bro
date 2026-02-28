@@ -1,9 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../core/api_client.dart';
+import '../core/firebase_service.dart';
 import '../models/user.dart';
-
-const _storage = FlutterSecureStorage();
 
 class AuthNotifier extends AsyncNotifier<User?> {
   @override
@@ -12,6 +10,7 @@ class AuthNotifier extends AsyncNotifier<User?> {
     if (!loggedIn) return null;
     try {
       final data = await apiClient.get('/users/me');
+      await FirebaseService.syncDeviceToken();
       return User.fromJson(data);
     } catch (_) {
       return null;
@@ -21,9 +20,12 @@ class AuthNotifier extends AsyncNotifier<User?> {
   Future<void> login(String email, String password) async {
     state = const AsyncLoading();
     try {
-      final tokens = await apiClient.post('/auth/login', {'email': email, 'password': password});
-      await saveTokens(tokens['access_token'] as String, tokens['refresh_token'] as String);
+      final tokens = await apiClient
+          .post('/auth/login', {'email': email, 'password': password});
+      await saveTokens(
+          tokens['access_token'] as String, tokens['refresh_token'] as String);
       final userData = await apiClient.get('/users/me');
+      await FirebaseService.syncDeviceToken();
       state = AsyncData(User.fromJson(userData));
     } catch (e) {
       state = AsyncError(e, StackTrace.current);
@@ -39,8 +41,10 @@ class AuthNotifier extends AsyncNotifier<User?> {
         'password': password,
         'name': name,
       });
-      await saveTokens(tokens['access_token'] as String, tokens['refresh_token'] as String);
+      await saveTokens(
+          tokens['access_token'] as String, tokens['refresh_token'] as String);
       final userData = await apiClient.get('/users/me');
+      await FirebaseService.syncDeviceToken();
       state = AsyncData(User.fromJson(userData));
     } catch (e) {
       state = AsyncError(e, StackTrace.current);
@@ -49,9 +53,11 @@ class AuthNotifier extends AsyncNotifier<User?> {
   }
 
   Future<void> logout() async {
+    await FirebaseService.unregisterCurrentDevice();
     await apiClient.logout();
     state = const AsyncData(null);
   }
 }
 
-final authProvider = AsyncNotifierProvider<AuthNotifier, User?>(AuthNotifier.new);
+final authProvider =
+    AsyncNotifierProvider<AuthNotifier, User?>(AuthNotifier.new);

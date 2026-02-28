@@ -20,6 +20,7 @@ Future<void> main() async {
   try {
     await Firebase.initializeApp();
     FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
+    await FirebaseService.init();
   } catch (_) {
     // Firebase not configured — skip
   }
