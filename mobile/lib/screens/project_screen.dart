@@ -58,7 +58,7 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
     return projectAsync.when(
       loading: () =>
           const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      error: (e, _) => Scaffold(body: Center(child: Text('Ошибка: $e'))),
       data: (project) => Scaffold(
         appBar: AppBar(
           title: Row(
@@ -79,14 +79,14 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
           bottom: TabBar(
             controller: _tabController,
             tabs: const [
-              Tab(icon: Icon(Icons.list), text: 'Tasks'),
-              Tab(icon: Icon(Icons.bar_chart), text: 'Gantt'),
+              Tab(icon: Icon(Icons.list), text: 'Задачи'),
+              Tab(icon: Icon(Icons.bar_chart), text: 'Гант'),
             ],
           ),
         ),
         body: tasksAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Error: $e')),
+          error: (e, _) => Center(child: Text('Ошибка: $e')),
           data: (tasks) {
             _maybeOpenInitialTask(tasks);
             return TabBarView(
@@ -97,7 +97,7 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
                   onRefresh: () =>
                       ref.refresh(tasksProvider(widget.projectId).future),
                   child: tasks.isEmpty
-                      ? const Center(child: Text('No tasks yet'))
+                      ? const Center(child: Text('Задач пока нет'))
                       : ListView.builder(
                           padding: const EdgeInsets.all(16),
                           itemCount: tasks.length,

@@ -204,7 +204,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('planner-bro'),
+        title: const Text('Дашборд'),
         actions: [
           IconButton(
             icon: const Icon(Icons.analytics_outlined),
@@ -222,7 +222,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ),
       body: projectsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => Center(child: Text('Ошибка: $e')),
         data: (projects) {
           return Column(
             children: [
