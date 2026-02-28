@@ -18,9 +18,15 @@ from app.schemas.notification import (
     ClientErrorReportIn,
     SMTPHealthCheckIn,
     SMTPHealthCheckOut,
+    ReportDispatchSettingsOut,
+    ReportDispatchSettingsUpdateIn,
 )
 from app.services.system_activity_service import log_system_activity
 from app.services.notification_service import _send_email_to_recipients
+from app.services.report_settings_service import (
+    get_report_dispatch_settings,
+    update_report_dispatch_settings,
+)
 
 router = APIRouter(tags=["notifications"])
 
@@ -32,6 +38,10 @@ def _mask_email(email: str) -> str:
     if len(local) <= 2:
         return f"{local[0]}***@{domain}" if local else f"***@{domain}"
     return f"{local[0]}***{local[-1]}@{domain}"
+
+
+def _can_manage_reports(user: User) -> bool:
+    return user.role in ("admin", "manager") or bool(user.can_manage_team)
 
 
 @router.get("/notifications", response_model=list[NotificationOut])
@@ -209,6 +219,31 @@ async def report_client_error(
         commit=True,
     )
     return {"status": "accepted"}
+
+
+@router.get("/notifications/report-settings", response_model=ReportDispatchSettingsOut)
+async def get_report_settings(
+    current_user: User = Depends(get_current_user),
+):
+    if not _can_manage_reports(current_user):
+        raise HTTPException(status_code=403, detail="Only admin/manager can read report settings")
+    settings_data = await get_report_dispatch_settings()
+    return ReportDispatchSettingsOut(**settings_data)
+
+
+@router.put("/notifications/report-settings", response_model=ReportDispatchSettingsOut)
+async def put_report_settings(
+    data: ReportDispatchSettingsUpdateIn,
+    current_user: User = Depends(get_current_user),
+):
+    if not _can_manage_reports(current_user):
+        raise HTTPException(status_code=403, detail="Only admin/manager can update report settings")
+    updated = await update_report_dispatch_settings(
+        telegram_summaries_enabled=data.telegram_summaries_enabled,
+        email_analytics_enabled=data.email_analytics_enabled,
+        email_analytics_recipients=data.email_analytics_recipients,
+    )
+    return ReportDispatchSettingsOut(**updated)
 
 
 @router.post("/devices/register")

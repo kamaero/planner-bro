@@ -11,6 +11,10 @@ from app.services.analytics_digest_service import (
     format_email_digest_text,
 )
 from app.services.notification_service import _send_email_to_recipients
+from app.services.report_settings_service import (
+    get_email_analytics_enabled,
+    get_email_analytics_recipients,
+)
 from app.services.system_activity_service import log_system_activity_standalone
 from app.tasks.celery_app import celery_app
 
@@ -49,13 +53,17 @@ async def _recipients_from_team(db) -> list[str]:
 
 
 async def _async_send_email_analytics_digest(compact: bool = False, force: bool = False) -> None:
-    if not settings.EMAIL_ANALYTICS_ENABLED and not force:
+    runtime_enabled = await get_email_analytics_enabled()
+    if not runtime_enabled and not force:
         return
 
     async with AsyncSessionLocal() as db:
         digest = await collect_analytics_digest(db, compact=compact)
 
-        recipients = _explicit_recipients()
+        runtime_recipients = await get_email_analytics_recipients()
+        recipients = [item.strip().lower() for item in runtime_recipients.split(",") if item.strip()]
+        if not recipients:
+            recipients = _explicit_recipients()
         recipients.extend(await _recipients_from_team(db))
         recipients = list(dict.fromkeys(recipients))
         if not recipients:

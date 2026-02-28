@@ -4,7 +4,7 @@ import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { Department, User } from '@/types'
+import type { Department, User, ReportDispatchSettings } from '@/types'
 
 type UserDraft = Pick<
   User,
@@ -46,6 +46,14 @@ export function Team() {
   const [ownPasswordSuccess, setOwnPasswordSuccess] = useState('')
   const [ownPasswordError, setOwnPasswordError] = useState('')
   const [ownPasswordForm, setOwnPasswordForm] = useState({ current_password: '', new_password: '' })
+  const [reportSettings, setReportSettings] = useState<ReportDispatchSettings>({
+    telegram_summaries_enabled: true,
+    email_analytics_enabled: true,
+    email_analytics_recipients: '',
+  })
+  const [reportSettingsLoading, setReportSettingsLoading] = useState(false)
+  const [reportSettingsSaving, setReportSettingsSaving] = useState(false)
+  const [reportSettingsMessage, setReportSettingsMessage] = useState('')
 
   const [nameDrafts, setNameDrafts] = useState<Record<string, { first_name: string; last_name: string }>>({})
   const [nameBusyId, setNameBusyId] = useState<string | null>(null)
@@ -131,6 +139,25 @@ export function Team() {
   useEffect(() => {
     void loadAll()
   }, [])
+
+  const loadReportSettings = async () => {
+    if (!canManageTeam) return
+    setReportSettingsLoading(true)
+    setReportSettingsMessage('')
+    try {
+      const data = await api.getReportDispatchSettings()
+      setReportSettings(data)
+    } catch (err: any) {
+      setReportSettingsMessage(err?.response?.data?.detail ?? 'Не удалось загрузить настройки рассылки')
+    } finally {
+      setReportSettingsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (section !== 'settings' || !canManageTeam) return
+    void loadReportSettings()
+  }, [section, canManageTeam])
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -380,6 +407,26 @@ export function Team() {
       setError(err?.response?.data?.detail ?? 'Не удалось обновить карточку сотрудника')
     } finally {
       setBusyUserId(null)
+    }
+  }
+
+  const handleSaveReportSettings = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!canManageTeam) return
+    setReportSettingsSaving(true)
+    setReportSettingsMessage('')
+    try {
+      const saved = await api.updateReportDispatchSettings({
+        telegram_summaries_enabled: reportSettings.telegram_summaries_enabled,
+        email_analytics_enabled: reportSettings.email_analytics_enabled,
+        email_analytics_recipients: reportSettings.email_analytics_recipients,
+      })
+      setReportSettings(saved)
+      setReportSettingsMessage('Настройки рассылки сохранены')
+    } catch (err: any) {
+      setReportSettingsMessage(err?.response?.data?.detail ?? 'Не удалось сохранить настройки рассылки')
+    } finally {
+      setReportSettingsSaving(false)
     }
   }
 
@@ -883,11 +930,63 @@ export function Team() {
             </form>
           </div>
 
-          <div className="rounded-xl border bg-card p-4">
-            <h2 className="font-semibold">Настройки уведомлений</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Раздел зарезервирован. Здесь появятся персональные настройки уведомлений (email/telegram и частота).
-            </p>
+          <div className="rounded-xl border bg-card p-4 space-y-3 max-w-2xl">
+            <h2 className="font-semibold">Настройки рассылки отчетов</h2>
+            {!canManageTeam && (
+              <p className="text-sm text-muted-foreground">
+                Управление рассылкой доступно только менеджерам и администраторам.
+              </p>
+            )}
+            {canManageTeam && (
+              <form onSubmit={handleSaveReportSettings} className="space-y-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={reportSettings.telegram_summaries_enabled}
+                    onChange={(e) =>
+                      setReportSettings((prev) => ({ ...prev, telegram_summaries_enabled: e.target.checked }))
+                    }
+                    disabled={reportSettingsLoading || reportSettingsSaving}
+                  />
+                  Telegram-дайджесты включены
+                </label>
+
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={reportSettings.email_analytics_enabled}
+                    onChange={(e) =>
+                      setReportSettings((prev) => ({ ...prev, email_analytics_enabled: e.target.checked }))
+                    }
+                    disabled={reportSettingsLoading || reportSettingsSaving}
+                  />
+                  Email-дайджесты аналитики включены
+                </label>
+
+                <div className="space-y-1">
+                  <Label htmlFor="email-analytics-recipients">Дополнительные получатели email</Label>
+                  <Input
+                    id="email-analytics-recipients"
+                    value={reportSettings.email_analytics_recipients}
+                    onChange={(e) =>
+                      setReportSettings((prev) => ({ ...prev, email_analytics_recipients: e.target.value }))
+                    }
+                    placeholder="cto@company.ru, pm@company.ru"
+                    disabled={reportSettingsLoading || reportSettingsSaving}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Через запятую. Менеджеры/админы команды добавляются автоматически.
+                  </p>
+                </div>
+
+                <Button type="submit" disabled={reportSettingsLoading || reportSettingsSaving}>
+                  {reportSettingsSaving ? 'Сохранение...' : reportSettingsLoading ? 'Загрузка...' : 'Сохранить настройки рассылки'}
+                </Button>
+                {reportSettingsMessage && (
+                  <p className="text-sm text-muted-foreground">{reportSettingsMessage}</p>
+                )}
+              </form>
+            )}
           </div>
         </div>
       )}

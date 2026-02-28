@@ -62,3 +62,15 @@ class SMTPHealthCheckOut(BaseModel):
     recipient: str
     source: str
     message: str
+
+
+class ReportDispatchSettingsOut(BaseModel):
+    telegram_summaries_enabled: bool
+    email_analytics_enabled: bool
+    email_analytics_recipients: str
+
+
+class ReportDispatchSettingsUpdateIn(BaseModel):
+    telegram_summaries_enabled: bool
+    email_analytics_enabled: bool
+    email_analytics_recipients: str = ""

@@ -169,6 +169,12 @@ export interface SystemActivityLog {
   created_at: string
 }
 
+export interface ReportDispatchSettings {
+  telegram_summaries_enabled: boolean
+  email_analytics_enabled: boolean
+  email_analytics_recipients: string
+}
+
 export interface TokenPair {
   access_token: string
   refresh_token: string

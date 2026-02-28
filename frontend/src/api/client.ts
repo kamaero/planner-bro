@@ -239,6 +239,13 @@ export const api = {
   }) => apiClient.get('/notifications/activity/system', { params }).then((r) => r.data),
   runSmtpHealthcheck: (data?: { recipient?: string }) =>
     apiClient.post('/notifications/activity/smtp-healthcheck', data ?? {}).then((r) => r.data),
+  getReportDispatchSettings: () =>
+    apiClient.get('/notifications/report-settings').then((r) => r.data),
+  updateReportDispatchSettings: (data: {
+    telegram_summaries_enabled: boolean
+    email_analytics_enabled: boolean
+    email_analytics_recipients: string
+  }) => apiClient.put('/notifications/report-settings', data).then((r) => r.data),
   reportClientError: (data: {
     message: string
     stack?: string
