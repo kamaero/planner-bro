@@ -194,6 +194,9 @@ final myTasksProvider = FutureProvider<List<UserTaskEntry>>((ref) async {
 
 bool _isAssignedToMe(Task task, User me) {
   if (task.assignee != null && task.assignee!.id == me.id) return true;
+  for (final assignee in task.assignees) {
+    if (assignee.id == me.id) return true;
+  }
   return false;
 }
 

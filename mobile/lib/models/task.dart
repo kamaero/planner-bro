@@ -12,6 +12,7 @@ class Task {
   final DateTime? startDate;
   final DateTime? endDate;
   final User? assignee;
+  final List<User> assignees;
   final int? estimatedHours;
   final DateTime? updatedAt;
 
@@ -27,6 +28,7 @@ class Task {
     this.startDate,
     this.endDate,
     this.assignee,
+    this.assignees = const [],
     this.estimatedHours,
     this.updatedAt,
   });
@@ -49,6 +51,10 @@ class Task {
         assignee: json['assignee'] != null
             ? User.fromJson(json['assignee'] as Map<String, dynamic>)
             : null,
+        assignees: (json['assignees'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(User.fromJson)
+            .toList(),
         estimatedHours: json['estimated_hours'] as int?,
         updatedAt: json['updated_at'] != null
             ? DateTime.parse(json['updated_at'] as String)
