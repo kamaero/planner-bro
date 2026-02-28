@@ -262,6 +262,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               Center(child: Text('Ошибка задач: $e')),
                           data: (entries) {
                             final filteredEntries = _filterMyTasks(entries);
+                            final allCount = entries.length;
+                            final urgentCount =
+                                _filterMyTasks(entries, mode: 'urgent').length;
+                            final overdueCount =
+                                _filterMyTasks(entries, mode: 'overdue').length;
                             return ListView.builder(
                               padding: const EdgeInsets.all(16),
                               itemCount: (filteredEntries.isEmpty
@@ -277,14 +282,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         spacing: 8,
                                         children: [
                                           ChoiceChip(
-                                            label: const Text('Все'),
+                                            label: Text('Все ($allCount)'),
                                             selected: _myTasksFilter == 'all',
                                             onSelected: (_) => setState(
                                               () => _myTasksFilter = 'all',
                                             ),
                                           ),
                                           ChoiceChip(
-                                            label: const Text('Срочные'),
+                                            label: Text(
+                                              'Срочные ($urgentCount)',
+                                            ),
                                             selected:
                                                 _myTasksFilter == 'urgent',
                                             onSelected: (_) => setState(
@@ -292,7 +299,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                             ),
                                           ),
                                           ChoiceChip(
-                                            label: const Text('Просроченные'),
+                                            label: Text(
+                                              'Просроченные ($overdueCount)',
+                                            ),
                                             selected:
                                                 _myTasksFilter == 'overdue',
                                             onSelected: (_) => setState(
@@ -495,11 +504,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return labels[status] ?? status;
   }
 
-  List<UserTaskEntry> _filterMyTasks(List<UserTaskEntry> entries) {
-    if (_myTasksFilter == 'all') return entries;
+  List<UserTaskEntry> _filterMyTasks(
+    List<UserTaskEntry> entries, {
+    String? mode,
+  }) {
+    final activeMode = mode ?? _myTasksFilter;
+    if (activeMode == 'all') return entries;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    if (_myTasksFilter == 'overdue') {
+    if (activeMode == 'overdue') {
       return entries.where((entry) {
         final end = entry.task.endDate;
         if (end == null || entry.task.status == 'done') return false;
@@ -507,7 +520,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return dayEnd.isBefore(today);
       }).toList();
     }
-    if (_myTasksFilter == 'urgent') {
+    if (activeMode == 'urgent') {
       return entries.where((entry) {
         final end = entry.task.endDate;
         if (end == null || entry.task.status == 'done') return false;
