@@ -2,15 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+
+import '../core/api_client.dart';
 import '../models/notification.dart';
 import '../providers/projects_provider.dart';
-import '../core/api_client.dart';
 
-class NotificationsScreen extends ConsumerWidget {
+class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NotificationsScreen> createState() =>
+      _NotificationsScreenState();
+}
+
+class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
+  bool _unreadOnly = false;
+
+  @override
+  Widget build(BuildContext context) {
     final notificationsAsync = ref.watch(notificationsProvider);
 
     return Scaffold(
@@ -30,97 +39,150 @@ class NotificationsScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Ошибка: $e')),
         data: (notifications) {
+          final visibleNotifications = _unreadOnly
+              ? notifications.where((n) => !n.isRead).toList()
+              : notifications;
+
           if (notifications.isEmpty) {
             return const Center(child: Text('Новых уведомлений нет'));
           }
-          return RefreshIndicator(
-            onRefresh: () => ref.refresh(notificationsProvider.future),
-            child: ListView.separated(
-              itemCount: notifications.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (ctx, i) {
-                final n = notifications[i];
-                final projectId = _projectIdFrom(n);
-                final taskId = _taskIdFrom(n);
-                final canMarkDone =
-                    taskId != null && n.type != 'project_updated';
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: n.isRead
-                        ? Theme.of(ctx).colorScheme.surfaceVariant
-                        : Theme.of(ctx).colorScheme.primaryContainer,
-                    child: Icon(
-                      _iconForType(n.type),
-                      size: 20,
-                      color: n.isRead
-                          ? Theme.of(ctx).colorScheme.onSurfaceVariant
-                          : Theme.of(ctx).colorScheme.onPrimaryContainer,
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                child: SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment<bool>(value: false, label: Text('Все')),
+                    ButtonSegment<bool>(
+                      value: true,
+                      label: Text('Непрочитанные'),
                     ),
-                  ),
-                  title: Text(
-                    n.title,
-                    style: TextStyle(
-                      fontWeight:
-                          n.isRead ? FontWeight.normal : FontWeight.bold,
-                    ),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(n.body),
-                      if (taskId != null || projectId != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            taskId != null
-                                ? 'Задача: $taskId'
-                                : 'Проект: $projectId',
-                            style: Theme.of(ctx).textTheme.bodySmall,
-                          ),
-                        ),
-                      const SizedBox(height: 2),
-                      Text(
-                        DateFormat('dd.MM.yyyy, HH:mm')
-                            .format(n.createdAt.toLocal()),
-                        style: Theme.of(ctx).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                  isThreeLine: true,
-                  trailing: Wrap(
-                    spacing: 4,
-                    children: [
-                      if (canMarkDone)
-                        IconButton(
-                          tooltip: 'Выполнено',
-                          icon: const Icon(Icons.check_circle_outline),
-                          onPressed: () => _markTaskDone(
-                            context: context,
-                            ref: ref,
-                            taskId: taskId,
-                          ),
-                        ),
-                      if (projectId != null)
-                        IconButton(
-                          tooltip: 'Открыть',
-                          icon: const Icon(Icons.open_in_new),
-                          onPressed: () => _openByNotification(
-                            context: context,
-                            notification: n,
-                          ),
-                        ),
-                    ],
-                  ),
-                  onTap: () async {
-                    if (!n.isRead) {
-                      await apiClient.patch('/notifications/${n.id}/read', {});
-                      ref.invalidate(notificationsProvider);
-                    }
-                    _openByNotification(context: context, notification: n);
+                  ],
+                  selected: {_unreadOnly},
+                  onSelectionChanged: (selection) {
+                    setState(() => _unreadOnly = selection.first);
                   },
-                );
-              },
-            ),
+                ),
+              ),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () => ref.refresh(notificationsProvider.future),
+                  child: visibleNotifications.isEmpty
+                      ? ListView(
+                          children: [
+                            SizedBox(height: 140),
+                            Center(
+                              child: Text('Непрочитанных уведомлений нет'),
+                            ),
+                          ],
+                        )
+                      : ListView.separated(
+                          itemCount: visibleNotifications.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (ctx, i) {
+                            final n = visibleNotifications[i];
+                            final projectId = _projectIdFrom(n);
+                            final taskId = _taskIdFrom(n);
+                            final canMarkDone =
+                                taskId != null && n.type != 'project_updated';
+
+                            return ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: n.isRead
+                                    ? Theme.of(ctx).colorScheme.surfaceVariant
+                                    : Theme.of(ctx)
+                                        .colorScheme
+                                        .primaryContainer,
+                                child: Icon(
+                                  _iconForType(n.type),
+                                  size: 20,
+                                  color: n.isRead
+                                      ? Theme.of(ctx)
+                                          .colorScheme
+                                          .onSurfaceVariant
+                                      : Theme.of(ctx)
+                                          .colorScheme
+                                          .onPrimaryContainer,
+                                ),
+                              ),
+                              title: Text(
+                                n.title,
+                                style: TextStyle(
+                                  fontWeight: n.isRead
+                                      ? FontWeight.normal
+                                      : FontWeight.bold,
+                                ),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(n.body),
+                                  if (taskId != null || projectId != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        taskId != null
+                                            ? 'Задача: $taskId'
+                                            : 'Проект: $projectId',
+                                        style:
+                                            Theme.of(ctx).textTheme.bodySmall,
+                                      ),
+                                    ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    DateFormat('dd.MM.yyyy, HH:mm')
+                                        .format(n.createdAt.toLocal()),
+                                    style: Theme.of(ctx).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                              isThreeLine: true,
+                              trailing: Wrap(
+                                spacing: 4,
+                                children: [
+                                  if (canMarkDone)
+                                    IconButton(
+                                      tooltip: 'Выполнено',
+                                      icon: const Icon(
+                                        Icons.check_circle_outline,
+                                      ),
+                                      onPressed: () => _markTaskDone(
+                                        context: context,
+                                        ref: ref,
+                                        taskId: taskId,
+                                      ),
+                                    ),
+                                  if (projectId != null)
+                                    IconButton(
+                                      tooltip: 'Открыть',
+                                      icon: const Icon(Icons.open_in_new),
+                                      onPressed: () => _openByNotification(
+                                        context: context,
+                                        notification: n,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              onTap: () async {
+                                if (!n.isRead) {
+                                  await apiClient.patch(
+                                    '/notifications/${n.id}/read',
+                                    {},
+                                  );
+                                  ref.invalidate(notificationsProvider);
+                                }
+                                _openByNotification(
+                                  context: context,
+                                  notification: n,
+                                );
+                              },
+                            );
+                          },
+                        ),
+                ),
+              ),
+            ],
           );
         },
       ),
