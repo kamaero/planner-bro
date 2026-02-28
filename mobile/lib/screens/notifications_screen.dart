@@ -133,8 +133,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                                     ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    DateFormat('dd.MM.yyyy, HH:mm')
-                                        .format(n.createdAt.toLocal()),
+                                    '${DateFormat('dd.MM.yyyy, HH:mm').format(n.createdAt.toLocal())} · ${_relativeCreatedAt(n.createdAt)}',
                                     style: Theme.of(ctx).textTheme.bodySmall,
                                   ),
                                 ],
@@ -278,5 +277,18 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       default:
         return Icons.notifications;
     }
+  }
+
+  String _relativeCreatedAt(DateTime createdAt) {
+    final now = DateTime.now();
+    final local = createdAt.toLocal();
+    final date = DateTime(local.year, local.month, local.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final diff = today.difference(date).inDays;
+    if (diff <= 0) return 'сегодня';
+    if (diff == 1) return 'вчера';
+    if (diff == 2) return 'позавчера';
+    if (diff < 7) return 'на неделе';
+    return 'ранее';
   }
 }
