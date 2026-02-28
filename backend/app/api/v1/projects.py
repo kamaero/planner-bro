@@ -1083,7 +1083,12 @@ async def _approve_single_ai_draft(
             )
         )
         if draft.assigned_to_id and draft.assigned_to_id != old_assignee:
-            await notify_task_assigned(db, task, draft.assigned_to_id)
+            await notify_task_assigned(
+                db,
+                task,
+                draft.assigned_to_id,
+                actor_id=actor.id,
+            )
     else:
         task = Task(
             project_id=project_id,
@@ -1132,7 +1137,12 @@ async def _approve_single_ai_draft(
     draft.approved_task_id = task.id
     await db.flush()
     if task.assigned_to_id and not is_rollover:
-        await notify_task_assigned(db, task, task.assigned_to_id)
+        await notify_task_assigned(
+            db,
+            task,
+            task.assigned_to_id,
+            actor_id=actor.id,
+        )
     if not is_rollover:
         await notify_new_task(db, task)
     return task

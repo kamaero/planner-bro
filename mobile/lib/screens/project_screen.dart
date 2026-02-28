@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/task.dart';
+import '../providers/auth_provider.dart';
 import '../providers/projects_provider.dart';
 import '../widgets/task_card_widget.dart';
 import '../widgets/gantt_widget.dart';
@@ -17,6 +18,7 @@ class ProjectScreen extends ConsumerStatefulWidget {
 class _ProjectScreenState extends ConsumerState<ProjectScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  int _activeTab = 0;
   static const Map<String, String> _statusLabels = {
     'planning': 'Планирование',
     'tz': 'ТЗ',
@@ -31,6 +33,12 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) return;
+      if (_activeTab != _tabController.index) {
+        setState(() => _activeTab = _tabController.index);
+      }
+    });
   }
 
   @override
@@ -103,6 +111,13 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
             ],
           ),
         ),
+        floatingActionButton: _activeTab == 0
+            ? FloatingActionButton.extended(
+                onPressed: _openCreateTaskDialog,
+                icon: const Icon(Icons.add_task),
+                label: const Text('Задача'),
+              )
+            : null,
       ),
     );
   }
@@ -165,18 +180,16 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
                 }
 
                 ref.invalidate(tasksProvider(widget.projectId));
-                if (mounted) {
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    const SnackBar(content: Text('Задача обновлена')),
-                  );
-                }
+                if (!mounted) return;
+                Navigator.of(this.context).pop();
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  const SnackBar(content: Text('Задача обновлена')),
+                );
               } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Ошибка сохранения: $e')),
-                  );
-                }
+                if (!mounted) return;
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('Ошибка сохранения: $e')),
+                );
               } finally {
                 if (mounted) {
                   setSheetState(() => isSaving = false);
@@ -201,7 +214,7 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
                           style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        value: selectedStatus,
+                        initialValue: selectedStatus,
                         decoration: const InputDecoration(
                           labelText: 'Статус',
                           border: OutlineInputBorder(),
@@ -332,5 +345,189 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
     final m = date.month.toString().padLeft(2, '0');
     final d = date.day.toString().padLeft(2, '0');
     return '$y-$m-$d';
+  }
+
+  Future<void> _openCreateTaskDialog() async {
+    final titleController = TextEditingController();
+    final descriptionController = TextEditingController();
+    final nextStepController = TextEditingController();
+    var selectedStatus = 'todo';
+    var selectedPriority = 'medium';
+    var progress = 0.0;
+    DateTime? selectedDeadline;
+    var assignToMe = true;
+    var isSaving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> saveTask() async {
+              if (isSaving) return;
+              if (titleController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Введите название задачи')),
+                );
+                return;
+              }
+              setDialogState(() => isSaving = true);
+              try {
+                final me = ref.read(authProvider).valueOrNull;
+                await apiClient.post('/projects/${widget.projectId}/tasks', {
+                  'title': titleController.text.trim(),
+                  'description': descriptionController.text.trim().isEmpty
+                      ? null
+                      : descriptionController.text.trim(),
+                  'status': selectedStatus,
+                  'priority': selectedPriority,
+                  'progress_percent': progress.round(),
+                  'next_step': nextStepController.text.trim().isEmpty
+                      ? null
+                      : nextStepController.text.trim(),
+                  'end_date': selectedDeadline == null
+                      ? null
+                      : _dateOnly(selectedDeadline!),
+                  if (assignToMe && me != null) 'assigned_to_id': me.id,
+                });
+                ref.invalidate(tasksProvider(widget.projectId));
+                if (!mounted) return;
+                Navigator.of(this.context).pop();
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  const SnackBar(content: Text('Задача создана')),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('Ошибка создания задачи: $e')),
+                );
+              } finally {
+                if (mounted) setDialogState(() => isSaving = false);
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Новая задача'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      decoration: const InputDecoration(labelText: 'Название'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: descriptionController,
+                      decoration: const InputDecoration(labelText: 'Описание'),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedStatus,
+                      decoration: const InputDecoration(labelText: 'Статус'),
+                      items: _statusLabels.entries
+                          .map((e) => DropdownMenuItem<String>(
+                                value: e.key,
+                                child: Text(e.value),
+                              ))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setDialogState(() => selectedStatus = v);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedPriority,
+                      decoration: const InputDecoration(labelText: 'Приоритет'),
+                      items: const [
+                        DropdownMenuItem(value: 'low', child: Text('Low')),
+                        DropdownMenuItem(
+                            value: 'medium', child: Text('Medium')),
+                        DropdownMenuItem(value: 'high', child: Text('High')),
+                        DropdownMenuItem(
+                            value: 'critical', child: Text('Critical')),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) {
+                          setDialogState(() => selectedPriority = v);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Text('Прогресс: ${progress.round()}%'),
+                    Slider(
+                      value: progress,
+                      min: 0,
+                      max: 100,
+                      divisions: 20,
+                      label: '${progress.round()}%',
+                      onChanged: (v) => setDialogState(() => progress = v),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: nextStepController,
+                      decoration:
+                          const InputDecoration(labelText: 'Следующий шаг'),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            selectedDeadline == null
+                                ? 'Дедлайн не задан'
+                                : 'Дедлайн: ${_dateOnly(selectedDeadline!)}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            final now = DateTime.now();
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: selectedDeadline ?? now,
+                              firstDate: DateTime(now.year - 2),
+                              lastDate: DateTime(now.year + 5),
+                            );
+                            if (picked != null) {
+                              setDialogState(() => selectedDeadline = picked);
+                            }
+                          },
+                          child: const Text('Выбрать'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    SwitchListTile(
+                      value: assignToMe,
+                      onChanged: (v) => setDialogState(() => assignToMe = v),
+                      title: const Text('Назначить на меня'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed:
+                      isSaving ? null : () => Navigator.of(context).pop(),
+                  child: const Text('Отмена'),
+                ),
+                FilledButton(
+                  onPressed: isSaving ? null : saveTask,
+                  child: Text(isSaving ? 'Сохранение...' : 'Создать'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    titleController.dispose();
+    descriptionController.dispose();
+    nextStepController.dispose();
   }
 }

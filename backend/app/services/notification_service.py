@@ -279,8 +279,16 @@ async def _filter_recipients_by_reminder_days(
     return allowed
 
 
-async def notify_task_assigned(db: AsyncSession, task: Task, assignee_id: str):
+async def notify_task_assigned(
+    db: AsyncSession,
+    task: Task,
+    assignee_id: str,
+    actor_id: str | None = None,
+):
     if not assignee_id:
+        return
+    # Anti-noise: do not notify when user assigns task to themselves.
+    if task.created_by_id == assignee_id or (actor_id and actor_id == assignee_id):
         return
     title = "Новая задача на вас"
     body = f"Вам назначена задача «{task.title}»."

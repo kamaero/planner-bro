@@ -321,7 +321,7 @@ async def create_task(
 
     # Notify assignee
     for uid in await _serialize_assignee_ids(task, db):
-        await notify_task_assigned(db, task, uid)
+        await notify_task_assigned(db, task, uid, actor_id=current_user.id)
 
     await notify_new_task(db, task)
     await db.commit()
@@ -451,7 +451,7 @@ async def update_task(
     new_assignee_ids = set(await _serialize_assignee_ids(task, db))
     old_assignee_ids = {old_assignee} if old_assignee else set()
     for uid in sorted(new_assignee_ids - old_assignee_ids):
-        await notify_task_assigned(db, task, uid)
+        await notify_task_assigned(db, task, uid, actor_id=current_user.id)
     if new_assignee_ids != old_assignee_ids:
         await _log_task_event(
             db,
@@ -697,7 +697,7 @@ async def bulk_update_tasks(
                 f"{old_assignee or ''}->{task.assigned_to_id or ''}",
             )
             for uid in await _serialize_assignee_ids(task, db):
-                await notify_task_assigned(db, task, uid)
+                await notify_task_assigned(db, task, uid, actor_id=current_user.id)
 
         await _log_task_event(
             db,
