@@ -20,6 +20,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   String _myTasksFilter = 'all';
   bool _hideDoneTasks = true;
   String _myTasksQuery = '';
+  late final TextEditingController _myTasksSearchController;
+
+  @override
+  void initState() {
+    super.initState();
+    _myTasksSearchController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _myTasksSearchController.dispose();
+    super.dispose();
+  }
 
   Future<void> _openCreateProjectDialog() async {
     final nameController = TextEditingController();
@@ -327,15 +340,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         ],
                                       ),
                                       TextField(
+                                        controller: _myTasksSearchController,
                                         decoration: InputDecoration(
                                           labelText: 'Поиск по задачам',
                                           prefixIcon: const Icon(Icons.search),
                                           suffixIcon: _myTasksQuery.isEmpty
                                               ? null
                                               : IconButton(
-                                                  onPressed: () => setState(
-                                                    () => _myTasksQuery = '',
-                                                  ),
+                                                  onPressed: () {
+                                                    _myTasksSearchController
+                                                        .clear();
+                                                    setState(
+                                                      () => _myTasksQuery = '',
+                                                    );
+                                                  },
                                                   icon: const Icon(Icons.close),
                                                   tooltip: 'Очистить',
                                                 ),
