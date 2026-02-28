@@ -327,9 +327,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         ],
                                       ),
                                       TextField(
-                                        decoration: const InputDecoration(
+                                        decoration: InputDecoration(
                                           labelText: 'Поиск по задачам',
-                                          prefixIcon: Icon(Icons.search),
+                                          prefixIcon: const Icon(Icons.search),
+                                          suffixIcon: _myTasksQuery.isEmpty
+                                              ? null
+                                              : IconButton(
+                                                  onPressed: () => setState(
+                                                    () => _myTasksQuery = '',
+                                                  ),
+                                                  icon: const Icon(Icons.close),
+                                                  tooltip: 'Очистить',
+                                                ),
                                           isDense: true,
                                         ),
                                         onChanged: (value) => setState(
