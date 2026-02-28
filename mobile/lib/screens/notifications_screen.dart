@@ -52,7 +52,13 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
           final visibleNotifications = notifications
               .where((n) => !_unreadOnly || !n.isRead)
               .where((n) => _matchesTypeFilter(n))
-              .toList();
+              .toList()
+            ..sort((a, b) {
+              if (!_unreadOnly && a.isRead != b.isRead) {
+                return a.isRead ? 1 : -1;
+              }
+              return b.createdAt.compareTo(a.createdAt);
+            });
 
           if (notifications.isEmpty) {
             return const Center(child: Text('Новых уведомлений нет'));
