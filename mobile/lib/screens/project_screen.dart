@@ -137,6 +137,7 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
     var selectedStatus = task.status;
     var progress = task.progressPercent.toDouble();
     final membersFuture = _loadProjectMembers();
+    final commentsFuture = _loadTaskComments(task.id);
     final initialAssigneeId = task.assignee?.id;
     String? selectedAssigneeId = initialAssigneeId;
     final nextStepController = TextEditingController(text: task.nextStep ?? '');
@@ -347,6 +348,86 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
                           border: OutlineInputBorder(),
                         ),
                         maxLines: 2,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Последние комментарии',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      FutureBuilder<List<_TaskCommentPreview>>(
+                        future: commentsFuture,
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: LinearProgressIndicator(minHeight: 2),
+                            );
+                          }
+                          final comments =
+                              snapshot.data ?? const <_TaskCommentPreview>[];
+                          if (comments.isEmpty) {
+                            return Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: Theme.of(context).dividerColor,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text('Комментариев пока нет'),
+                            );
+                          }
+                          return Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: Theme.of(context).dividerColor,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              children: comments
+                                  .take(5)
+                                  .map(
+                                    (comment) => Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 6,
+                                        horizontal: 4,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            comment.authorLabel,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(comment.body),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            _formatDateTime(comment.createdAt),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 12),
                       TextField(
@@ -646,6 +727,50 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
     return members;
   }
 
+  Future<List<_TaskCommentPreview>> _loadTaskComments(String taskId) async {
+    final rows = await apiClient.getList('/tasks/$taskId/comments');
+    final comments = <_TaskCommentPreview>[];
+    for (final row in rows) {
+      if (row is! Map<String, dynamic>) continue;
+      final body = (row['body'] ?? '').toString().trim();
+      if (body.isEmpty) continue;
+      final createdAtRaw = row['created_at']?.toString();
+      final createdAt = createdAtRaw == null
+          ? DateTime.now()
+          : DateTime.tryParse(createdAtRaw) ?? DateTime.now();
+      final author = row['author'];
+      String authorLabel = 'Сотрудник';
+      if (author is Map<String, dynamic>) {
+        final name = (author['name'] ?? '').toString().trim();
+        final email = (author['email'] ?? '').toString().trim();
+        if (name.isNotEmpty) {
+          authorLabel = name;
+        } else if (email.isNotEmpty) {
+          authorLabel = email;
+        }
+      }
+      comments.add(
+        _TaskCommentPreview(
+          body: body,
+          authorLabel: authorLabel,
+          createdAt: createdAt,
+        ),
+      );
+    }
+    comments.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return comments;
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    final local = dateTime.toLocal();
+    final d = local.day.toString().padLeft(2, '0');
+    final m = local.month.toString().padLeft(2, '0');
+    final y = local.year.toString();
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '$d.$m.$y $hh:$mm';
+  }
+
   void _maybeOpenInitialTask(List<Task> tasks) {
     if (_handledInitialTaskOpen) return;
     final initialTaskId = widget.initialTaskId?.trim();
@@ -675,4 +800,16 @@ class _AssigneeOption {
   final String label;
 
   const _AssigneeOption({required this.id, required this.label});
+}
+
+class _TaskCommentPreview {
+  final String body;
+  final String authorLabel;
+  final DateTime createdAt;
+
+  const _TaskCommentPreview({
+    required this.body,
+    required this.authorLabel,
+    required this.createdAt,
+  });
 }
