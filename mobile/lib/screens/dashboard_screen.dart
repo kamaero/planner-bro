@@ -18,6 +18,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _showMyTasks = false;
   String _myTasksFilter = 'all';
+  bool _hideDoneTasks = true;
 
   Future<void> _openCreateProjectDialog() async {
     final nameController = TextEditingController();
@@ -311,6 +312,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         ],
                                       ),
                                       const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Checkbox(
+                                            value: _hideDoneTasks,
+                                            onChanged: (value) => setState(
+                                              () => _hideDoneTasks =
+                                                  value ?? true,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          const Text('Скрыть выполненные'),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
                                       if (filteredEntries.isEmpty)
                                         Center(
                                           child: Padding(
@@ -518,11 +533,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     String? mode,
   }) {
     final activeMode = mode ?? _myTasksFilter;
-    if (activeMode == 'all') return entries;
+    var result = entries;
+    if (_hideDoneTasks) {
+      result = result.where((entry) => entry.task.status != 'done').toList();
+    }
+    if (activeMode == 'all') return result;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     if (activeMode == 'overdue') {
-      return entries.where((entry) {
+      return result.where((entry) {
         final end = entry.task.endDate;
         if (end == null || entry.task.status == 'done') return false;
         final dayEnd = DateTime(end.year, end.month, end.day);
@@ -530,7 +549,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       }).toList();
     }
     if (activeMode == 'urgent') {
-      return entries.where((entry) {
+      return result.where((entry) {
         final end = entry.task.endDate;
         if (end == null || entry.task.status == 'done') return false;
         final dayEnd = DateTime(end.year, end.month, end.day);
@@ -538,7 +557,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return diff <= 2;
       }).toList();
     }
-    return entries;
+    return result;
   }
 
   String _updatedLabel(DateTime updatedAt) {
