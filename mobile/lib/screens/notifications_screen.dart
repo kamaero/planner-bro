@@ -40,6 +40,15 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Ошибка: $e')),
         data: (notifications) {
+          final notificationsBase = _unreadOnly
+              ? notifications.where((n) => !n.isRead).toList()
+              : notifications;
+          final deadlineCount =
+              _countByType(notificationsBase, filter: 'deadline');
+          final assignedCount =
+              _countByType(notificationsBase, filter: 'assigned');
+          final updatesCount =
+              _countByType(notificationsBase, filter: 'updates');
           final visibleNotifications = notifications
               .where((n) => !_unreadOnly || !n.isRead)
               .where((n) => _matchesTypeFilter(n))
@@ -73,25 +82,25 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                       spacing: 8,
                       children: [
                         ChoiceChip(
-                          label: const Text('Все типы'),
+                          label: Text('Все типы (${notificationsBase.length})'),
                           selected: _typeFilter == 'all',
                           onSelected: (_) =>
                               setState(() => _typeFilter = 'all'),
                         ),
                         ChoiceChip(
-                          label: const Text('Дедлайны'),
+                          label: Text('Дедлайны ($deadlineCount)'),
                           selected: _typeFilter == 'deadline',
                           onSelected: (_) =>
                               setState(() => _typeFilter = 'deadline'),
                         ),
                         ChoiceChip(
-                          label: const Text('Назначения'),
+                          label: Text('Назначения ($assignedCount)'),
                           selected: _typeFilter == 'assigned',
                           onSelected: (_) =>
                               setState(() => _typeFilter = 'assigned'),
                         ),
                         ChoiceChip(
-                          label: const Text('Обновления'),
+                          label: Text('Обновления ($updatesCount)'),
                           selected: _typeFilter == 'updates',
                           onSelected: (_) =>
                               setState(() => _typeFilter = 'updates'),
@@ -329,7 +338,11 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   }
 
   bool _matchesTypeFilter(AppNotification notification) {
-    switch (_typeFilter) {
+    return _matchesTypeFor(notification, _typeFilter);
+  }
+
+  bool _matchesTypeFor(AppNotification notification, String filter) {
+    switch (filter) {
       case 'deadline':
         return notification.type == 'deadline_approaching' ||
             notification.type == 'deadline_missed';
@@ -342,6 +355,19 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       default:
         return true;
     }
+  }
+
+  int _countByType(
+    List<AppNotification> notifications, {
+    required String filter,
+  }) {
+    var count = 0;
+    for (final n in notifications) {
+      if (_matchesTypeFor(n, filter)) {
+        count++;
+      }
+    }
+    return count;
   }
 
   String _emptyStateLabel() {
