@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+import '../models/task.dart';
 import '../providers/auth_provider.dart';
 import '../providers/projects_provider.dart';
 import '../core/api_client.dart';
@@ -14,6 +16,8 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  bool _showMyTasks = false;
+
   Future<void> _openCreateProjectDialog() async {
     final nameController = TextEditingController();
     final descriptionController = TextEditingController();
@@ -193,6 +197,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final projectsAsync = ref.watch(projectsProvider);
+    final myTasksAsync = ref.watch(myTasksProvider);
     ref.watch(authProvider);
 
     return Scaffold(
@@ -217,20 +222,135 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (projects) {
-          if (projects.isEmpty) {
-            return const Center(
-              child: Text(
-                  'No projects yet.\nAsk your manager to add you to a project.',
-                  textAlign: TextAlign.center),
-            );
-          }
-          return RefreshIndicator(
-            onRefresh: () => ref.refresh(projectsProvider.future),
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: projects.length,
-              itemBuilder: (ctx, i) => ProjectCardWidget(project: projects[i]),
-            ),
+          return Column(
+            children: [
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment<bool>(
+                      value: false,
+                      icon: Icon(Icons.folder_outlined),
+                      label: Text('Проекты'),
+                    ),
+                    ButtonSegment<bool>(
+                      value: true,
+                      icon: Icon(Icons.task_alt),
+                      label: Text('Мои задачи'),
+                    ),
+                  ],
+                  selected: {_showMyTasks},
+                  onSelectionChanged: (selection) {
+                    setState(() => _showMyTasks = selection.first);
+                  },
+                ),
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () async {
+                    ref.invalidate(projectsProvider);
+                    ref.invalidate(myTasksProvider);
+                  },
+                  child: _showMyTasks
+                      ? myTasksAsync.when(
+                          loading: () =>
+                              const Center(child: CircularProgressIndicator()),
+                          error: (e, _) =>
+                              Center(child: Text('Ошибка задач: $e')),
+                          data: (entries) {
+                            if (entries.isEmpty) {
+                              return ListView(
+                                children: [
+                                  SizedBox(height: 160),
+                                  Center(
+                                    child: Text('На вас нет активных задач'),
+                                  ),
+                                ],
+                              );
+                            }
+                            return ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: entries.length,
+                              itemBuilder: (ctx, i) {
+                                final entry = entries[i];
+                                final task = entry.task;
+                                final urgencyColor = _urgencyColor(task);
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(12),
+                                    onTap: () => context.push(
+                                      '/projects/${entry.project.id}?task=${task.id}',
+                                    ),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: urgencyColor,
+                                          width: 1.2,
+                                        ),
+                                      ),
+                                      padding: const EdgeInsets.all(12),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            task.title,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleSmall
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            entry.project.name,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            _deadlineLabel(task.endDate),
+                                            style: TextStyle(
+                                              color: urgencyColor,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        )
+                      : projects.isEmpty
+                          ? ListView(
+                              children: [
+                                SizedBox(height: 160),
+                                Center(
+                                  child: Text(
+                                    'Нет проектов.\nПопросите менеджера добавить вас.',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: projects.length,
+                              itemBuilder: (ctx, i) =>
+                                  ProjectCardWidget(project: projects[i]),
+                            ),
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -240,5 +360,36 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         label: const Text('Проект'),
       ),
     );
+  }
+
+  String _deadlineLabel(DateTime? endDate) {
+    if (endDate == null) return 'Дедлайн: не задан';
+    final now = DateTime.now();
+    final dayNow = DateTime(now.year, now.month, now.day);
+    final dayEnd = DateTime(endDate.year, endDate.month, endDate.day);
+    final diff = dayEnd.difference(dayNow).inDays;
+    final dateText =
+        '${endDate.day.toString().padLeft(2, '0')}.${endDate.month.toString().padLeft(2, '0')}.${endDate.year}';
+    if (diff < 0) return 'Просрочено · $dateText';
+    if (diff == 0) return 'Срок сегодня · $dateText';
+    if (diff == 1) return 'Срок завтра · $dateText';
+    if (diff <= 7) return 'Срок через $diff дн. · $dateText';
+    return 'Срок: $dateText';
+  }
+
+  Color _urgencyColor(Task task) {
+    if (task.endDate == null) return Colors.blueGrey;
+    final now = DateTime.now();
+    final dayNow = DateTime(now.year, now.month, now.day);
+    final dayEnd = DateTime(
+      task.endDate!.year,
+      task.endDate!.month,
+      task.endDate!.day,
+    );
+    final diff = dayEnd.difference(dayNow).inDays;
+    if (diff < 0) return Colors.red.shade700;
+    if (diff <= 1) return Colors.orange.shade700;
+    if (diff <= 3) return Colors.amber.shade800;
+    return Colors.green.shade700;
   }
 }

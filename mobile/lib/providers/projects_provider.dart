@@ -1,9 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+
 import '../core/api_client.dart';
+import '../models/user.dart';
 import '../models/project.dart';
 import '../models/task.dart';
 import '../models/notification.dart';
+import 'auth_provider.dart';
 
 class MobileAnalyticsData {
   final int projectsCount;
@@ -61,6 +64,18 @@ class ReportDeliveryStatus {
           : DateTime.parse(json['last_telegram_sent_at'] as String),
     );
   }
+}
+
+class UserTaskEntry {
+  final Task task;
+  final Project project;
+  final int urgencyRank;
+
+  const UserTaskEntry({
+    required this.task,
+    required this.project,
+    required this.urgencyRank,
+  });
 }
 
 final projectsProvider = FutureProvider<List<Project>>((ref) async {
@@ -142,3 +157,55 @@ final reportDeliveryStatusProvider = FutureProvider<ReportDeliveryStatus?>(
     }
   },
 );
+
+final myTasksProvider = FutureProvider<List<UserTaskEntry>>((ref) async {
+  final me = ref.watch(authProvider).valueOrNull;
+  if (me == null) return const <UserTaskEntry>[];
+
+  final projects = await ref.watch(projectsProvider.future);
+  final entries = <UserTaskEntry>[];
+  for (final project in projects) {
+    final rows = await apiClient.getList('/projects/${project.id}/tasks');
+    final tasks = rows.map((e) => Task.fromJson(e as Map<String, dynamic>));
+    for (final task in tasks) {
+      if (!_isAssignedToMe(task, me)) continue;
+      entries.add(
+        UserTaskEntry(
+          task: task,
+          project: project,
+          urgencyRank: _taskUrgencyRank(task),
+        ),
+      );
+    }
+  }
+
+  entries.sort((a, b) {
+    final byUrgency = a.urgencyRank.compareTo(b.urgencyRank);
+    if (byUrgency != 0) return byUrgency;
+    final aDeadline = a.task.endDate;
+    final bDeadline = b.task.endDate;
+    if (aDeadline == null && bDeadline == null) return 0;
+    if (aDeadline == null) return 1;
+    if (bDeadline == null) return -1;
+    return aDeadline.compareTo(bDeadline);
+  });
+  return entries;
+});
+
+bool _isAssignedToMe(Task task, User me) {
+  if (task.assignee != null && task.assignee!.id == me.id) return true;
+  return false;
+}
+
+int _taskUrgencyRank(Task task) {
+  if (task.status == 'done') return 50;
+  final now = DateTime.now();
+  final deadline = task.endDate;
+  if (deadline == null) return 30;
+  final dayDiff = deadline.difference(now).inDays;
+  if (dayDiff < 0) return 0; // overdue
+  if (dayDiff == 0) return 1; // today
+  if (dayDiff <= 2) return 2; // very soon
+  if (dayDiff <= 7) return 3; // this week
+  return 10;
+}
