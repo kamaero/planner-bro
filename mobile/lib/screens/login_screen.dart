@@ -46,7 +46,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
       if (mounted) context.go('/');
     } catch (e) {
-      setState(() => _error = 'Authentication failed. Check your credentials.');
+      setState(
+        () => _error = 'Ошибка авторизации. Проверьте логин и пароль.',
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -63,7 +65,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             children: [
               const Spacer(),
               Text(
-                'planner-bro',
+                'PlannerBro',
                 style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -71,7 +73,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                _isRegister ? 'Create your account' : 'Sign in to your account',
+                _isRegister
+                    ? 'Создайте учетную запись'
+                    : 'Войдите в учетную запись',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Theme.of(
                         context,
@@ -84,7 +88,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 TextField(
                   controller: _nameController,
                   decoration: const InputDecoration(
-                    labelText: 'Name',
+                    labelText: 'Имя',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -94,7 +98,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
-                  labelText: 'Email',
+                  labelText: 'Почта',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -103,7 +107,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 controller: _passwordController,
                 obscureText: true,
                 decoration: const InputDecoration(
-                  labelText: 'Password',
+                  labelText: 'Пароль',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -124,15 +128,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(_isRegister ? 'Create Account' : 'Sign In'),
+                    : Text(_isRegister ? 'Создать аккаунт' : 'Войти'),
               ),
               const SizedBox(height: 16),
               TextButton(
                 onPressed: () => setState(() => _isRegister = !_isRegister),
                 child: Text(
                   _isRegister
-                      ? 'Already have an account? Sign in'
-                      : "Don't have an account? Sign up",
+                      ? 'Уже есть аккаунт? Войти'
+                      : 'Нет аккаунта? Зарегистрироваться',
                 ),
               ),
               const Spacer(),
