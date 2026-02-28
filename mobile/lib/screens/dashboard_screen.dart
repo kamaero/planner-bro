@@ -19,6 +19,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _showMyTasks = false;
   String _myTasksFilter = 'all';
   bool _hideDoneTasks = true;
+  String _myTasksQuery = '';
 
   Future<void> _openCreateProjectDialog() async {
     final nameController = TextEditingController();
@@ -325,6 +326,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                           const Text('Скрыть выполненные'),
                                         ],
                                       ),
+                                      TextField(
+                                        decoration: const InputDecoration(
+                                          labelText: 'Поиск по задачам',
+                                          prefixIcon: Icon(Icons.search),
+                                          isDense: true,
+                                        ),
+                                        onChanged: (value) => setState(
+                                          () => _myTasksQuery = value,
+                                        ),
+                                      ),
                                       const SizedBox(height: 8),
                                       if (filteredEntries.isEmpty)
                                         Center(
@@ -580,6 +591,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     if (_hideDoneTasks) {
       result = result.where((entry) => entry.task.status != 'done').toList();
     }
+    result = _filterByQuery(result);
     if (activeMode == 'all') return result;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -601,6 +613,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       }).toList();
     }
     return result;
+  }
+
+  List<UserTaskEntry> _filterByQuery(List<UserTaskEntry> entries) {
+    final query = _myTasksQuery.trim().toLowerCase();
+    if (query.isEmpty) return entries;
+    return entries.where((entry) {
+      final title = entry.task.title.toLowerCase();
+      final project = entry.project.name.toLowerCase();
+      return title.contains(query) || project.contains(query);
+    }).toList();
   }
 
   String _updatedLabel(DateTime updatedAt) {
