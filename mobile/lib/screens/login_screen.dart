@@ -15,8 +15,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _nameController = TextEditingController();
-  bool _isRegister = false;
+  bool _showPassword = false;
   bool _loading = false;
   String? _error;
 
@@ -24,7 +23,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _nameController.dispose();
     super.dispose();
   }
 
@@ -34,18 +32,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _error = null;
     });
     try {
-      if (_isRegister) {
-        await ref.read(authProvider.notifier).register(
-              _emailController.text.trim(),
-              _passwordController.text,
-              _nameController.text.trim(),
-            );
-      } else {
-        await ref.read(authProvider.notifier).login(
-              _emailController.text.trim(),
-              _passwordController.text,
-            );
-      }
+      final email = _emailController.text.trim().toLowerCase();
+      final password = _passwordController.text;
+      await ref.read(authProvider.notifier).login(
+            email,
+            password,
+          );
       if (mounted) context.go('/');
     } catch (e) {
       final message = _mapAuthError(e);
@@ -62,14 +54,53 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  Future<void> _forgotPassword() async {
+    final email = _emailController.text.trim().toLowerCase();
+    if (email.isEmpty) {
+      setState(() => _error = 'Введите email для восстановления пароля.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final res = await apiClient.post('/auth/forgot-password', {'email': email});
+      final msg = (res['message'] ?? 'Если аккаунт найден, письмо отправлено.').toString();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+          );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Не удалось отправить запрос восстановления. Попробуйте позже.');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   String _mapAuthError(Object error) {
     if (error is DioException) {
       final status = error.response?.statusCode;
+      final path = error.requestOptions.path;
       final detail = error.response?.data is Map<String, dynamic>
           ? (error.response?.data['detail']?.toString() ?? '')
           : '';
       if (status == 401) {
-        return 'Неверный email или пароль.';
+        if (path.contains('/auth/login')) {
+          return 'Неверный email или пароль.';
+        }
+        if (path.contains('/users/me')) {
+          return 'Вход выполнен, но не удалось проверить профиль. Повторите попытку.';
+        }
+        if (detail.isNotEmpty) {
+          return 'Ошибка авторизации (401).';
+        }
+        return 'Ошибка авторизации (401).';
       }
       if (status == 403) {
         return 'Доступ запрещен: аккаунт отключен или вход недоступен.';
@@ -81,11 +112,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           error.type == DioExceptionType.connectionTimeout ||
           error.type == DioExceptionType.receiveTimeout ||
           error.type == DioExceptionType.sendTimeout) {
-        return 'Нет соединения с сервером. Проверьте интернет и адрес API: $apiBaseUrl';
+        return 'Нет соединения с сервером. Проверьте интернет.';
       }
       if (detail.isNotEmpty) {
         return detail;
       }
+      return 'Ошибка запроса к серверу.';
     }
     return 'Ошибка авторизации. Проверьте логин и пароль.';
   }
@@ -109,9 +141,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                _isRegister
-                    ? 'Создайте учетную запись'
-                    : 'Войдите в учетную запись',
+                'Войдите в учетную запись',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Theme.of(
                         context,
@@ -120,19 +150,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
-              if (_isRegister) ...[
-                TextField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Имя',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
+                textCapitalization: TextCapitalization.none,
+                autocorrect: false,
+                enableSuggestions: false,
                 decoration: const InputDecoration(
                   labelText: 'Почта',
                   border: OutlineInputBorder(),
@@ -141,10 +164,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               const SizedBox(height: 16),
               TextField(
                 controller: _passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
+                obscureText: !_showPassword,
+                autocorrect: false,
+                enableSuggestions: false,
+                decoration: InputDecoration(
                   labelText: 'Пароль',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    onPressed: () =>
+                        setState(() => _showPassword = !_showPassword),
+                    icon: Icon(
+                      _showPassword ? Icons.visibility_off : Icons.visibility,
+                    ),
+                  ),
                 ),
               ),
               if (_error != null) ...[
@@ -164,16 +196,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(_isRegister ? 'Создать аккаунт' : 'Войти'),
+                    : const Text('Войти'),
               ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () => setState(() => _isRegister = !_isRegister),
-                child: Text(
-                  _isRegister
-                      ? 'Уже есть аккаунт? Войти'
-                      : 'Нет аккаунта? Зарегистрироваться',
-                ),
+                onPressed: _loading ? null : _forgotPassword,
+                child: const Text('Забыли пароль?'),
               ),
               const Spacer(),
             ],

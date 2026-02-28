@@ -79,6 +79,14 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
