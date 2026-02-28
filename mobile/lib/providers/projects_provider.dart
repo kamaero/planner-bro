@@ -166,9 +166,14 @@ final myTasksProvider = FutureProvider<List<UserTaskEntry>>((ref) async {
   final entries = <UserTaskEntry>[];
   final projectTasks = await Future.wait(
     projects.map((project) async {
-      final rows = await apiClient.getList('/projects/${project.id}/tasks');
-      final tasks = rows.map((e) => Task.fromJson(e as Map<String, dynamic>));
-      return (project: project, tasks: tasks.toList());
+      try {
+        final rows = await apiClient.getList('/projects/${project.id}/tasks');
+        final tasks = rows.map((e) => Task.fromJson(e as Map<String, dynamic>));
+        return (project: project, tasks: tasks.toList());
+      } catch (_) {
+        // Keep dashboard usable even if one project endpoint fails.
+        return (project: project, tasks: <Task>[]);
+      }
     }),
   );
   for (final chunk in projectTasks) {
