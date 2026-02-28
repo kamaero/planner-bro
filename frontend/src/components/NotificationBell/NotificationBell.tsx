@@ -55,12 +55,12 @@ export function NotificationBell() {
 
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-[999]" onClick={() => setOpen(false)} />
           <div
-            className="absolute left-0 top-11 z-20 w-96 max-w-[min(92vw,24rem)] rounded-xl border text-card-foreground shadow-xl overflow-hidden backdrop-blur-none"
-            style={{ backgroundColor: 'hsl(var(--card))', opacity: 1 }}
+            className="absolute left-0 top-11 z-[1000] isolate w-96 max-w-[min(92vw,24rem)] rounded-xl border text-card-foreground shadow-2xl overflow-hidden"
+            style={{ backgroundColor: "hsl(var(--card))", opacity: 1 }}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b">
+            <div className="flex items-center justify-between px-4 py-3 border-b bg-[hsl(var(--card))]">
               <span className="font-semibold text-sm">Уведомления</span>
               {unreadCount > 0 && (
                 <button
@@ -72,7 +72,7 @@ export function NotificationBell() {
               )}
             </div>
 
-            <div className="max-h-80 overflow-y-auto divide-y">
+            <div className="max-h-80 overflow-y-auto divide-y bg-[hsl(var(--card))]">
               {notifications.length === 0 && (
                 <div className="px-4 py-6 text-center text-sm text-muted-foreground">
                   Уведомлений пока нет
@@ -83,7 +83,7 @@ export function NotificationBell() {
                   key={n.id}
                   onClick={() => handleOpenNotification(n)}
                   className={cn(
-                    'w-full text-left px-4 py-3 hover:bg-accent transition-colors',
+                    'w-full text-left px-4 py-3 bg-[hsl(var(--card))] hover:bg-accent transition-colors',
                     !n.is_read && 'bg-primary/5'
                   )}
                 >
