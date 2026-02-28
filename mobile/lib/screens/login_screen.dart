@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:dio/dio.dart';
 import '../providers/auth_provider.dart';
+import '../core/api_client.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -46,12 +48,46 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
       if (mounted) context.go('/');
     } catch (e) {
-      setState(
-        () => _error = 'Ошибка авторизации. Проверьте логин и пароль.',
-      );
+      final message = _mapAuthError(e);
+      setState(() => _error = message);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+          );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _mapAuthError(Object error) {
+    if (error is DioException) {
+      final status = error.response?.statusCode;
+      final detail = error.response?.data is Map<String, dynamic>
+          ? (error.response?.data['detail']?.toString() ?? '')
+          : '';
+      if (status == 401) {
+        return 'Неверный email или пароль.';
+      }
+      if (status == 403) {
+        return 'Доступ запрещен: аккаунт отключен или вход недоступен.';
+      }
+      if (status == 422) {
+        return 'Проверьте корректность email и пароля.';
+      }
+      if (error.type == DioExceptionType.connectionError ||
+          error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.receiveTimeout ||
+          error.type == DioExceptionType.sendTimeout) {
+        return 'Нет соединения с сервером. Проверьте интернет и адрес API: $apiBaseUrl';
+      }
+      if (detail.isNotEmpty) {
+        return detail;
+      }
+    }
+    return 'Ошибка авторизации. Проверьте логин и пароль.';
   }
 
   @override

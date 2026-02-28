@@ -1,13 +1,16 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-const _baseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2:8000/api/v1');
+const apiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'https://plannerbro.ru/api/v1',
+);
 const _storage = FlutterSecureStorage();
 
 class ApiClient {
   final Dio _dio;
 
-  ApiClient() : _dio = Dio(BaseOptions(baseUrl: _baseUrl)) {
+  ApiClient() : _dio = Dio(BaseOptions(baseUrl: apiBaseUrl)) {
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
         final token = await _storage.read(key: 'access_token');
@@ -23,7 +26,7 @@ class ApiClient {
           if (refreshToken == null) return handler.next(error);
 
           try {
-            final res = await Dio(BaseOptions(baseUrl: _baseUrl)).post(
+            final res = await Dio(BaseOptions(baseUrl: apiBaseUrl)).post(
               '/auth/refresh',
               data: {'refresh_token': refreshToken},
             );
