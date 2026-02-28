@@ -351,11 +351,13 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
     final nextStepController = TextEditingController();
+    final me = ref.read(authProvider).valueOrNull;
+    final membersFuture = _loadProjectMembers();
     var selectedStatus = 'todo';
     var selectedPriority = 'medium';
     var progress = 0.0;
     DateTime? selectedDeadline;
-    var assignToMe = true;
+    String? selectedAssigneeId = me?.id;
     var isSaving = false;
 
     await showDialog<void>(
@@ -373,7 +375,6 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
               }
               setDialogState(() => isSaving = true);
               try {
-                final me = ref.read(authProvider).valueOrNull;
                 await apiClient.post('/projects/${widget.projectId}/tasks', {
                   'title': titleController.text.trim(),
                   'description': descriptionController.text.trim().isEmpty
@@ -388,7 +389,8 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
                   'end_date': selectedDeadline == null
                       ? null
                       : _dateOnly(selectedDeadline!),
-                  if (assignToMe && me != null) 'assigned_to_id': me.id,
+                  if (selectedAssigneeId != null)
+                    'assigned_to_id': selectedAssigneeId,
                 });
                 ref.invalidate(tasksProvider(widget.projectId));
                 if (!mounted) return;
@@ -500,11 +502,45 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
                       ],
                     ),
                     const SizedBox(height: 4),
-                    SwitchListTile(
-                      value: assignToMe,
-                      onChanged: (v) => setDialogState(() => assignToMe = v),
-                      title: const Text('Назначить на меня'),
-                      contentPadding: EdgeInsets.zero,
+                    FutureBuilder<List<_AssigneeOption>>(
+                      future: membersFuture,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: LinearProgressIndicator(minHeight: 2),
+                          );
+                        }
+                        final members =
+                            snapshot.data ?? const <_AssigneeOption>[];
+                        final hasSelected = members.any(
+                          (member) => member.id == selectedAssigneeId,
+                        );
+                        if (!hasSelected) {
+                          selectedAssigneeId = null;
+                        }
+                        return DropdownButtonFormField<String?>(
+                          initialValue: selectedAssigneeId,
+                          decoration:
+                              const InputDecoration(labelText: 'Ответственный'),
+                          items: [
+                            const DropdownMenuItem<String?>(
+                              value: null,
+                              child: Text('Не назначен'),
+                            ),
+                            ...members.map(
+                              (member) => DropdownMenuItem<String?>(
+                                value: member.id,
+                                child: Text(member.label),
+                              ),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setDialogState(() => selectedAssigneeId = value);
+                          },
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -530,4 +566,35 @@ class _ProjectScreenState extends ConsumerState<ProjectScreen>
     descriptionController.dispose();
     nextStepController.dispose();
   }
+
+  Future<List<_AssigneeOption>> _loadProjectMembers() async {
+    final rows =
+        await apiClient.getList('/projects/${widget.projectId}/members');
+    final members = <_AssigneeOption>[];
+    for (final row in rows) {
+      if (row is! Map<String, dynamic>) continue;
+      final user = row['user'];
+      if (user is! Map<String, dynamic>) continue;
+      final id = (user['id'] ?? '').toString().trim();
+      final name = (user['name'] ?? '').toString().trim();
+      final email = (user['email'] ?? '').toString().trim();
+      if (id.isEmpty) continue;
+      members.add(
+        _AssigneeOption(
+          id: id,
+          label: name.isNotEmpty ? name : (email.isNotEmpty ? email : id),
+        ),
+      );
+    }
+    members
+        .sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+    return members;
+  }
+}
+
+class _AssigneeOption {
+  final String id;
+  final String label;
+
+  const _AssigneeOption({required this.id, required this.label});
 }
