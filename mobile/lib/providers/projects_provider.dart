@@ -164,15 +164,20 @@ final myTasksProvider = FutureProvider<List<UserTaskEntry>>((ref) async {
 
   final projects = await ref.watch(projectsProvider.future);
   final entries = <UserTaskEntry>[];
-  for (final project in projects) {
-    final rows = await apiClient.getList('/projects/${project.id}/tasks');
-    final tasks = rows.map((e) => Task.fromJson(e as Map<String, dynamic>));
-    for (final task in tasks) {
+  final projectTasks = await Future.wait(
+    projects.map((project) async {
+      final rows = await apiClient.getList('/projects/${project.id}/tasks');
+      final tasks = rows.map((e) => Task.fromJson(e as Map<String, dynamic>));
+      return (project: project, tasks: tasks.toList());
+    }),
+  );
+  for (final chunk in projectTasks) {
+    for (final task in chunk.tasks) {
       if (!_isAssignedToMe(task, me)) continue;
       entries.add(
         UserTaskEntry(
           task: task,
-          project: project,
+          project: chunk.project,
           urgencyRank: _taskUrgencyRank(task),
         ),
       );
