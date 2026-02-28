@@ -78,6 +78,24 @@ function formatDate(value?: string) {
   return new Date(value).toLocaleDateString('ru')
 }
 
+function humanizeTaskUpdateTime(value?: string): string {
+  if (!value) return 'нет данных'
+  const updatedAt = new Date(value)
+  if (Number.isNaN(updatedAt.getTime())) return 'нет данных'
+
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const updatedDayStart = new Date(updatedAt.getFullYear(), updatedAt.getMonth(), updatedAt.getDate())
+  const diffDays = Math.floor((todayStart.getTime() - updatedDayStart.getTime()) / (1000 * 60 * 60 * 24))
+
+  const timePart = updatedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  if (diffDays <= 0) return `сегодня, ${timePart}`
+  if (diffDays === 1) return `вчера, ${timePart}`
+  if (diffDays === 2) return `позавчера, ${timePart}`
+  if (diffDays <= 7) return `на прошлой неделе (${updatedAt.toLocaleDateString('ru-RU')})`
+  return updatedAt.toLocaleDateString('ru-RU')
+}
+
 function parseDateOnly(value?: string): Date | null {
   if (!value) return null
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
@@ -184,18 +202,14 @@ export function Dashboard() {
     refetchInterval: systemLogOpen ? 20_000 : false,
   })
 
-  const today = new Date().toISOString().slice(0, 10)
-  const [quoteShift, setQuoteShift] = useState(0)
+  const [quoteIndex, setQuoteIndex] = useState(() => Math.floor(Math.random() * IT_QUOTES.length))
+  const [wisdomUpdatedAt, setWisdomUpdatedAt] = useState(() => new Date())
   const sevenDaysAgo = useMemo(() => {
     const d = new Date()
     d.setDate(d.getDate() - 7)
     return d.toISOString()
   }, [])
-  const wisdomQuote = useMemo(() => {
-    const dateSeed = Number(today.replace(/-/g, '')) || 0
-    const index = (dateSeed + quoteShift) % IT_QUOTES.length
-    return IT_QUOTES[index]
-  }, [today, quoteShift])
+  const wisdomQuote = IT_QUOTES[quoteIndex] ?? IT_QUOTES[0]
 
   const departmentTabs = useMemo(
     () => dashboardData?.departments ?? [],
@@ -207,6 +221,21 @@ export function Dashboard() {
     const exists = departmentTabs.some((dep) => dep.department_id === selectedDepartmentTab)
     if (!exists) setSelectedDepartmentTab('all')
   }, [departmentTabs, selectedDepartmentTab])
+
+  useEffect(() => {
+    const pickRandomQuote = () => {
+      setQuoteIndex((prev) => {
+        if (IT_QUOTES.length <= 1) return 0
+        let next = Math.floor(Math.random() * IT_QUOTES.length)
+        while (next === prev) next = Math.floor(Math.random() * IT_QUOTES.length)
+        return next
+      })
+      setWisdomUpdatedAt(new Date())
+    }
+
+    const intervalId = window.setInterval(pickRandomQuote, 15 * 60 * 1000)
+    return () => window.clearInterval(intervalId)
+  }, [])
 
   const myProjectIds = useMemo(() => {
     if (!currentUser?.id) return new Set<string>()
@@ -830,7 +859,10 @@ export function Dashboard() {
           <div className="max-h-64 space-y-1 overflow-auto">
             {recentTasks.map((task: Task) => (
               <Link key={task.id} to={`/projects/${task.project_id}`} className="flex items-center justify-between rounded px-2 py-1.5 text-sm hover:bg-accent">
-                <span className="truncate">{task.title}</span>
+                <div className="min-w-0">
+                  <p className="truncate">{task.title}</p>
+                  <p className="text-xs text-muted-foreground">Обновлено: {humanizeTaskUpdateTime(task.updated_at)}</p>
+                </div>
                 <span className="ml-3 shrink-0 text-xs text-muted-foreground">{TASK_STATUS_LABEL[task.status]}</span>
               </Link>
             ))}
@@ -865,14 +897,22 @@ export function Dashboard() {
         >
           <button
             type="button"
-            onClick={() => setQuoteShift((v) => (v + 1) % IT_QUOTES.length)}
+            onClick={() => {
+              setQuoteIndex((prev) => {
+                if (IT_QUOTES.length <= 1) return 0
+                let next = Math.floor(Math.random() * IT_QUOTES.length)
+                while (next === prev) next = Math.floor(Math.random() * IT_QUOTES.length)
+                return next
+              })
+              setWisdomUpdatedAt(new Date())
+            }}
             className="flex h-64 w-full flex-col justify-start overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 text-left align-top font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]"
             title="Кликните для новой цитаты"
           >
             <div className="space-y-1">
-              <p>[{new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}] [wisdom_bot] quote_loaded</p>
-              <p className="whitespace-pre-wrap">“{wisdomQuote}”</p>
-              <p className="text-emerald-500/80">[info] Обновляется ежедневно + кликом по окну.</p>
+              <p>[{wisdomUpdatedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}] [wisdom_bot] quote_loaded</p>
+              <p className="whitespace-pre-wrap text-base leading-7">“{wisdomQuote}”</p>
+              <p className="text-emerald-500/80">[info] Обновляется случайно каждые 15 минут + кликом по окну.</p>
             </div>
           </button>
         </SectionCard>
