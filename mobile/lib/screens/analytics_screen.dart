@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../providers/projects_provider.dart';
 
@@ -19,6 +20,7 @@ class AnalyticsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final analyticsAsync = ref.watch(analyticsProvider);
+    final deliveryAsync = ref.watch(reportDeliveryStatusProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Аналитика')),
@@ -26,7 +28,10 @@ class AnalyticsScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Ошибка загрузки аналитики: $e')),
         data: (data) => RefreshIndicator(
-          onRefresh: () async => ref.invalidate(analyticsProvider),
+          onRefresh: () async {
+            ref.invalidate(analyticsProvider);
+            ref.invalidate(reportDeliveryStatusProvider);
+          },
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -100,11 +105,100 @@ class AnalyticsScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+              Text(
+                'Доставка отчётов',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              deliveryAsync.when(
+                loading: () => const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+                error: (e, _) => Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text('Не удалось загрузить статус рассылок: $e'),
+                  ),
+                ),
+                data: (status) {
+                  if (status == null) {
+                    return const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text(
+                          'Доступно только руководителю/администратору.',
+                        ),
+                      ),
+                    );
+                  }
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Окно: ${status.windowHours} ч.'),
+                          const SizedBox(height: 8),
+                          _deliveryRow(
+                            label: 'Email',
+                            sent: status.emailSent,
+                            failed: status.emailFailed,
+                            skipped: status.emailSkipped,
+                          ),
+                          const SizedBox(height: 6),
+                          _deliveryRow(
+                            label: 'Telegram',
+                            sent: status.telegramSent,
+                            failed: status.telegramFailed,
+                            skipped: 0,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Последний email: ${_fmtDate(status.lastEmailSentAt)}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          Text(
+                            'Последний telegram: ${_fmtDate(status.lastTelegramSentAt)}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Widget _deliveryRow({
+    required String label,
+    required int sent,
+    required int failed,
+    required int skipped,
+  }) {
+    return Row(
+      children: [
+        Expanded(child: Text(label)),
+        Text('ok $sent'),
+        const SizedBox(width: 10),
+        Text('err $failed'),
+        const SizedBox(width: 10),
+        Text('skip $skipped'),
+      ],
+    );
+  }
+
+  String _fmtDate(DateTime? value) {
+    if (value == null) return 'нет данных';
+    return DateFormat('dd.MM.yyyy HH:mm').format(value.toLocal());
   }
 }
 

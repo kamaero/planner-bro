@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import '../core/api_client.dart';
 import '../models/project.dart';
 import '../models/task.dart';
@@ -18,6 +19,48 @@ class MobileAnalyticsData {
     required this.overdueTasksCount,
     required this.statusCounts,
   });
+}
+
+class ReportDeliveryStatus {
+  final DateTime generatedAt;
+  final int windowHours;
+  final int emailSent;
+  final int emailFailed;
+  final int emailSkipped;
+  final int telegramSent;
+  final int telegramFailed;
+  final DateTime? lastEmailSentAt;
+  final DateTime? lastTelegramSentAt;
+
+  const ReportDeliveryStatus({
+    required this.generatedAt,
+    required this.windowHours,
+    required this.emailSent,
+    required this.emailFailed,
+    required this.emailSkipped,
+    required this.telegramSent,
+    required this.telegramFailed,
+    this.lastEmailSentAt,
+    this.lastTelegramSentAt,
+  });
+
+  factory ReportDeliveryStatus.fromJson(Map<String, dynamic> json) {
+    return ReportDeliveryStatus(
+      generatedAt: DateTime.parse(json['generated_at'] as String),
+      windowHours: (json['window_hours'] as num?)?.toInt() ?? 24,
+      emailSent: (json['email_sent'] as num?)?.toInt() ?? 0,
+      emailFailed: (json['email_failed'] as num?)?.toInt() ?? 0,
+      emailSkipped: (json['email_skipped'] as num?)?.toInt() ?? 0,
+      telegramSent: (json['telegram_sent'] as num?)?.toInt() ?? 0,
+      telegramFailed: (json['telegram_failed'] as num?)?.toInt() ?? 0,
+      lastEmailSentAt: json['last_email_sent_at'] == null
+          ? null
+          : DateTime.parse(json['last_email_sent_at'] as String),
+      lastTelegramSentAt: json['last_telegram_sent_at'] == null
+          ? null
+          : DateTime.parse(json['last_telegram_sent_at'] as String),
+    );
+  }
 }
 
 final projectsProvider = FutureProvider<List<Project>>((ref) async {
@@ -84,3 +127,18 @@ final analyticsProvider = FutureProvider<MobileAnalyticsData>((ref) async {
     statusCounts: statusCounts,
   );
 });
+
+final reportDeliveryStatusProvider = FutureProvider<ReportDeliveryStatus?>(
+  (ref) async {
+    try {
+      final data = await apiClient.get('/notifications/report-delivery/status');
+      return ReportDeliveryStatus.fromJson(data);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 403) {
+        // Non-manager roles do not have access to dispatch metrics.
+        return null;
+      }
+      rethrow;
+    }
+  },
+);
