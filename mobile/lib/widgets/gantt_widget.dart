@@ -9,19 +9,23 @@ class GanttWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final withDates = tasks.where((t) => t.startDate != null && t.endDate != null).toList();
+    final withDates =
+        tasks.where((t) => t.startDate != null && t.endDate != null).toList();
 
     if (withDates.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(32),
-          child: Text('No tasks with dates to display.'),
+          child: Text('Нет задач с датами для отображения.'),
         ),
       );
     }
 
-    final earliest = withDates.map((t) => t.startDate!).reduce((a, b) => a.isBefore(b) ? a : b);
-    final latest = withDates.map((t) => t.endDate!).reduce((a, b) => a.isAfter(b) ? a : b);
+    final earliest = withDates
+        .map((t) => t.startDate!)
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final latest =
+        withDates.map((t) => t.endDate!).reduce((a, b) => a.isAfter(b) ? a : b);
     final totalDays = latest.difference(earliest).inDays + 1;
     const dayWidth = 30.0;
     const rowHeight = 48.0;
@@ -52,14 +56,16 @@ class GanttWidget extends StatelessWidget {
           const Divider(height: 1),
           ...withDates.map((task) {
             final start = task.startDate!.difference(earliest).inDays;
-            final duration = task.endDate!.difference(task.startDate!).inDays + 1;
+            final duration =
+                task.endDate!.difference(task.startDate!).inDays + 1;
             final priority = task.priority;
             final color = <String, Color>{
-              'low': Colors.blue,
-              'medium': Colors.amber,
-              'high': Colors.orange,
-              'critical': Colors.red,
-            }[priority] ?? Colors.indigo;
+                  'low': Colors.blue,
+                  'medium': Colors.amber,
+                  'high': Colors.orange,
+                  'critical': Colors.red,
+                }[priority] ??
+                Colors.indigo;
 
             return SizedBox(
               height: rowHeight,

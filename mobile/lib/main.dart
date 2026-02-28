@@ -72,7 +72,7 @@ class PlannerBroApp extends ConsumerWidget {
     );
 
     return MaterialApp.router(
-      title: 'planner-bro',
+      title: 'PlannerBro',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(

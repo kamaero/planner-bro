@@ -11,10 +11,10 @@ class SettingsScreen extends ConsumerWidget {
     final userAsync = ref.watch(authProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: const Text('Профиль')),
       body: userAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => Center(child: Text('Ошибка: $e')),
         data: (user) => user == null
             ? const SizedBox()
             : ListView(
@@ -22,23 +22,24 @@ class SettingsScreen extends ConsumerWidget {
                   const SizedBox(height: 16),
                   ListTile(
                     leading: const Icon(Icons.person),
-                    title: const Text('Name'),
+                    title: const Text('Имя'),
                     subtitle: Text(user.name),
                   ),
                   ListTile(
                     leading: const Icon(Icons.email),
-                    title: const Text('Email'),
+                    title: const Text('Почта'),
                     subtitle: Text(user.email),
                   ),
                   ListTile(
                     leading: const Icon(Icons.badge),
-                    title: const Text('Role'),
+                    title: const Text('Роль'),
                     subtitle: Text(user.role),
                   ),
                   const Divider(),
                   ListTile(
                     leading: const Icon(Icons.logout, color: Colors.red),
-                    title: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+                    title: const Text('Выйти',
+                        style: TextStyle(color: Colors.red)),
                     onTap: () async {
                       await ref.read(authProvider.notifier).logout();
                       if (context.mounted) context.go('/login');
