@@ -297,18 +297,44 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          Text(
-                                            task.title,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleSmall
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.w600,
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  task.title,
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .titleSmall
+                                                      ?.copyWith(
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
                                                 ),
+                                              ),
+                                              if (task.status != 'done')
+                                                IconButton(
+                                                  tooltip: 'Выполнено',
+                                                  icon: const Icon(
+                                                    Icons.check_circle_outline,
+                                                    size: 20,
+                                                  ),
+                                                  onPressed: () =>
+                                                      _markTaskDone(
+                                                    taskId: task.id,
+                                                  ),
+                                                ),
+                                            ],
                                           ),
                                           const SizedBox(height: 6),
                                           Text(
                                             entry.project.name,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Статус: ${_statusLabel(task.status)}',
                                             style: Theme.of(context)
                                                 .textTheme
                                                 .bodySmall,
@@ -391,5 +417,35 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     if (diff <= 1) return Colors.orange.shade700;
     if (diff <= 3) return Colors.amber.shade800;
     return Colors.green.shade700;
+  }
+
+  Future<void> _markTaskDone({required String taskId}) async {
+    try {
+      await apiClient.patch('/tasks/$taskId/status', {'status': 'done'});
+      ref.invalidate(myTasksProvider);
+      ref.invalidate(projectsProvider);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Задача переведена в Выполнено')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка обновления задачи: $e')),
+      );
+    }
+  }
+
+  String _statusLabel(String status) {
+    const labels = {
+      'planning': 'Планирование',
+      'tz': 'ТЗ',
+      'todo': 'К выполнению',
+      'in_progress': 'В работе',
+      'testing': 'Тестирование',
+      'review': 'На проверке',
+      'done': 'Выполнено',
+    };
+    return labels[status] ?? status;
   }
 }
