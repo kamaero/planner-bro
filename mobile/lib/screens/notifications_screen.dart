@@ -17,6 +17,7 @@ class NotificationsScreen extends ConsumerStatefulWidget {
 
 class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   bool _unreadOnly = false;
+  String _typeFilter = 'all';
 
   @override
   Widget build(BuildContext context) {
@@ -39,9 +40,10 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Ошибка: $e')),
         data: (notifications) {
-          final visibleNotifications = _unreadOnly
-              ? notifications.where((n) => !n.isRead).toList()
-              : notifications;
+          final visibleNotifications = notifications
+              .where((n) => !_unreadOnly || !n.isRead)
+              .where((n) => _matchesTypeFilter(n))
+              .toList();
 
           if (notifications.isEmpty) {
             return const Center(child: Text('Новых уведомлений нет'));
@@ -51,18 +53,52 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                child: SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment<bool>(value: false, label: Text('Все')),
-                    ButtonSegment<bool>(
-                      value: true,
-                      label: Text('Непрочитанные'),
+                child: Column(
+                  children: [
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment<bool>(value: false, label: Text('Все')),
+                        ButtonSegment<bool>(
+                          value: true,
+                          label: Text('Непрочитанные'),
+                        ),
+                      ],
+                      selected: {_unreadOnly},
+                      onSelectionChanged: (selection) {
+                        setState(() => _unreadOnly = selection.first);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Все типы'),
+                          selected: _typeFilter == 'all',
+                          onSelected: (_) =>
+                              setState(() => _typeFilter = 'all'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Дедлайны'),
+                          selected: _typeFilter == 'deadline',
+                          onSelected: (_) =>
+                              setState(() => _typeFilter = 'deadline'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Назначения'),
+                          selected: _typeFilter == 'assigned',
+                          onSelected: (_) =>
+                              setState(() => _typeFilter = 'assigned'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Обновления'),
+                          selected: _typeFilter == 'updates',
+                          onSelected: (_) =>
+                              setState(() => _typeFilter = 'updates'),
+                        ),
+                      ],
                     ),
                   ],
-                  selected: {_unreadOnly},
-                  onSelectionChanged: (selection) {
-                    setState(() => _unreadOnly = selection.first);
-                  },
                 ),
               ),
               Expanded(
@@ -73,7 +109,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                           children: [
                             SizedBox(height: 140),
                             Center(
-                              child: Text('Непрочитанных уведомлений нет'),
+                              child: Text(_emptyStateLabel()),
                             ),
                           ],
                         )
@@ -290,5 +326,31 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     if (diff == 2) return 'позавчера';
     if (diff < 7) return 'на неделе';
     return 'ранее';
+  }
+
+  bool _matchesTypeFilter(AppNotification notification) {
+    switch (_typeFilter) {
+      case 'deadline':
+        return notification.type == 'deadline_approaching' ||
+            notification.type == 'deadline_missed';
+      case 'assigned':
+        return notification.type == 'task_assigned';
+      case 'updates':
+        return notification.type == 'task_updated' ||
+            notification.type == 'project_updated' ||
+            notification.type == 'new_task';
+      default:
+        return true;
+    }
+  }
+
+  String _emptyStateLabel() {
+    if (_typeFilter != 'all') {
+      return 'Нет уведомлений по выбранному типу';
+    }
+    if (_unreadOnly) {
+      return 'Непрочитанных уведомлений нет';
+    }
+    return 'Уведомлений пока нет';
   }
 }
