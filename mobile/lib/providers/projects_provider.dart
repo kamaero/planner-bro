@@ -167,9 +167,8 @@ final myTasksProvider = FutureProvider<List<UserTaskEntry>>((ref) async {
   final projectTasks = await Future.wait(
     projects.map((project) async {
       try {
-        final rows = await apiClient.getList('/projects/${project.id}/tasks');
-        final tasks = rows.map((e) => Task.fromJson(e as Map<String, dynamic>));
-        return (project: project, tasks: tasks.toList());
+        final tasks = await ref.watch(tasksProvider(project.id).future);
+        return (project: project, tasks: tasks);
       } catch (_) {
         // Keep dashboard usable even if one project endpoint fails.
         return (project: project, tasks: <Task>[]);
