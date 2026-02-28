@@ -216,9 +216,11 @@ bool _isAssignedToMe(Task task, User me) {
 int _taskUrgencyRank(Task task) {
   if (task.status == 'done') return 50;
   final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
   final deadline = task.endDate;
   if (deadline == null) return 30;
-  final dayDiff = deadline.difference(now).inDays;
+  final deadlineDay = DateTime(deadline.year, deadline.month, deadline.day);
+  final dayDiff = deadlineDay.difference(today).inDays;
   if (dayDiff < 0) return 0; // overdue
   if (dayDiff == 0) return 1; // today
   if (dayDiff <= 2) return 2; // very soon
