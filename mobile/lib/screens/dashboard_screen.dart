@@ -17,6 +17,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _showMyTasks = false;
+  String _myTasksFilter = 'all';
 
   Future<void> _openCreateProjectDialog() async {
     final nameController = TextEditingController();
@@ -260,21 +261,66 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           error: (e, _) =>
                               Center(child: Text('Ошибка задач: $e')),
                           data: (entries) {
-                            if (entries.isEmpty) {
-                              return ListView(
-                                children: [
-                                  SizedBox(height: 160),
-                                  Center(
-                                    child: Text('На вас нет активных задач'),
-                                  ),
-                                ],
-                              );
-                            }
+                            final filteredEntries = _filterMyTasks(entries);
                             return ListView.builder(
                               padding: const EdgeInsets.all(16),
-                              itemCount: entries.length,
+                              itemCount: (filteredEntries.isEmpty
+                                  ? 1
+                                  : filteredEntries.length + 1),
                               itemBuilder: (ctx, i) {
-                                final entry = entries[i];
+                                if (i == 0) {
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Wrap(
+                                        spacing: 8,
+                                        children: [
+                                          ChoiceChip(
+                                            label: const Text('Все'),
+                                            selected: _myTasksFilter == 'all',
+                                            onSelected: (_) => setState(
+                                              () => _myTasksFilter = 'all',
+                                            ),
+                                          ),
+                                          ChoiceChip(
+                                            label: const Text('Срочные'),
+                                            selected:
+                                                _myTasksFilter == 'urgent',
+                                            onSelected: (_) => setState(
+                                              () => _myTasksFilter = 'urgent',
+                                            ),
+                                          ),
+                                          ChoiceChip(
+                                            label: const Text('Просроченные'),
+                                            selected:
+                                                _myTasksFilter == 'overdue',
+                                            onSelected: (_) => setState(
+                                              () => _myTasksFilter = 'overdue',
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      if (filteredEntries.isEmpty)
+                                        Center(
+                                          child: Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 48,
+                                            ),
+                                            child: Text(
+                                              _myTasksFilter == 'overdue'
+                                                  ? 'Просроченных задач нет'
+                                                  : _myTasksFilter == 'urgent'
+                                                      ? 'Срочных задач нет'
+                                                      : 'На вас нет активных задач',
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                }
+                                final entry = filteredEntries[i - 1];
                                 final task = entry.task;
                                 final urgencyColor = _urgencyColor(task);
                                 return Card(
@@ -447,5 +493,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       'done': 'Выполнено',
     };
     return labels[status] ?? status;
+  }
+
+  List<UserTaskEntry> _filterMyTasks(List<UserTaskEntry> entries) {
+    if (_myTasksFilter == 'all') return entries;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    if (_myTasksFilter == 'overdue') {
+      return entries.where((entry) {
+        final end = entry.task.endDate;
+        if (end == null || entry.task.status == 'done') return false;
+        final dayEnd = DateTime(end.year, end.month, end.day);
+        return dayEnd.isBefore(today);
+      }).toList();
+    }
+    if (_myTasksFilter == 'urgent') {
+      return entries.where((entry) {
+        final end = entry.task.endDate;
+        if (end == null || entry.task.status == 'done') return false;
+        final dayEnd = DateTime(end.year, end.month, end.day);
+        final diff = dayEnd.difference(today).inDays;
+        return diff <= 2;
+      }).toList();
+    }
+    return entries;
   }
 }
