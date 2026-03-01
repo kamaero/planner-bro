@@ -90,16 +90,19 @@ jobs:
         run: |
           mkdir -p artifacts
           SHORT_SHA="$(echo "${{ github.sha }}" | head -c 7)"
-          APK_NAME="planner-bro-${SHORT_SHA}.apk"
-          TAG_NAME="apk-${SHORT_SHA}"
+          VERSION_RAW="$(grep '^version:' mobile/pubspec.yaml | awk '{print $2}')"
+          VERSION_SAFE="${VERSION_RAW//+/-}"
+          APK_NAME="planner-bro-${VERSION_SAFE}-${SHORT_SHA}.apk"
+          TAG_NAME="apk-${VERSION_SAFE}-${SHORT_SHA}"
           cp mobile/build/app/outputs/flutter-apk/app-release.apk "artifacts/${APK_NAME}"
           echo "apk_name=${APK_NAME}" >> "$GITHUB_OUTPUT"
           echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_raw=${VERSION_RAW}" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: planner-bro-apk
+          name: planner-bro-apk-${{ steps.naming.outputs.version_raw }}
           path: artifacts/planner-bro-*.apk
           retention-days: 30
 
@@ -108,7 +111,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.naming.outputs.tag_name }}
-          name: PlannerBro APK ${{ steps.naming.outputs.tag_name }}
+          name: PlannerBro APK v${{ steps.naming.outputs.version_raw }} (${{ steps.naming.outputs.tag_name }})
           generate_release_notes: true
           files: artifacts/${{ steps.naming.outputs.apk_name }}
           make_latest: true
