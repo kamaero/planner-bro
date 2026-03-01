@@ -233,6 +233,9 @@ async def _resolve_scoped_project_ids(db: AsyncSession, audience: DigestAudience
 
 
 def _is_focus_task(task: Task, today: date, filters: DigestFilters) -> bool:
+    if _is_task_completed(task):
+        return False
+
     is_critical_signal = (
         task.priority in set(filters.priorities or DEFAULT_DIGEST_PRIORITIES)
         or (filters.include_control_ski and task.control_ski)
@@ -248,6 +251,18 @@ def _is_focus_task(task: Task, today: date, filters: DigestFilters) -> bool:
     if delta_days < 0:
         return True
     return delta_days <= filters.deadline_window_days
+
+
+def _is_task_completed(task: Task) -> bool:
+    return task.status == "done" or int(task.progress_percent or 0) >= 100
+
+
+def _is_project_completed(project: Project, project_tasks: list[Task]) -> bool:
+    if project.status == "completed":
+        return True
+    if not project_tasks:
+        return False
+    return all(_is_task_completed(task) for task in project_tasks)
 
 
 async def collect_analytics_digest(
@@ -293,14 +308,14 @@ async def collect_analytics_digest(
     all_project_tasks = (
         await db.execute(select(Task).where(Task.project_id.in_(scoped_project_ids)))
     ).scalars().all()
-    active_project_tasks = [t for t in all_project_tasks if t.status != "done"]
+    active_project_tasks = [t for t in all_project_tasks if not _is_task_completed(t)]
 
     tasks_by_project: dict[str, list[Task]] = defaultdict(list)
     for task in all_project_tasks:
         tasks_by_project[task.project_id].append(task)
 
-    active_projects = [p for p in projects if p.status != "completed"]
-    completed_projects = [p for p in projects if p.status == "completed"]
+    active_projects = [p for p in projects if not _is_project_completed(p, tasks_by_project.get(p.id, []))]
+    completed_projects = [p for p in projects if _is_project_completed(p, tasks_by_project.get(p.id, []))]
     overdue_projects = [p for p in active_projects if p.end_date and p.end_date < today]
 
     ranked_projects = sorted(
@@ -316,8 +331,8 @@ async def collect_analytics_digest(
     for project in ranked_projects:
         ptasks = tasks_by_project.get(project.id, [])
         total = len(ptasks)
-        done = sum(1 for t in ptasks if t.status == "done")
-        overdue = sum(1 for t in ptasks if t.status != "done" and t.end_date and t.end_date < today)
+        done = sum(1 for t in ptasks if _is_task_completed(t))
+        overdue = sum(1 for t in ptasks if not _is_task_completed(t) and t.end_date and t.end_date < today)
         top_projects.append(
             ProjectDigestItem(
                 id=project.id,
