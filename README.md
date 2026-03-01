@@ -1,49 +1,49 @@
 # PlannerBro
 
-PlannerBro is an IT project execution system for department teams.  
-Core goal: daily management discipline without micromanagement, with transparent status, deadlines, and accountability.
+PlannerBro — система исполнения IT-проектов для команд подразделений.  
+Ключевая цель: ежедневная управленческая дисциплина без микроменеджмента, с прозрачными статусами, сроками и ответственностью.
 
-## What It Solves
+## Какие задачи решает
 
-- Daily project/task control for managers and team leads.
-- Unified work area for projects, tasks, statuses, comments, dependencies, and deadlines.
-- Operational reminders through in-app notifications, email, and Telegram summaries.
-- Visibility of "what is happening right now" through online presence and background activity monitor.
+- Ежедневный контроль проектов/задач для руководителей и тимлидов.
+- Единое рабочее пространство для проектов, задач, статусов, комментариев, зависимостей и дедлайнов.
+- Операционные напоминания через in-app уведомления, email и Telegram-дайджесты.
+- Видимость «что происходит прямо сейчас» через онлайн-присутствие и монитор фоновой активности.
 
-## Core Capabilities
+## Ключевые возможности
 
-- Project and task management with status/progress workflow.
-- Department-based dashboard (`Дэшборд IT`) with tabs by department and personal scope (`Мои проекты и задачи`).
-- Gantt + LIST views, task sorting, bulk operations, and task dependencies (critical path support).
-- Org structure and team administration (departments, heads, manager/subordinate hierarchy, permissions).
-- Smart ingestion pipeline for source files and draft approval flow.
-- Encrypted team storage (Vault).
-- Reminder engine:
-  - flexible check-in cadence,
-  - extra rule for `control_ski=true` (daily reminders 5 days before deadline),
-  - manager audit for projects/tasks without manager/admin assignment.
-- Notification channels:
-  - in-app notifications + WebSocket realtime,
-  - email with deep links to project/task,
-  - Telegram bot summaries (`/start`, `/stop`, `/stats`) with schedule support.
-- Sidebar collaboration tools:
-  - full team presence list (green=online, red=offline),
-  - system activity monitor for SMTP dispatches (`sent/failed/skipped`).
+- Управление проектами и задачами со статусно-прогрессным workflow.
+- Дашборд по отделам (`Дэшборд IT`) с вкладками по подразделениям и личным контуром (`Мои проекты и задачи`).
+- Представления Gantt + LIST, сортировка задач, массовые операции и зависимости задач (включая поддержку критического пути).
+- Оргструктура и администрирование команды (отделы, руководители, иерархия руководитель/сотрудник, права доступа).
+- Умный ingestion-конвейер исходных файлов и поток согласования черновиков.
+- Шифрованное файловое хранилище команды (Vault).
+- Движок напоминаний:
+  - гибкая периодичность check-in,
+  - отдельное правило для `control_ski=true` (ежедневные напоминания за 5 дней до дедлайна),
+  - аудит для руководителя по проектам/задачам без назначенного manager/admin.
+- Каналы уведомлений:
+  - in-app уведомления + WebSocket realtime,
+  - email с deep links на проект/задачу,
+  - Telegram-дайджесты через бота (`/start`, `/stop`, `/stats`) с поддержкой расписания.
+- Инструменты совместной работы в сайдбаре:
+  - полный список присутствия команды (green=online, red=offline),
+  - монитор системной активности SMTP-рассылок (`sent/failed/skipped`).
 
-## Technology Stack
+## Технологический стек
 
-| Layer | Tech |
+| Слой | Технологии |
 |---|---|
 | Backend | FastAPI (Python 3.12), SQLAlchemy, Alembic |
-| Database | PostgreSQL 16 |
-| Queue/Scheduler | Celery + Celery Beat + Redis 7 |
+| База данных | PostgreSQL 16 |
+| Очереди/планировщик | Celery + Celery Beat + Redis 7 |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query |
 | Mobile | Flutter 3.x + Riverpod |
 | Realtime | WebSocket |
-| Notifications | FCM, SMTP, Telegram Bot API |
-| Infra | Docker, Nginx, Let's Encrypt |
+| Уведомления | FCM, SMTP, Telegram Bot API |
+| Инфраструктура | Docker, Nginx, Let's Encrypt |
 
-## Quick Start (Development)
+## Быстрый старт (разработка)
 
 ```bash
 cp .env.example .env
@@ -53,37 +53,37 @@ docker-compose up --build
 - Web UI: `http://localhost:80`
 - API docs: `http://localhost:8000/docs`
 
-## Production Deploy
+## Продакшн-деплой
 
-Preferred:
+Рекомендуемый вариант:
 
 ```bash
 ./scripts/deploy-prod.sh
 ```
 
-Backend only:
+Только backend:
 
 ```bash
 SKIP_FRONTEND=1 ./scripts/deploy-prod.sh
 ```
 
-## Key Config Areas (`.env`)
+## Основные блоки конфигурации (`.env`)
 
-- Auth and security: `SECRET_KEY`, OAuth settings.
-- Notifications: `SMTP_*`, `APP_WEB_URL`, `TEAM_STATUS_REMINDER_*`, `MANAGEMENT_AUDIT_*`.
+- Auth и безопасность: `SECRET_KEY`, параметры OAuth.
+- Уведомления: `SMTP_*`, `APP_WEB_URL`, `TEAM_STATUS_REMINDER_*`, `MANAGEMENT_AUDIT_*`.
 - Telegram: `TELEGRAM_BOT_*`, `TELEGRAM_ADMIN_USER_IDS`.
-- Vault encryption: `VAULT_ENCRYPTION_KEY`, `VAULT_FILES_DIR`.
+- Шифрование Vault: `VAULT_ENCRYPTION_KEY`, `VAULT_FILES_DIR`.
 
-## API Highlights
+## Важные API-точки
 
-- `GET /api/v1/projects/dashboard/departments` — dashboard by departments.
-- `GET /api/v1/users/online/presence` — online users.
-- `GET /api/v1/notifications` — in-app notifications.
-- `GET /api/v1/notifications/activity/email` — SMTP activity feed for sidebar monitor.
+- `GET /api/v1/projects/dashboard/departments` — дашборд по отделам.
+- `GET /api/v1/users/online/presence` — онлайн-пользователи.
+- `GET /api/v1/notifications` — in-app уведомления.
+- `GET /api/v1/notifications/activity/email` — лента SMTP-активности для мониторинга в сайдбаре.
 - `WS /ws?token=...` — realtime invalidation/events.
 
-## Additional Docs
+## Дополнительная документация
 
-- Development/operator guide: [CLAUDE.md](./CLAUDE.md)
+- Гайд для разработки и эксплуатации: [CLAUDE.md](./CLAUDE.md)
 - Product backlog/TODO: [PlannerBro_TODO.md](./PlannerBro_TODO.md)
-- Short system brief for announcements: [SYSTEM_OVERVIEW_RU.md](./SYSTEM_OVERVIEW_RU.md)
+- Краткое описание системы для анонсов: [SYSTEM_OVERVIEW_RU.md](./SYSTEM_OVERVIEW_RU.md)
