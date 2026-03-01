@@ -52,6 +52,10 @@ jobs:
           chmod +x mobile/android/gradlew
           cp -r /tmp/flutter_scaffold/android/gradle mobile/android/gradle
 
+          # Force modern Gradle wrapper for current Android plugin compatibility.
+          sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14-all.zip|' \
+            mobile/android/gradle/wrapper/gradle-wrapper.properties
+
           # Copy default launcher icons (PNG binaries)
           for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
             mkdir -p mobile/android/app/src/main/res/mipmap-${density}
