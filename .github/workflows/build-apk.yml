@@ -11,6 +11,9 @@ on:
 env:
   FLUTTER_VERSION: '3.27.4'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Android APK
@@ -79,10 +82,15 @@ jobs:
             --dart-define=API_BASE_URL=https://plannerbro.ru/api/v1
 
       - name: Rename APK
+        id: naming
         run: |
           mkdir -p artifacts
-          cp mobile/build/app/outputs/flutter-apk/app-release.apk \
-             artifacts/planner-bro-$(echo ${{ github.sha }} | head -c 7).apk
+          SHORT_SHA="$(echo "${{ github.sha }}" | head -c 7)"
+          APK_NAME="planner-bro-${SHORT_SHA}.apk"
+          TAG_NAME="apk-${SHORT_SHA}"
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk "artifacts/${APK_NAME}"
+          echo "apk_name=${APK_NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -90,6 +98,16 @@ jobs:
           name: planner-bro-apk
           path: artifacts/planner-bro-*.apk
           retention-days: 30
+
+      - name: Publish APK to GitHub Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.naming.outputs.tag_name }}
+          name: PlannerBro APK ${{ steps.naming.outputs.tag_name }}
+          generate_release_notes: true
+          files: artifacts/${{ steps.naming.outputs.apk_name }}
+          make_latest: true
 
       - name: Comment APK size
         run: |

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
+import '../providers/theme_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -9,6 +10,7 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsync = ref.watch(authProvider);
+    final currentThemeMode = ref.watch(themeModeProvider).valueOrNull ?? ThemeMode.system;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Профиль')),
@@ -34,6 +36,33 @@ class SettingsScreen extends ConsumerWidget {
                     leading: const Icon(Icons.badge),
                     title: const Text('Роль'),
                     subtitle: Text(_roleLabel(user.role)),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.palette_outlined),
+                    title: const Text('Тема приложения'),
+                    subtitle: Text(_themeModeLabel(currentThemeMode)),
+                    trailing: DropdownButton<ThemeMode>(
+                      value: currentThemeMode,
+                      underline: const SizedBox.shrink(),
+                      onChanged: (mode) async {
+                        if (mode == null) return;
+                        await ref.read(themeModeProvider.notifier).setMode(mode);
+                      },
+                      items: const [
+                        DropdownMenuItem(
+                          value: ThemeMode.system,
+                          child: Text('Системная'),
+                        ),
+                        DropdownMenuItem(
+                          value: ThemeMode.light,
+                          child: Text('Светлая'),
+                        ),
+                        DropdownMenuItem(
+                          value: ThemeMode.dark,
+                          child: Text('Тёмная'),
+                        ),
+                      ],
+                    ),
                   ),
                   const Divider(),
                   ListTile(
@@ -78,5 +107,16 @@ class SettingsScreen extends ConsumerWidget {
       'user': 'Пользователь',
     };
     return labels[role] ?? role;
+  }
+
+  String _themeModeLabel(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.light:
+        return 'Светлая';
+      case ThemeMode.dark:
+        return 'Тёмная';
+      case ThemeMode.system:
+        return 'Системная';
+    }
   }
 }

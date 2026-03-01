@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import 'core/firebase_service.dart';
 import 'providers/auth_provider.dart';
+import 'providers/theme_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/project_screen.dart';
@@ -58,6 +59,7 @@ class PlannerBroApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authAsync = ref.watch(authProvider);
+    final themeMode = ref.watch(themeModeProvider).valueOrNull ?? ThemeMode.system;
 
     final router = GoRouter(
       redirect: (context, state) {
@@ -90,6 +92,7 @@ class PlannerBroApp extends ConsumerWidget {
         ),
         useMaterial3: true,
       ),
+      themeMode: themeMode,
       routerConfig: router,
     );
   }
