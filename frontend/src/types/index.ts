@@ -182,6 +182,16 @@ export interface ReportDispatchSettings {
     anti_noise_enabled: boolean
     anti_noise_ttl_minutes: number
   }
+  digest_schedule?: {
+    timezone: string
+    telegram_projects_enabled: boolean
+    telegram_critical_enabled: boolean
+    email_projects_enabled: boolean
+    email_critical_enabled: boolean
+    telegram_projects_slots: string[]
+    telegram_critical_slots: string[]
+    email_analytics_slots: string[]
+  }
 }
 
 export interface ReportDeliveryStatus {

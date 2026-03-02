@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from redis import asyncio as redis_async
 
@@ -11,6 +13,7 @@ from app.services.telegram_service import get_summaries_enabled, set_summaries_e
 EMAIL_ANALYTICS_ENABLED_KEY = "analytics:email:enabled"
 EMAIL_ANALYTICS_RECIPIENTS_KEY = "analytics:email:recipients"
 REPORT_DIGEST_FILTERS_KEY = "analytics:digest:filters"
+REPORT_DISPATCH_SCHEDULE_KEY = "analytics:digest:schedule"
 
 DEFAULT_REPORT_DIGEST_FILTERS: dict[str, Any] = {
     "deadline_window_days": 5,
@@ -20,6 +23,28 @@ DEFAULT_REPORT_DIGEST_FILTERS: dict[str, Any] = {
     "include_without_deadline": False,
     "anti_noise_enabled": True,
     "anti_noise_ttl_minutes": 360,
+}
+
+DEFAULT_REPORT_DISPATCH_SCHEDULE: dict[str, Any] = {
+    "timezone": "Asia/Yekaterinburg",
+    "telegram_projects_enabled": True,
+    "telegram_critical_enabled": True,
+    "email_projects_enabled": True,
+    "email_critical_enabled": True,
+    "telegram_projects_slots": ["mon@08:00", "fri@16:00"],
+    "telegram_critical_slots": ["daily@10:00"],
+    "email_analytics_slots": ["mon@08:10", "fri@16:10"],
+}
+
+_ALLOWED_DAY = {"mon", "tue", "wed", "thu", "fri", "sat", "sun", "daily"}
+_DAY_TO_WEEKDAY = {
+    "mon": 0,
+    "tue": 1,
+    "wed": 2,
+    "thu": 3,
+    "fri": 4,
+    "sat": 5,
+    "sun": 6,
 }
 
 
@@ -117,6 +142,60 @@ def _safe_key(raw: str) -> str:
     return re.sub(r"[^a-zA-Z0-9:_\-.]", "_", raw)
 
 
+def _normalize_slot(raw: str) -> str | None:
+    token = (raw or "").strip().lower()
+    if "@" not in token:
+        return None
+    day, tm = token.split("@", 1)
+    day = day.strip()
+    tm = tm.strip()
+    if day not in _ALLOWED_DAY:
+        return None
+    parts = tm.split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        hh = int(parts[0])
+        mm = int(parts[1])
+    except ValueError:
+        return None
+    if hh < 0 or hh > 23 or mm < 0 or mm > 59:
+        return None
+    return f"{day}@{hh:02d}:{mm:02d}"
+
+
+def _parse_slots(raw: str | list[str] | None, fallback: list[str]) -> list[str]:
+    if isinstance(raw, list):
+        items = raw
+    else:
+        items = (raw or "").split(",")
+    slots: list[str] = []
+    for item in items:
+        normalized = _normalize_slot(str(item))
+        if normalized and normalized not in slots:
+            slots.append(normalized)
+    if not slots:
+        return list(fallback)
+    return slots
+
+
+def _as_bool(raw: Any, fallback: bool) -> bool:
+    if raw is None:
+        return fallback
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip() in {"1", "true", "True"}
+
+
+def _safe_timezone_name(raw: str | None) -> str:
+    candidate = (raw or "").strip() or DEFAULT_REPORT_DISPATCH_SCHEDULE["timezone"]
+    try:
+        ZoneInfo(candidate)
+        return candidate
+    except Exception:
+        return DEFAULT_REPORT_DISPATCH_SCHEDULE["timezone"]
+
+
 async def should_send_digest(
     channel: str,
     recipient_key: str,
@@ -136,16 +215,140 @@ async def should_send_digest(
     return True
 
 
+async def get_report_dispatch_schedule() -> dict[str, Any]:
+    redis = _redis()
+    raw = await redis.hgetall(REPORT_DISPATCH_SCHEDULE_KEY)
+    if not raw:
+        return dict(DEFAULT_REPORT_DISPATCH_SCHEDULE)
+
+    return {
+        "timezone": _safe_timezone_name(raw.get("timezone")),
+        "telegram_projects_enabled": _as_bool(
+            raw.get("telegram_projects_enabled"),
+            bool(DEFAULT_REPORT_DISPATCH_SCHEDULE["telegram_projects_enabled"]),
+        ),
+        "telegram_critical_enabled": _as_bool(
+            raw.get("telegram_critical_enabled"),
+            bool(DEFAULT_REPORT_DISPATCH_SCHEDULE["telegram_critical_enabled"]),
+        ),
+        "email_projects_enabled": _as_bool(
+            raw.get("email_projects_enabled"),
+            bool(DEFAULT_REPORT_DISPATCH_SCHEDULE["email_projects_enabled"]),
+        ),
+        "email_critical_enabled": _as_bool(
+            raw.get("email_critical_enabled"),
+            bool(DEFAULT_REPORT_DISPATCH_SCHEDULE["email_critical_enabled"]),
+        ),
+        "telegram_projects_slots": _parse_slots(
+            raw.get("telegram_projects_slots"),
+            list(DEFAULT_REPORT_DISPATCH_SCHEDULE["telegram_projects_slots"]),
+        ),
+        "telegram_critical_slots": _parse_slots(
+            raw.get("telegram_critical_slots"),
+            list(DEFAULT_REPORT_DISPATCH_SCHEDULE["telegram_critical_slots"]),
+        ),
+        "email_analytics_slots": _parse_slots(
+            raw.get("email_analytics_slots"),
+            list(DEFAULT_REPORT_DISPATCH_SCHEDULE["email_analytics_slots"]),
+        ),
+    }
+
+
+async def set_report_dispatch_schedule(schedule: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(DEFAULT_REPORT_DISPATCH_SCHEDULE)
+    merged.update(schedule or {})
+    normalized = {
+        "timezone": _safe_timezone_name(str(merged.get("timezone") or "")),
+        "telegram_projects_enabled": bool(merged.get("telegram_projects_enabled", True)),
+        "telegram_critical_enabled": bool(merged.get("telegram_critical_enabled", True)),
+        "email_projects_enabled": bool(merged.get("email_projects_enabled", True)),
+        "email_critical_enabled": bool(merged.get("email_critical_enabled", True)),
+        "telegram_projects_slots": _parse_slots(
+            merged.get("telegram_projects_slots"),
+            list(DEFAULT_REPORT_DISPATCH_SCHEDULE["telegram_projects_slots"]),
+        ),
+        "telegram_critical_slots": _parse_slots(
+            merged.get("telegram_critical_slots"),
+            list(DEFAULT_REPORT_DISPATCH_SCHEDULE["telegram_critical_slots"]),
+        ),
+        "email_analytics_slots": _parse_slots(
+            merged.get("email_analytics_slots"),
+            list(DEFAULT_REPORT_DISPATCH_SCHEDULE["email_analytics_slots"]),
+        ),
+    }
+    payload = {
+        "timezone": normalized["timezone"],
+        "telegram_projects_enabled": "1" if normalized["telegram_projects_enabled"] else "0",
+        "telegram_critical_enabled": "1" if normalized["telegram_critical_enabled"] else "0",
+        "email_projects_enabled": "1" if normalized["email_projects_enabled"] else "0",
+        "email_critical_enabled": "1" if normalized["email_critical_enabled"] else "0",
+        "telegram_projects_slots": ",".join(normalized["telegram_projects_slots"]),
+        "telegram_critical_slots": ",".join(normalized["telegram_critical_slots"]),
+        "email_analytics_slots": ",".join(normalized["email_analytics_slots"]),
+    }
+    redis = _redis()
+    await redis.hset(REPORT_DISPATCH_SCHEDULE_KEY, mapping=payload)
+    return await get_report_dispatch_schedule()
+
+
+def evaluate_schedule_due(
+    schedule: dict[str, Any],
+    schedule_key: str,
+    now_utc: datetime | None = None,
+    tolerance_minutes: int = 4,
+) -> tuple[bool, str | None]:
+    current_utc = now_utc or datetime.now(timezone.utc)
+    tz_name = _safe_timezone_name(str(schedule.get("timezone")))
+    now_local = current_utc.astimezone(ZoneInfo(tz_name))
+    slots_raw = schedule.get(schedule_key) or []
+    slots = _parse_slots(
+        slots_raw if isinstance(slots_raw, list) else str(slots_raw),
+        list(DEFAULT_REPORT_DISPATCH_SCHEDULE.get(schedule_key, [])),
+    )
+
+    for slot in slots:
+        day, tm = slot.split("@", 1)
+        hh_str, mm_str = tm.split(":", 1)
+        hh = int(hh_str)
+        mm = int(mm_str)
+        if day != "daily" and _DAY_TO_WEEKDAY.get(day) != now_local.weekday():
+            continue
+        slot_local = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        delta = abs((now_local - slot_local).total_seconds())
+        if delta <= max(0, tolerance_minutes) * 60:
+            stamp = f"{now_local.date().isoformat()}:{slot}"
+            return True, stamp
+    return False, None
+
+
+async def claim_schedule_slot_once(
+    channel: str,
+    recipient_key: str,
+    digest_key: str,
+    slot_stamp: str,
+    ttl_seconds: int = 172800,
+) -> bool:
+    redis = _redis()
+    key = (
+        "analytics:digest:slot:"
+        f"{_safe_key(channel)}:{_safe_key(recipient_key)}:{_safe_key(digest_key)}:{_safe_key(slot_stamp)}"
+    )
+    created = await redis.set(key, "1", nx=True, ex=max(3600, ttl_seconds))
+    return bool(created)
+
+
 async def get_report_dispatch_settings() -> dict[str, Any]:
     telegram_enabled = await get_summaries_enabled()
     email_enabled = await get_email_analytics_enabled()
     email_recipients = await get_email_analytics_recipients()
     digest_filters = await get_report_digest_filters()
+    digest_schedule = await get_report_dispatch_schedule()
     return {
         "telegram_summaries_enabled": telegram_enabled,
         "email_analytics_enabled": email_enabled,
         "email_analytics_recipients": email_recipients,
         "digest_filters": digest_filters,
+        "digest_schedule": digest_schedule,
     }
 
 
@@ -154,10 +357,13 @@ async def update_report_dispatch_settings(
     email_analytics_enabled: bool,
     email_analytics_recipients: str,
     digest_filters: dict[str, Any] | None = None,
+    digest_schedule: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     await set_summaries_enabled(telegram_summaries_enabled)
     await set_email_analytics_enabled(email_analytics_enabled)
     await set_email_analytics_recipients(email_analytics_recipients)
     if digest_filters is not None:
         await set_report_digest_filters(digest_filters)
+    if digest_schedule is not None:
+        await set_report_dispatch_schedule(digest_schedule)
     return await get_report_dispatch_settings()

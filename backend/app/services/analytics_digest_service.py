@@ -502,47 +502,67 @@ def format_email_digest_subject(digest: AnalyticsDigest) -> str:
     return f"PlannerBro аналитика · {digest.now_local.strftime('%d.%m.%Y %H:%M')}"
 
 
-def format_email_digest_text(digest: AnalyticsDigest, compact: bool = False) -> str:
+def format_email_digest_text(
+    digest: AnalyticsDigest,
+    compact: bool = False,
+    include_projects: bool = True,
+    include_critical: bool = True,
+) -> str:
     links = _quick_action_links()
     lines = [
         "PlannerBro · Единый аналитический дайджест",
         f"Контур: {digest.audience_label}",
         f"Время: {digest.now_local.strftime('%d.%m.%Y %H:%M')} ({digest.timezone_name})",
         "",
-        f"Проекты активные: {digest.active_projects_count}",
-        f"Проекты просроченные: {digest.overdue_projects_count}",
-        f"Критические/СКИ задачи: {digest.critical_tasks_count}",
-        f"Просроченные критические: {digest.overdue_critical_count}",
-        f"Критические с дедлайном <=5 дней: {digest.due_soon_critical_count}",
-        f"Эскалации: {digest.escalations_count}",
+    ]
+    if include_projects:
+        lines.extend([
+            f"Проекты активные: {digest.active_projects_count}",
+            f"Проекты просроченные: {digest.overdue_projects_count}",
+        ])
+    if include_critical:
+        lines.extend([
+            f"Критические/СКИ задачи: {digest.critical_tasks_count}",
+            f"Просроченные критические: {digest.overdue_critical_count}",
+            f"Критические с дедлайном <=5 дней: {digest.due_soon_critical_count}",
+            f"Эскалации: {digest.escalations_count}",
+        ])
+    lines.extend([
         "",
         "Быстрые действия:",
         f"- Дэшборд: {links['dashboard']}",
         f"- Проекты: {links['projects']}",
         f"- Аналитика: {links['analytics']}",
         "",
-        "Топ проектов:",
-    ]
+    ])
 
-    for p in digest.top_projects[: (5 if compact else 10)]:
-        lines.append(
-            f"- {p.name} | {p.status} | задач {p.done_tasks}/{p.total_tasks} | "
-            f"просрочено {p.overdue_tasks} | отв. {p.owner_name} | {_project_url(p.id)}"
-        )
+    if include_projects:
+        lines.append("Топ проектов:")
+        for p in digest.top_projects[: (5 if compact else 10)]:
+            lines.append(
+                f"- {p.name} | {p.status} | задач {p.done_tasks}/{p.total_tasks} | "
+                f"просрочено {p.overdue_tasks} | отв. {p.owner_name} | {_project_url(p.id)}"
+            )
+        lines.append("")
 
-    lines.append("")
-    lines.append("Фокус-задачи:")
-    for t in digest.focus_tasks[: (8 if compact else 15)]:
-        due = t.end_date.isoformat() if t.end_date else "без дедлайна"
-        lines.append(
-            f"- {t.title} ({t.project_name}) | дедлайн {due} | отв. {t.assignee_name} | "
-            f"{_task_url(t.project_id, t.id)}"
-        )
+    if include_critical:
+        lines.append("Фокус-задачи:")
+        for t in digest.focus_tasks[: (8 if compact else 15)]:
+            due = t.end_date.isoformat() if t.end_date else "без дедлайна"
+            lines.append(
+                f"- {t.title} ({t.project_name}) | дедлайн {due} | отв. {t.assignee_name} | "
+                f"{_task_url(t.project_id, t.id)}"
+            )
 
     return "\n".join(lines)
 
 
-def format_email_digest_html(digest: AnalyticsDigest, compact: bool = False) -> str:
+def format_email_digest_html(
+    digest: AnalyticsDigest,
+    compact: bool = False,
+    include_projects: bool = True,
+    include_critical: bool = True,
+) -> str:
     projects_rows = "".join(
         [
             "<tr>"
@@ -555,7 +575,7 @@ def format_email_digest_html(digest: AnalyticsDigest, compact: bool = False) -> 
             "</tr>"
             for p in digest.top_projects[: (5 if compact else 10)]
         ]
-    )
+    ) if include_projects else ""
 
     task_rows = "".join(
         [
@@ -568,9 +588,41 @@ def format_email_digest_html(digest: AnalyticsDigest, compact: bool = False) -> 
             "</tr>"
             for t in digest.focus_tasks[: (8 if compact else 15)]
         ]
-    )
+    ) if include_critical else ""
 
     links = _quick_action_links()
+    stats_cells: list[str] = []
+    if include_projects:
+        stats_cells.extend([
+            f"<td style=\"width:25%;padding:10px;border:1px solid #e5e7eb;border-radius:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Активные проекты</div><div style=\"font-size:24px;font-weight:700;\">{digest.active_projects_count}</div></td>",
+            f"<td style=\"width:25%;padding:10px 10px 10px 14px;\"><div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Просроченные проекты</div><div style=\"font-size:24px;font-weight:700;color:#b91c1c;\">{digest.overdue_projects_count}</div></div></td>",
+        ])
+    if include_critical:
+        stats_cells.extend([
+            f"<td style=\"width:25%;padding:10px;\"><div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Критические/СКИ</div><div style=\"font-size:24px;font-weight:700;color:#7c3aed;\">{digest.critical_tasks_count}</div></div></td>",
+            f"<td style=\"width:25%;padding:10px;\"><div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Эскалации</div><div style=\"font-size:24px;font-weight:700;color:#ea580c;\">{digest.escalations_count}</div></div></td>",
+        ])
+
+    projects_block = (
+        "<tr><td style=\"padding:0 24px 20px;\">"
+        "<div style=\"font-size:16px;font-weight:700;margin-bottom:8px;\">Прогресс по проектам</div>"
+        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;\">"
+        "<tr style=\"background:#f9fafb;\"><th align=\"left\" style=\"padding:10px;\">Проект</th><th align=\"left\" style=\"padding:10px;\">Статус</th><th align=\"left\" style=\"padding:10px;\">Задачи</th><th align=\"left\" style=\"padding:10px;\">Просрочено</th><th align=\"left\" style=\"padding:10px;\">Ответственный</th><th align=\"left\" style=\"padding:10px;\">Ссылка</th></tr>"
+        f"{projects_rows or '<tr><td colspan=\"6\" style=\"padding:12px;\">Нет данных</td></tr>'}"
+        "</table>"
+        "</td></tr>"
+    ) if include_projects else ""
+
+    critical_block = (
+        "<tr><td style=\"padding:0 24px 24px;\">"
+        "<div style=\"font-size:16px;font-weight:700;margin-bottom:8px;\">Фокус-задачи</div>"
+        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;\">"
+        "<tr style=\"background:#f9fafb;\"><th align=\"left\" style=\"padding:10px;\">Задача</th><th align=\"left\" style=\"padding:10px;\">Проект</th><th align=\"left\" style=\"padding:10px;\">Ответственный</th><th align=\"left\" style=\"padding:10px;\">Дедлайн</th><th align=\"left\" style=\"padding:10px;\">Ссылка</th></tr>"
+        f"{task_rows or '<tr><td colspan=\"5\" style=\"padding:12px;\">Нет данных</td></tr>'}"
+        "</table>"
+        "</td></tr>"
+    ) if include_critical else ""
+
     return (
         "<html><body style=\"margin:0;background:#f6f7fb;font-family:Segoe UI,Arial,sans-serif;color:#111827;\">"
         "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"padding:24px 0;\"><tr><td align=\"center\">"
@@ -586,25 +638,10 @@ def format_email_digest_html(digest: AnalyticsDigest, compact: bool = False) -> 
         "</td></tr>"
         "<tr><td style=\"padding:20px 24px;\">"
         "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>"
-        f"<td style=\"width:25%;padding:10px;border:1px solid #e5e7eb;border-radius:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Активные проекты</div><div style=\"font-size:24px;font-weight:700;\">{digest.active_projects_count}</div></td>"
-        f"<td style=\"width:25%;padding:10px 10px 10px 14px;\"><div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Просроченные проекты</div><div style=\"font-size:24px;font-weight:700;color:#b91c1c;\">{digest.overdue_projects_count}</div></div></td>"
-        f"<td style=\"width:25%;padding:10px;\"><div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Критические/СКИ</div><div style=\"font-size:24px;font-weight:700;color:#7c3aed;\">{digest.critical_tasks_count}</div></div></td>"
-        f"<td style=\"width:25%;padding:10px;\"><div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Эскалации</div><div style=\"font-size:24px;font-weight:700;color:#ea580c;\">{digest.escalations_count}</div></div></td>"
-        "</tr></table>"
+        + "".join(stats_cells)
+        + "</tr></table>"
         "</td></tr>"
-        "<tr><td style=\"padding:0 24px 20px;\">"
-        "<div style=\"font-size:16px;font-weight:700;margin-bottom:8px;\">Прогресс по проектам</div>"
-        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;\">"
-        "<tr style=\"background:#f9fafb;\"><th align=\"left\" style=\"padding:10px;\">Проект</th><th align=\"left\" style=\"padding:10px;\">Статус</th><th align=\"left\" style=\"padding:10px;\">Задачи</th><th align=\"left\" style=\"padding:10px;\">Просрочено</th><th align=\"left\" style=\"padding:10px;\">Ответственный</th><th align=\"left\" style=\"padding:10px;\">Ссылка</th></tr>"
-        f"{projects_rows or '<tr><td colspan=\"6\" style=\"padding:12px;\">Нет данных</td></tr>'}"
-        "</table>"
-        "</td></tr>"
-        "<tr><td style=\"padding:0 24px 24px;\">"
-        "<div style=\"font-size:16px;font-weight:700;margin-bottom:8px;\">Фокус-задачи</div>"
-        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;\">"
-        "<tr style=\"background:#f9fafb;\"><th align=\"left\" style=\"padding:10px;\">Задача</th><th align=\"left\" style=\"padding:10px;\">Проект</th><th align=\"left\" style=\"padding:10px;\">Ответственный</th><th align=\"left\" style=\"padding:10px;\">Дедлайн</th><th align=\"left\" style=\"padding:10px;\">Ссылка</th></tr>"
-        f"{task_rows or '<tr><td colspan=\"5\" style=\"padding:12px;\">Нет данных</td></tr>'}"
-        "</table>"
-        "</td></tr>"
+        f"{projects_block}"
+        f"{critical_block}"
         "</table></td></tr></table></body></html>"
     )

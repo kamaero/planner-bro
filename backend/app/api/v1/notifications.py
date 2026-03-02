@@ -244,6 +244,7 @@ async def put_report_settings(
         email_analytics_enabled=data.email_analytics_enabled,
         email_analytics_recipients=data.email_analytics_recipients,
         digest_filters=data.digest_filters.model_dump() if data.digest_filters else None,
+        digest_schedule=data.digest_schedule.model_dump() if data.digest_schedule else None,
     )
     return ReportDispatchSettingsOut(**updated)
 

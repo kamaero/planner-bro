@@ -59,6 +59,16 @@ export function Team() {
       anti_noise_enabled: true,
       anti_noise_ttl_minutes: 360,
     },
+    digest_schedule: {
+      timezone: 'Asia/Yekaterinburg',
+      telegram_projects_enabled: true,
+      telegram_critical_enabled: true,
+      email_projects_enabled: true,
+      email_critical_enabled: true,
+      telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
+      telegram_critical_slots: ['daily@10:00'],
+      email_analytics_slots: ['mon@08:10', 'fri@16:10'],
+    },
   })
   const [reportSettingsLoading, setReportSettingsLoading] = useState(false)
   const [reportSettingsSaving, setReportSettingsSaving] = useState(false)
@@ -430,6 +440,7 @@ export function Team() {
         email_analytics_enabled: reportSettings.email_analytics_enabled,
         email_analytics_recipients: reportSettings.email_analytics_recipients,
         digest_filters: reportSettings.digest_filters,
+        digest_schedule: reportSettings.digest_schedule,
       })
       setReportSettings(saved)
       setReportSettingsMessage('Настройки рассылки сохранены')
@@ -439,6 +450,13 @@ export function Team() {
       setReportSettingsSaving(false)
     }
   }
+
+  const slotsToText = (slots?: string[]) => (slots ?? []).join(', ')
+  const textToSlots = (value: string) =>
+    value
+      .split(',')
+      .map((token) => token.trim().toLowerCase())
+      .filter(Boolean)
 
   return (
     <div className="p-6 space-y-6">
@@ -986,6 +1004,217 @@ export function Team() {
                   />
                   <p className="text-xs text-muted-foreground">
                     Через запятую. Менеджеры/админы команды добавляются автоматически.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border p-3 space-y-3">
+                  <p className="text-sm font-medium">Расписание и темы дайджестов</p>
+                  <div className="space-y-1">
+                    <Label htmlFor="digest-timezone">Часовой пояс</Label>
+                    <Input
+                      id="digest-timezone"
+                      value={reportSettings.digest_schedule?.timezone ?? 'Asia/Yekaterinburg'}
+                      onChange={(e) =>
+                        setReportSettings((prev) => ({
+                          ...prev,
+                          digest_schedule: {
+                            timezone: e.target.value,
+                            telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
+                            telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
+                            email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
+                            email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
+                            telegram_projects_slots: prev.digest_schedule?.telegram_projects_slots ?? ['mon@08:00', 'fri@16:00'],
+                            telegram_critical_slots: prev.digest_schedule?.telegram_critical_slots ?? ['daily@10:00'],
+                            email_analytics_slots: prev.digest_schedule?.email_analytics_slots ?? ['mon@08:10', 'fri@16:10'],
+                          },
+                        }))
+                      }
+                      placeholder="Asia/Yekaterinburg"
+                      disabled={reportSettingsLoading || reportSettingsSaving}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={reportSettings.digest_schedule?.telegram_projects_enabled ?? true}
+                        onChange={(e) =>
+                          setReportSettings((prev) => ({
+                            ...prev,
+                            digest_schedule: {
+                              ...(prev.digest_schedule ?? {
+                                timezone: 'Asia/Yekaterinburg',
+                                telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
+                                telegram_critical_slots: ['daily@10:00'],
+                                email_analytics_slots: ['mon@08:10', 'fri@16:10'],
+                              }),
+                              telegram_projects_enabled: e.target.checked,
+                              telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
+                              email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
+                              email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
+                            },
+                          }))
+                        }
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                      Telegram: тема «Проекты»
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={reportSettings.digest_schedule?.telegram_critical_enabled ?? true}
+                        onChange={(e) =>
+                          setReportSettings((prev) => ({
+                            ...prev,
+                            digest_schedule: {
+                              ...(prev.digest_schedule ?? {
+                                timezone: 'Asia/Yekaterinburg',
+                                telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
+                                telegram_critical_slots: ['daily@10:00'],
+                                email_analytics_slots: ['mon@08:10', 'fri@16:10'],
+                              }),
+                              telegram_critical_enabled: e.target.checked,
+                              telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
+                              email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
+                              email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
+                            },
+                          }))
+                        }
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                      Telegram: тема «Критические/СКИ»
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={reportSettings.digest_schedule?.email_projects_enabled ?? true}
+                        onChange={(e) =>
+                          setReportSettings((prev) => ({
+                            ...prev,
+                            digest_schedule: {
+                              ...(prev.digest_schedule ?? {
+                                timezone: 'Asia/Yekaterinburg',
+                                telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
+                                telegram_critical_slots: ['daily@10:00'],
+                                email_analytics_slots: ['mon@08:10', 'fri@16:10'],
+                              }),
+                              email_projects_enabled: e.target.checked,
+                              telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
+                              telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
+                              email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
+                            },
+                          }))
+                        }
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                      Email: тема «Проекты»
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={reportSettings.digest_schedule?.email_critical_enabled ?? true}
+                        onChange={(e) =>
+                          setReportSettings((prev) => ({
+                            ...prev,
+                            digest_schedule: {
+                              ...(prev.digest_schedule ?? {
+                                timezone: 'Asia/Yekaterinburg',
+                                telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
+                                telegram_critical_slots: ['daily@10:00'],
+                                email_analytics_slots: ['mon@08:10', 'fri@16:10'],
+                              }),
+                              email_critical_enabled: e.target.checked,
+                              telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
+                              telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
+                              email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
+                            },
+                          }))
+                        }
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                      Email: тема «Критические/СКИ»
+                    </label>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="slots-telegram-projects">Telegram проекты (слоты)</Label>
+                    <Input
+                      id="slots-telegram-projects"
+                      value={slotsToText(reportSettings.digest_schedule?.telegram_projects_slots)}
+                      onChange={(e) =>
+                        setReportSettings((prev) => ({
+                          ...prev,
+                          digest_schedule: {
+                            ...(prev.digest_schedule ?? {
+                              timezone: 'Asia/Yekaterinburg',
+                              telegram_critical_slots: ['daily@10:00'],
+                              email_analytics_slots: ['mon@08:10', 'fri@16:10'],
+                            }),
+                            telegram_projects_slots: textToSlots(e.target.value),
+                            telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
+                            telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
+                            email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
+                            email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
+                          },
+                        }))
+                      }
+                      placeholder="mon@08:00, fri@16:00"
+                      disabled={reportSettingsLoading || reportSettingsSaving}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="slots-telegram-critical">Telegram критические (слоты)</Label>
+                    <Input
+                      id="slots-telegram-critical"
+                      value={slotsToText(reportSettings.digest_schedule?.telegram_critical_slots)}
+                      onChange={(e) =>
+                        setReportSettings((prev) => ({
+                          ...prev,
+                          digest_schedule: {
+                            ...(prev.digest_schedule ?? {
+                              timezone: 'Asia/Yekaterinburg',
+                              telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
+                              email_analytics_slots: ['mon@08:10', 'fri@16:10'],
+                            }),
+                            telegram_critical_slots: textToSlots(e.target.value),
+                            telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
+                            telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
+                            email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
+                            email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
+                          },
+                        }))
+                      }
+                      placeholder="daily@10:00"
+                      disabled={reportSettingsLoading || reportSettingsSaving}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="slots-email-analytics">Email аналитика (слоты)</Label>
+                    <Input
+                      id="slots-email-analytics"
+                      value={slotsToText(reportSettings.digest_schedule?.email_analytics_slots)}
+                      onChange={(e) =>
+                        setReportSettings((prev) => ({
+                          ...prev,
+                          digest_schedule: {
+                            ...(prev.digest_schedule ?? {
+                              timezone: 'Asia/Yekaterinburg',
+                              telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
+                              telegram_critical_slots: ['daily@10:00'],
+                            }),
+                            email_analytics_slots: textToSlots(e.target.value),
+                            telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
+                            telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
+                            email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
+                            email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
+                          },
+                        }))
+                      }
+                      placeholder="mon@08:10, fri@16:10"
+                      disabled={reportSettingsLoading || reportSettingsSaving}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Формат слотов: <code>mon@08:00</code>, <code>fri@16:00</code>, <code>daily@10:00</code>. Дни: mon..sun или daily.
                   </p>
                 </div>
 

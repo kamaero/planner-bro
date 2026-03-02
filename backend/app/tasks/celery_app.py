@@ -25,30 +25,18 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.management_audit_checker.check_management_gaps",
         "schedule": crontab(minute=30, hour=9),
     },
-    # Asia/Yekaterinburg (UTC+5): Mon 08:00 => Mon 03:00 UTC
-    "telegram-projects-summary-mon-0800-yekt": {
+    # Runtime schedule is resolved from report settings; check every 5 minutes.
+    "telegram-projects-summary-scheduler-every-5-min": {
         "task": "app.tasks.telegram_summary_checker.send_projects_summary",
-        "schedule": crontab(minute=0, hour=3, day_of_week="mon"),
+        "schedule": crontab(minute="*/5"),
     },
-    # Asia/Yekaterinburg (UTC+5): Fri 16:00 => Fri 11:00 UTC
-    "telegram-projects-summary-fri-1600-yekt": {
-        "task": "app.tasks.telegram_summary_checker.send_projects_summary",
-        "schedule": crontab(minute=0, hour=11, day_of_week="fri"),
-    },
-    # Asia/Yekaterinburg (UTC+5): daily 10:00 => 05:00 UTC
-    "telegram-critical-summary-daily-1000-yekt": {
+    "telegram-critical-summary-scheduler-every-5-min": {
         "task": "app.tasks.telegram_summary_checker.send_critical_tasks_summary",
-        "schedule": crontab(minute=0, hour=5),
+        "schedule": crontab(minute="*/5"),
     },
-    # Asia/Yekaterinburg (UTC+5): Mon 08:10 => Mon 03:10 UTC
-    "email-analytics-summary-mon-0810-yekt": {
+    "email-analytics-summary-scheduler-every-5-min": {
         "task": "app.tasks.analytics_email_digest_checker.send_email_analytics_digest",
-        "schedule": crontab(minute=10, hour=3, day_of_week="mon"),
-    },
-    # Asia/Yekaterinburg (UTC+5): Fri 16:10 => Fri 11:10 UTC
-    "email-analytics-summary-fri-1610-yekt": {
-        "task": "app.tasks.analytics_email_digest_checker.send_email_analytics_digest",
-        "schedule": crontab(minute=10, hour=11, day_of_week="fri"),
+        "schedule": crontab(minute="*/5"),
     },
     "telegram-commands-poll-every-30s": {
         "task": "app.tasks.telegram_commands_checker.check_telegram_commands",

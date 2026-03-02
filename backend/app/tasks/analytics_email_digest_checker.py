@@ -15,8 +15,11 @@ from app.services.analytics_digest_service import (
 )
 from app.services.notification_service import _send_email_to_recipients
 from app.services.report_settings_service import (
+    claim_schedule_slot_once,
+    evaluate_schedule_due,
     get_email_analytics_enabled,
     get_email_analytics_recipients,
+    get_report_dispatch_schedule,
     get_report_digest_filters,
     should_send_digest,
 )
@@ -87,6 +90,19 @@ async def _async_send_email_analytics_digest(compact: bool = False, force: bool 
     if not runtime_enabled and not force:
         return
 
+    dispatch_schedule = await get_report_dispatch_schedule()
+    include_projects = bool(dispatch_schedule.get("email_projects_enabled", True))
+    include_critical = bool(dispatch_schedule.get("email_critical_enabled", True))
+    if not (include_projects or include_critical):
+        return
+
+    slot_stamp: str | None = None
+    if not force:
+        is_due, due_stamp = evaluate_schedule_due(dispatch_schedule, "email_analytics_slots")
+        if not is_due:
+            return
+        slot_stamp = due_stamp
+
     digest_filters_raw = await get_report_digest_filters()
     digest_filters = normalize_digest_filters(digest_filters_raw)
     anti_noise_enabled = bool(digest_filters_raw.get("anti_noise_enabled", True))
@@ -100,18 +116,27 @@ async def _async_send_email_analytics_digest(compact: bool = False, force: bool 
         recipient_specs = await _resolve_recipient_specs(db)
         for spec in recipient_specs:
             try:
+                if slot_stamp and not await claim_schedule_slot_once(
+                    channel="email",
+                    recipient_key=spec.email,
+                    digest_key="analytics",
+                    slot_stamp=slot_stamp,
+                ):
+                    continue
+
                 digest = await collect_analytics_digest(
                     db,
                     compact=compact,
                     viewer=spec.user,
                     filters=digest_filters,
                 )
-                fingerprint = build_digest_fingerprint(digest, section="all")
+                topic_signature = f"p{int(include_projects)}c{int(include_critical)}"
+                fingerprint = build_digest_fingerprint(digest, section=f"all:{topic_signature}")
                 if anti_noise_enabled and not force:
                     can_send = await should_send_digest(
                         channel="email",
                         recipient_key=spec.email,
-                        digest_key=spec.scope_key,
+                        digest_key=f"{spec.scope_key}:{topic_signature}",
                         fingerprint=fingerprint,
                         ttl_minutes=anti_noise_ttl_minutes,
                     )
@@ -120,8 +145,18 @@ async def _async_send_email_analytics_digest(compact: bool = False, force: bool 
                         continue
 
                 subject = format_email_digest_subject(digest)
-                text_body = format_email_digest_text(digest, compact=compact)
-                html_body = format_email_digest_html(digest, compact=compact)
+                text_body = format_email_digest_text(
+                    digest,
+                    compact=compact,
+                    include_projects=include_projects,
+                    include_critical=include_critical,
+                )
+                html_body = format_email_digest_html(
+                    digest,
+                    compact=compact,
+                    include_projects=include_projects,
+                    include_critical=include_critical,
+                )
                 await _send_email_to_recipients(
                     db,
                     recipients=[spec.email],
@@ -133,6 +168,10 @@ async def _async_send_email_analytics_digest(compact: bool = False, force: bool 
                         "compact": compact,
                         "force": force,
                         "scope": spec.scope_key,
+                        "topics": {
+                            "projects": include_projects,
+                            "critical": include_critical,
+                        },
                         "projects_count": digest.active_projects_count,
                         "critical_tasks_count": digest.critical_tasks_count,
                     },

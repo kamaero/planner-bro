@@ -10,6 +10,11 @@ from app.services.analytics_digest_service import (
     normalize_digest_filters,
 )
 from app.services.report_settings_service import get_report_digest_filters, should_send_digest
+from app.services.report_settings_service import (
+    claim_schedule_slot_once,
+    evaluate_schedule_due,
+    get_report_dispatch_schedule,
+)
 from app.services.telegram_service import (
     get_summaries_enabled,
     send_telegram_message,
@@ -41,13 +46,30 @@ async def _async_send_projects_summary(compact: bool = False, force: bool = Fals
         return
     if not force and not await get_summaries_enabled():
         return
+    dispatch_schedule = await get_report_dispatch_schedule()
+    if not force and not bool(dispatch_schedule.get("telegram_projects_enabled", True)):
+        return
 
     filters_raw = await get_report_digest_filters()
     filters = normalize_digest_filters(filters_raw)
     anti_noise_enabled = bool(filters_raw.get("anti_noise_enabled", True))
     anti_noise_ttl_minutes = int(filters_raw.get("anti_noise_ttl_minutes", 360))
 
+    slot_stamp: str | None = None
+    if not force:
+        is_due, due_stamp = evaluate_schedule_due(dispatch_schedule, "telegram_projects_slots")
+        if not is_due:
+            return
+        slot_stamp = due_stamp
+
     async with AsyncSessionLocal() as db:
+        if slot_stamp and not await claim_schedule_slot_once(
+            channel="telegram",
+            recipient_key=settings.TELEGRAM_CHAT_ID.strip(),
+            digest_key="projects",
+            slot_stamp=slot_stamp,
+        ):
+            return
         digest = await collect_analytics_digest(db, compact=compact, filters=filters)
     fingerprint = build_digest_fingerprint(digest, section="projects")
 
@@ -94,13 +116,30 @@ async def _async_send_critical_tasks_summary(compact: bool = False, force: bool 
         return
     if not force and not await get_summaries_enabled():
         return
+    dispatch_schedule = await get_report_dispatch_schedule()
+    if not force and not bool(dispatch_schedule.get("telegram_critical_enabled", True)):
+        return
 
     filters_raw = await get_report_digest_filters()
     filters = normalize_digest_filters(filters_raw)
     anti_noise_enabled = bool(filters_raw.get("anti_noise_enabled", True))
     anti_noise_ttl_minutes = int(filters_raw.get("anti_noise_ttl_minutes", 360))
 
+    slot_stamp: str | None = None
+    if not force:
+        is_due, due_stamp = evaluate_schedule_due(dispatch_schedule, "telegram_critical_slots")
+        if not is_due:
+            return
+        slot_stamp = due_stamp
+
     async with AsyncSessionLocal() as db:
+        if slot_stamp and not await claim_schedule_slot_once(
+            channel="telegram",
+            recipient_key=settings.TELEGRAM_CHAT_ID.strip(),
+            digest_key="critical",
+            slot_stamp=slot_stamp,
+        ):
+            return
         digest = await collect_analytics_digest(db, compact=compact, filters=filters)
     fingerprint = build_digest_fingerprint(digest, section="critical")
 

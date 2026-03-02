@@ -75,11 +75,23 @@ class ReportDigestFilters(BaseModel):
     anti_noise_ttl_minutes: int = Field(default=360, ge=15, le=1440)
 
 
+class ReportDigestSchedule(BaseModel):
+    timezone: str = "Asia/Yekaterinburg"
+    telegram_projects_enabled: bool = True
+    telegram_critical_enabled: bool = True
+    email_projects_enabled: bool = True
+    email_critical_enabled: bool = True
+    telegram_projects_slots: list[str] = Field(default_factory=lambda: ["mon@08:00", "fri@16:00"])
+    telegram_critical_slots: list[str] = Field(default_factory=lambda: ["daily@10:00"])
+    email_analytics_slots: list[str] = Field(default_factory=lambda: ["mon@08:10", "fri@16:10"])
+
+
 class ReportDispatchSettingsOut(BaseModel):
     telegram_summaries_enabled: bool
     email_analytics_enabled: bool
     email_analytics_recipients: str
     digest_filters: ReportDigestFilters
+    digest_schedule: ReportDigestSchedule
 
 
 class ReportDispatchSettingsUpdateIn(BaseModel):
@@ -87,6 +99,7 @@ class ReportDispatchSettingsUpdateIn(BaseModel):
     email_analytics_enabled: bool
     email_analytics_recipients: str = ""
     digest_filters: Optional[ReportDigestFilters] = None
+    digest_schedule: Optional[ReportDigestSchedule] = None
 
 
 class ReportDeliveryStatusOut(BaseModel):
