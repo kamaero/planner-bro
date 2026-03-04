@@ -1,7 +1,18 @@
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from datetime import datetime, date
 from typing import Optional
 from app.schemas.user import UserOut
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _ensure_iso_date_string(value: object, field_name: str) -> object:
+    if value is None or isinstance(value, date):
+        return value
+    if isinstance(value, str) and _ISO_DATE_RE.fullmatch(value):
+        return value
+    raise ValueError(f"{field_name} must be in YYYY-MM-DD format")
 
 
 class TaskBase(BaseModel):
@@ -25,6 +36,11 @@ class TaskBase(BaseModel):
     escalation_first_response_at: Optional[datetime] = None
     escalation_overdue_at: Optional[datetime] = None
     repeat_every_days: Optional[int] = None
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def validate_date_fields(cls, value: object, info: ValidationInfo) -> object:
+        return _ensure_iso_date_string(value, info.field_name)
 
 
 class TaskCreate(TaskBase):
@@ -53,6 +69,11 @@ class TaskUpdate(BaseModel):
     escalation_overdue_at: Optional[datetime] = None
     repeat_every_days: Optional[int] = None
     deadline_change_reason: Optional[str] = None
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def validate_date_fields(cls, value: object, info: ValidationInfo) -> object:
+        return _ensure_iso_date_string(value, info.field_name)
 
 
 class TaskStatusUpdate(BaseModel):

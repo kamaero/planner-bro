@@ -193,6 +193,12 @@ export function ProjectDetail() {
   const canDelete = currentUser?.role === 'admin' || !!currentUser?.can_delete
   const canImport = currentUser?.role === 'admin' || !!currentUser?.can_import
   const canBulkEdit = currentUser?.role === 'admin' || !!currentUser?.can_bulk_edit
+  const projectAssigneeOptions = useMemo(() => {
+    if (members.length === 0) return users
+    const uniqueUsers = new Map<string, (typeof users)[number]>()
+    for (const member of members) uniqueUsers.set(member.user.id, member.user)
+    return Array.from(uniqueUsers.values())
+  }, [members, users])
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
@@ -1002,7 +1008,7 @@ export function ProjectDetail() {
                   }}
                   className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[112px]"
                 >
-                  {users.map((u) => (
+                  {projectAssigneeOptions.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name} ({u.role})
                     </option>

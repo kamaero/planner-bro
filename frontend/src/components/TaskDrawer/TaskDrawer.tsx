@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,6 +16,7 @@ import {
   useTaskDeadlineHistory,
 } from '@/hooks/useProjects'
 import { useUsers } from '@/hooks/useUsers'
+import { useMembers } from '@/hooks/useMembers'
 import type { Task } from '@/types'
 import { CalendarDays, Clock, User, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
@@ -89,6 +90,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const updateTask = useUpdateTask()
   const checkInTask = useTaskCheckIn()
   const { data: projectTasks = [] } = useTasks(projectId)
+  const { data: members = [] } = useMembers(projectId)
   const { data: dependencies = [] } = useTaskDependencies(task?.id)
   const addDependency = useAddTaskDependency()
   const removeDependency = useRemoveTaskDependency()
@@ -119,6 +121,14 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
   const { data: deadlineHistory = [] } = useTaskDeadlineHistory(task?.id)
+  const assigneeOptions = useMemo(() => {
+    const baseUsers = members.length > 0 ? members.map((member) => member.user) : users
+    const uniqueUsers = new Map<string, (typeof baseUsers)[number]>()
+    for (const user of baseUsers) uniqueUsers.set(user.id, user)
+    for (const user of task?.assignees ?? []) uniqueUsers.set(user.id, user)
+    if (task?.assignee) uniqueUsers.set(task.assignee.id, task.assignee)
+    return Array.from(uniqueUsers.values())
+  }, [members, task?.assignee, task?.assignees, users])
 
   useEffect(() => {
     if (!task) return
@@ -280,15 +290,25 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
 
   const handleAddDependency = async () => {
     if (!newDependencyTaskId) return
-    await addDependency.mutateAsync({
-      taskId: task.id,
-      predecessorTaskId: newDependencyTaskId,
-    })
-    setNewDependencyTaskId('')
+    try {
+      await addDependency.mutateAsync({
+        taskId: task.id,
+        predecessorTaskId: newDependencyTaskId,
+      })
+      setNewDependencyTaskId('')
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail
+      window.alert(typeof detail === 'string' ? detail : 'Не удалось сохранить связь задач')
+    }
   }
 
   const handleRemoveDependency = async (predecessorTaskId: string) => {
-    await removeDependency.mutateAsync({ taskId: task.id, predecessorTaskId })
+    try {
+      await removeDependency.mutateAsync({ taskId: task.id, predecessorTaskId })
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail
+      window.alert(typeof detail === 'string' ? detail : 'Не удалось удалить связь задач')
+    }
   }
 
   return (
@@ -487,7 +507,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   }
                   className="text-sm border rounded px-2 py-1 bg-background flex-1 min-h-[96px]"
                 >
-                  {users.map((u) => (
+                  {assigneeOptions.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name} ({u.role})
                     </option>
