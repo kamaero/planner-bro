@@ -122,7 +122,7 @@ async def can_access_project(db: AsyncSession, actor: User, project_id: str) -> 
                 select(ProjectMember.user_id).where(
                     ProjectMember.project_id == project_id,
                     ProjectMember.user_id.in_(scope.user_ids),
-                )
+                ).limit(1)
             )
         ).scalar_one_or_none()
         if member_hit:
@@ -134,7 +134,7 @@ async def can_access_project(db: AsyncSession, actor: User, project_id: str) -> 
                 select(ProjectDepartment.department_id).where(
                     ProjectDepartment.project_id == project_id,
                     ProjectDepartment.department_id.in_(scope.department_ids),
-                )
+                ).limit(1)
             )
         ).scalar_one_or_none()
         if dep_hit:
