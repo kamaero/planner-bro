@@ -38,6 +38,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { humanizeApiError } from '@/lib/errorMessages'
+import { buildTaskHierarchy, parseTaskOrderFromTitle } from '@/lib/taskOrdering'
 import type { Task, GanttTask, ProjectFile } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
@@ -98,14 +99,6 @@ function formatFileSize(size: number) {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
   if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
-}
-
-function parseImportedTaskOrder(title: string): number[] | null {
-  const match = title.match(/^(\d+(?:\.\d+)*)(?:[.)])?\s+/)
-  if (!match) return null
-  const values = match[1].split('.').map((part) => Number.parseInt(part, 10))
-  if (values.some((v) => !Number.isFinite(v))) return null
-  return values
 }
 
 export function ProjectDetail() {
@@ -245,8 +238,8 @@ export function ProjectDetail() {
         const byTitle = a.task.title.localeCompare(b.task.title, 'ru')
         if (byTitle !== 0) return taskSortDir === 'asc' ? byTitle : -byTitle
       }
-      const ao = parseImportedTaskOrder(a.task.title)
-      const bo = parseImportedTaskOrder(b.task.title)
+      const ao = parseTaskOrderFromTitle(a.task.title)
+      const bo = parseTaskOrderFromTitle(b.task.title)
       if (ao && bo) {
         const maxLen = Math.max(ao.length, bo.length)
         for (let i = 0; i < maxLen; i += 1) {
@@ -332,6 +325,17 @@ export function ProjectDetail() {
     const sum = tasks.reduce((acc, t) => acc + (t.progress_percent ?? 0), 0)
     return Math.round(sum / tasks.length)
   }, [tasks])
+  const progressStats = useMemo(() => {
+    let completedCount = 0
+    let zeroProgressCount = 0
+    for (const task of tasks) {
+      const progress = task.progress_percent ?? 0
+      if (task.status === 'done' || progress >= 100) completedCount += 1
+      if (progress === 0) zeroProgressCount += 1
+    }
+    return { completedCount, zeroProgressCount, totalCount: tasks.length }
+  }, [tasks])
+  const taskHierarchyOptions = useMemo(() => buildTaskHierarchy(tasks), [tasks])
 
   const launchBasisFile = useMemo(() => {
     const fileId = project?.launch_basis_file_id
@@ -1170,9 +1174,9 @@ export function ProjectDetail() {
                   className="w-full border rounded px-3 py-2 text-sm bg-background"
                 >
                   <option value="">Без родителя</option>
-                  {tasks.map((t) => (
+                  {taskHierarchyOptions.ordered.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.title}
+                      {`${'· '.repeat(taskHierarchyOptions.depthById.get(t.id) ?? 0)}${t.title}`}
                     </option>
                   ))}
                 </select>
@@ -1188,9 +1192,9 @@ export function ProjectDetail() {
                   }}
                   className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[112px]"
                 >
-                  {tasks.map((t) => (
+                  {taskHierarchyOptions.ordered.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.title}
+                      {`${'· '.repeat(taskHierarchyOptions.depthById.get(t.id) ?? 0)}${t.title}`}
                     </option>
                   ))}
                 </select>
@@ -1277,6 +1281,9 @@ export function ProjectDetail() {
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="text-sm font-semibold">Прогресс проекта: {projectProgress}%</div>
+            <div className="text-sm text-muted-foreground">Выполнено 100%: {progressStats.completedCount}</div>
+            <div className="text-sm text-muted-foreground">Без движения (0%): {progressStats.zeroProgressCount}</div>
+            <div className="text-sm text-muted-foreground">Всего задач: {progressStats.totalCount}</div>
             {project.end_date && (
               <div className="text-sm text-muted-foreground flex items-center gap-1">
                 Дедлайн: {new Date(project.end_date).toLocaleDateString('ru-RU')}

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import {
   useUpdateTaskStatus,
   useDeleteTask,
@@ -16,9 +17,12 @@ import {
   useTaskDeadlineHistory,
 } from '@/hooks/useProjects'
 import { useUsers } from '@/hooks/useUsers'
+import { useMembers } from '@/hooks/useMembers'
 import type { Task } from '@/types'
 import { CalendarDays, Clock, User, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
+import { humanizeApiError } from '@/lib/errorMessages'
+import { buildTaskHierarchy } from '@/lib/taskOrdering'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -89,6 +93,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const updateTask = useUpdateTask()
   const checkInTask = useTaskCheckIn()
   const { data: projectTasks = [] } = useTasks(projectId)
+  const { data: members = [] } = useMembers(projectId)
   const { data: dependencies = [] } = useTaskDependencies(task?.id)
   const addDependency = useAddTaskDependency()
   const removeDependency = useRemoveTaskDependency()
@@ -114,11 +119,44 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [checkInNextDueDate, setCheckInNextDueDate] = useState('')
   const [needManagerHelp, setNeedManagerHelp] = useState(false)
   const [newDependencyTaskId, setNewDependencyTaskId] = useState('')
+  const [selectedParentTaskId, setSelectedParentTaskId] = useState('')
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([])
 
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
   const { data: deadlineHistory = [] } = useTaskDeadlineHistory(task?.id)
+  const assigneeOptions = useMemo(() => {
+    const baseUsers = members.length > 0 ? members.map((member) => member.user) : users
+    const uniqueUsers = new Map<string, (typeof baseUsers)[number]>()
+    for (const user of baseUsers) uniqueUsers.set(user.id, user)
+    for (const user of task?.assignees ?? []) uniqueUsers.set(user.id, user)
+    if (task?.assignee) uniqueUsers.set(task.assignee.id, task.assignee)
+    return Array.from(uniqueUsers.values())
+  }, [members, task?.assignee, task?.assignees, users])
+  const blockedParentIds = useMemo(() => {
+    if (!task?.id) return new Set<string>()
+    const childrenByParent = new Map<string, string[]>()
+    for (const projectTask of projectTasks) {
+      if (!projectTask.parent_task_id) continue
+      const items = childrenByParent.get(projectTask.parent_task_id) ?? []
+      items.push(projectTask.id)
+      childrenByParent.set(projectTask.parent_task_id, items)
+    }
+    const blocked = new Set<string>([task.id])
+    const stack = [task.id]
+    while (stack.length > 0) {
+      const current = stack.pop()
+      if (!current) continue
+      const children = childrenByParent.get(current) ?? []
+      for (const childId of children) {
+        if (blocked.has(childId)) continue
+        blocked.add(childId)
+        stack.push(childId)
+      }
+    }
+    return blocked
+  }, [projectTasks, task?.id])
+  const taskHierarchyOptions = useMemo(() => buildTaskHierarchy(projectTasks), [projectTasks])
 
   useEffect(() => {
     if (!task) return
@@ -140,6 +178,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     )
     setNeedManagerHelp(false)
     setNewDependencyTaskId('')
+    setSelectedParentTaskId(task.parent_task_id ?? '')
     setSelectedAssigneeIds(task.assignee_ids && task.assignee_ids.length > 0
       ? task.assignee_ids
       : task.assigned_to_id
@@ -152,13 +191,17 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const handlePriorityChange = async (nextPriority: string) => {
     const p = nextPriority as 'low' | 'medium' | 'high' | 'critical'
     setPriority(p)
-    await updateTask.mutateAsync({
-      taskId: task.id,
-      data: {
-        priority: controlSki ? 'critical' : p,
-        control_ski: controlSki,
-      },
-    })
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          priority: controlSki ? 'critical' : p,
+          control_ski: controlSki,
+        },
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось обновить приоритет задачи'))
+    }
   }
 
   const handleControlSkiChange = async (checked: boolean) => {
@@ -166,13 +209,17 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     const nextPriority = nextControl ? 'critical' : priority === 'critical' ? 'medium' : priority
     setControlSki(nextControl)
     setPriority(nextPriority)
-    await updateTask.mutateAsync({
-      taskId: task.id,
-      data: {
-        control_ski: nextControl,
-        priority: nextControl ? 'critical' : nextPriority,
-      },
-    })
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          control_ski: nextControl,
+          priority: nextControl ? 'critical' : nextPriority,
+        },
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось обновить флаг контроля СКИ'))
+    }
   }
 
   const handleStatusSave = async () => {
@@ -181,29 +228,44 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       window.alert('Прогресс должен быть числом от 0 до 100.')
       return
     }
-    await updateStatus.mutateAsync({
-      taskId: task.id,
-      status,
-      progress_percent: parsed,
-      next_step: nextStep.trim() || null,
-    })
+    try {
+      await updateStatus.mutateAsync({
+        taskId: task.id,
+        status,
+        progress_percent: parsed,
+        next_step: nextStep.trim() || null,
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось обновить статус задачи'))
+    }
   }
 
   const handleAssigneeChange = (assigneeIds: string[]) => {
     setSelectedAssigneeIds(assigneeIds)
-    updateTask.mutate({
-      taskId: task.id,
-      data: {
-        assignee_ids: assigneeIds,
-        assigned_to_id: assigneeIds[0] || null,
+    updateTask.mutate(
+      {
+        taskId: task.id,
+        data: {
+          assignee_ids: assigneeIds,
+          assigned_to_id: assigneeIds[0] || null,
+        },
       },
-    })
+      {
+        onError: (error: any) => {
+          window.alert(humanizeApiError(error, 'Не удалось изменить исполнителей'))
+        },
+      }
+    )
   }
 
   const handleDelete = async () => {
     if (window.confirm('Delete this task?')) {
-      await deleteTask.mutateAsync(task.id)
-      onOpenChange(false)
+      try {
+        await deleteTask.mutateAsync(task.id)
+        onOpenChange(false)
+      } catch (error: any) {
+        window.alert(humanizeApiError(error, 'Не удалось удалить задачу'))
+      }
     }
   }
 
@@ -216,34 +278,42 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       return
     }
     // No end_date change — save directly
-    await updateTask.mutateAsync({
-      taskId: task.id,
-      data: {
-        start_date: startDate || null,
-        end_date: endDate || null,
-        repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
-        is_escalation: isEscalation,
-        escalation_for: escalationFor || null,
-        escalation_sla_hours: escalationSlaHours ? parseInt(escalationSlaHours) : 24,
-      },
-    })
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          start_date: startDate || null,
+          end_date: endDate || null,
+          repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
+          is_escalation: isEscalation,
+          escalation_for: escalationFor || null,
+          escalation_sla_hours: escalationSlaHours ? parseInt(escalationSlaHours) : 24,
+        },
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить даты задачи'))
+    }
   }
 
   const handleDeadlineReasonConfirm = async (reason: string) => {
     setShowDeadlineReasonModal(false)
-    await updateTask.mutateAsync({
-      taskId: task.id,
-      data: {
-        start_date: startDate || null,
-        end_date: pendingEndDate || null,
-        repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
-        is_escalation: isEscalation,
-        escalation_for: escalationFor || null,
-        escalation_sla_hours: escalationSlaHours ? parseInt(escalationSlaHours) : 24,
-        deadline_change_reason: reason,
-      },
-    })
-    setPendingEndDate('')
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          start_date: startDate || null,
+          end_date: pendingEndDate || null,
+          repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
+          is_escalation: isEscalation,
+          escalation_for: escalationFor || null,
+          escalation_sla_hours: escalationSlaHours ? parseInt(escalationSlaHours) : 24,
+          deadline_change_reason: reason,
+        },
+      })
+      setPendingEndDate('')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить дедлайн задачи'))
+    }
   }
 
   const handleDeadlineReasonCancel = () => {
@@ -255,8 +325,12 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
 
   const handleAddComment = async () => {
     if (!commentBody.trim()) return
-    await addComment.mutateAsync({ taskId: task.id, body: commentBody.trim() })
-    setCommentBody('')
+    try {
+      await addComment.mutateAsync({ taskId: task.id, body: commentBody.trim() })
+      setCommentBody('')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось добавить комментарий'))
+    }
   }
 
   const handleCheckIn = async () => {
@@ -264,31 +338,56 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       window.alert('Укажите короткий итог по задаче.')
       return
     }
-    await checkInTask.mutateAsync({
-      taskId: task.id,
-      summary: checkInSummary.trim(),
-      blockers: checkInBlockers.trim() || null,
-      next_check_in_due_at: checkInNextDueDate
-        ? new Date(checkInNextDueDate).toISOString()
-        : null,
-      need_manager_help: needManagerHelp,
-    })
-    setCheckInSummary('')
-    setCheckInBlockers('')
-    setNeedManagerHelp(false)
+    try {
+      await checkInTask.mutateAsync({
+        taskId: task.id,
+        summary: checkInSummary.trim(),
+        blockers: checkInBlockers.trim() || null,
+        next_check_in_due_at: checkInNextDueDate
+          ? new Date(checkInNextDueDate).toISOString()
+          : null,
+        need_manager_help: needManagerHelp,
+      })
+      setCheckInSummary('')
+      setCheckInBlockers('')
+      setNeedManagerHelp(false)
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить check-in'))
+    }
   }
 
   const handleAddDependency = async () => {
     if (!newDependencyTaskId) return
-    await addDependency.mutateAsync({
-      taskId: task.id,
-      predecessorTaskId: newDependencyTaskId,
-    })
-    setNewDependencyTaskId('')
+    try {
+      await addDependency.mutateAsync({
+        taskId: task.id,
+        predecessorTaskId: newDependencyTaskId,
+      })
+      setNewDependencyTaskId('')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить связь задач'))
+    }
+  }
+
+  const handleSaveParentTask = async () => {
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          parent_task_id: selectedParentTaskId || null,
+        },
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить родительскую задачу'))
+    }
   }
 
   const handleRemoveDependency = async (predecessorTaskId: string) => {
-    await removeDependency.mutateAsync({ taskId: task.id, predecessorTaskId })
+    try {
+      await removeDependency.mutateAsync({ taskId: task.id, predecessorTaskId })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось удалить связь задач'))
+    }
   }
 
   return (
@@ -319,14 +418,12 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 <option value="critical">critical</option>
               </select>
               <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+                <span>Контроль СКИ</span>
+                <Switch
                   checked={controlSki}
-                  onChange={(e) => void handleControlSkiChange(e.target.checked)}
-                  className="h-4 w-4"
+                  onCheckedChange={(checked) => void handleControlSkiChange(checked)}
                   disabled={updateTask.isPending}
                 />
-                Контроль СКИ
               </label>
               <select
                 value={status}
@@ -403,12 +500,11 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 />
               </div>
               <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+                <span>Нужна помощь менеджера</span>
+                <Switch
                   checked={needManagerHelp}
-                  onChange={(e) => setNeedManagerHelp(e.target.checked)}
+                  onCheckedChange={setNeedManagerHelp}
                 />
-                Нужна помощь менеджера
               </label>
               <Button
                 size="sm"
@@ -418,6 +514,37 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               >
                 {checkInTask.isPending ? 'Сохранение...' : 'Отметиться (Check-in)'}
               </Button>
+            </div>
+
+            <div className="rounded-lg border p-3 space-y-2">
+              <p className="text-sm font-medium">Родительская задача (структура)</p>
+              <p className="text-xs text-muted-foreground">
+                Это только иерархия. Для блокировки старта используйте раздел зависимостей ниже.
+              </p>
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedParentTaskId}
+                  onChange={(e) => setSelectedParentTaskId(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
+                >
+                  <option value="">Без родителя</option>
+                  {taskHierarchyOptions.ordered
+                    .filter((candidate) => !blockedParentIds.has(candidate.id))
+                    .map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(candidate.id) ?? 0)}${candidate.title}`}
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSaveParentTask}
+                  disabled={updateTask.isPending}
+                >
+                  Сохранить
+                </Button>
+              </div>
             </div>
 
             <div className="rounded-lg border p-3 space-y-2">
@@ -432,11 +559,11 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   className="text-sm border rounded px-2 py-1 bg-background flex-1"
                 >
                   <option value="">Выберите предшественника</option>
-                  {projectTasks
+                  {taskHierarchyOptions.ordered
                     .filter((t) => t.id !== task.id)
                     .map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.title}
+                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(t.id) ?? 0)}${t.title}`}
                       </option>
                     ))}
                 </select>
@@ -487,7 +614,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   }
                   className="text-sm border rounded px-2 py-1 bg-background flex-1 min-h-[96px]"
                 >
-                  {users.map((u) => (
+                  {assigneeOptions.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name} ({u.role})
                     </option>
@@ -573,12 +700,11 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               )}
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
+                  <span>Эскалация на руководителя</span>
+                  <Switch
                     checked={isEscalation}
-                    onChange={(e) => setIsEscalation(e.target.checked)}
+                    onCheckedChange={setIsEscalation}
                   />
-                  Эскалация на руководителя
                 </label>
                 {isEscalation && (
                   <div className="space-y-2">
