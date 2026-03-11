@@ -201,12 +201,26 @@ export function ProjectDetail() {
   const canDelete = currentUser?.role === 'admin' || !!currentUser?.can_delete
   const canImport = currentUser?.role === 'admin' || !!currentUser?.can_import
   const canBulkEdit = currentUser?.role === 'admin' || !!currentUser?.can_bulk_edit
+  const canAssignAcrossOrg = useMemo(() => {
+    const position = (currentUser?.position_title ?? '').toLowerCase()
+    const isGlobalPosition =
+      position.includes('гип') ||
+      position.includes('главный инженер проектов') ||
+      position.includes('зам') ||
+      position.includes('заместитель')
+    return (
+      currentUser?.role === 'admin' ||
+      currentUser?.role === 'manager' ||
+      !!currentUser?.can_manage_team ||
+      isGlobalPosition
+    )
+  }, [currentUser?.can_manage_team, currentUser?.position_title, currentUser?.role])
   const projectAssigneeOptions = useMemo(() => {
-    if (members.length === 0) return users
+    if (canAssignAcrossOrg || members.length === 0) return users
     const uniqueUsers = new Map<string, (typeof users)[number]>()
     for (const member of members) uniqueUsers.set(member.user.id, member.user)
     return Array.from(uniqueUsers.values())
-  }, [members, users])
+  }, [canAssignAcrossOrg, members, users])
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {

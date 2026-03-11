@@ -41,7 +41,11 @@ from app.schemas.ai import (
 )
 from app.schemas.deadline_change import DeadlineChangeOut, DeadlineStats
 from app.services.project_service import get_gantt_data
-from app.services.access_scope import can_access_project, get_user_access_scope
+from app.services.access_scope import (
+    can_access_project,
+    get_user_access_scope,
+    get_task_assignment_scope_user_ids,
+)
 from app.services.notification_service import (
     notify_project_updated,
     notify_new_task,
@@ -315,6 +319,16 @@ async def _get_member(project_id: str, user_id: str, db: AsyncSession) -> Projec
         )
     )
     return result.scalar_one_or_none()
+
+
+async def _require_assignment_scope_user(
+    db: AsyncSession,
+    actor: User,
+    target_user_id: str,
+) -> None:
+    allowed_user_ids = await get_task_assignment_scope_user_ids(db, actor)
+    if target_user_id not in allowed_user_ids:
+        raise HTTPException(status_code=403, detail="No permission to assign this user")
 
 
 async def _maybe_archive_processed_file(
@@ -745,6 +759,7 @@ async def update_project(
     if owner_id and owner_id != project.owner_id:
         if current_user.role != "admin" and (not requester_member or requester_member.role != "owner"):
             raise HTTPException(status_code=403, detail="Only owner or admin can transfer ownership")
+        await _require_assignment_scope_user(db, current_user, owner_id)
         owner_result = await db.execute(select(User).where(User.id == owner_id))
         new_owner = owner_result.scalar_one_or_none()
         if not new_owner:
@@ -1592,6 +1607,7 @@ async def add_member(
     if data.role == "manager" and current_user.role != "admin":
         if not requester_member or requester_member.role != "owner":
             raise HTTPException(status_code=403, detail="Only owner or admin can assign manager role")
+    await _require_assignment_scope_user(db, current_user, data.user_id)
     existing = await db.execute(
         select(ProjectMember).where(
             ProjectMember.project_id == project_id,

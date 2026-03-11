@@ -33,7 +33,7 @@ from app.services.notification_service import (
     notify_check_in_help_requested,
 )
 from app.services.check_in_policy import compute_next_check_in_due_at
-from app.services.access_scope import can_access_project
+from app.services.access_scope import can_access_project, get_task_assignment_scope_user_ids
 
 router = APIRouter(tags=["tasks"])
 
@@ -128,10 +128,18 @@ async def _require_project_exists(project_id: str, db: AsyncSession) -> None:
         raise HTTPException(status_code=404, detail="Project not found")
 
 
-async def _ensure_member_for_assignee(project_id: str, assignee_id: str, db: AsyncSession) -> None:
+async def _ensure_member_for_assignee(
+    project_id: str,
+    assignee_id: str,
+    actor: User,
+    db: AsyncSession,
+) -> None:
     user = (await db.execute(select(User).where(User.id == assignee_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="Assignee not found")
+    assignable_ids = await get_task_assignment_scope_user_ids(db, actor)
+    if assignee_id not in assignable_ids:
+        raise HTTPException(status_code=403, detail="No permission to assign this user")
     member = (
         await db.execute(
             select(ProjectMember).where(
@@ -149,6 +157,7 @@ async def _sync_task_assignees(
     task: Task,
     assignee_ids: list[str] | None,
     project_id: str,
+    actor: User,
     db: AsyncSession,
 ) -> None:
     if assignee_ids is None:
@@ -156,7 +165,7 @@ async def _sync_task_assignees(
     normalized = [uid.strip() for uid in assignee_ids if uid and uid.strip()]
     unique_ids = list(dict.fromkeys(normalized))
     for uid in unique_ids:
-        await _ensure_member_for_assignee(project_id, uid, db)
+        await _ensure_member_for_assignee(project_id, uid, actor, db)
 
     existing_rows = (
         await db.execute(select(TaskAssignee).where(TaskAssignee.task_id == task.id))
@@ -643,7 +652,7 @@ async def create_task(
             payload["assigned_to_id"] = owner_id
 
     if payload.get("assigned_to_id"):
-        await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], db)
+        await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], current_user, db)
     project = await _get_project_settings(project_id, db)
     task = Task(**payload, project_id=project_id, created_by_id=current_user.id)
     task.next_check_in_due_at = _plan_next_check_in(task, _now_utc())
@@ -680,7 +689,7 @@ async def create_task(
         f"is_escalation={task.is_escalation};assignee={task.assigned_to_id or ''}",
     )
     if assignee_ids is not None:
-        await _sync_task_assignees(task, assignee_ids, project_id, db)
+        await _sync_task_assignees(task, assignee_ids, project_id, current_user, db)
 
     # Notify assignee
     for uid in await _serialize_assignee_ids(task, db):
@@ -899,8 +908,8 @@ async def update_task(
     await db.flush()
 
     if "assigned_to_id" in payload and task.assigned_to_id:
-        await _ensure_member_for_assignee(task.project_id, task.assigned_to_id, db)
-    await _sync_task_assignees(task, assignee_ids, task.project_id, db)
+        await _ensure_member_for_assignee(task.project_id, task.assigned_to_id, current_user, db)
+    await _sync_task_assignees(task, assignee_ids, task.project_id, current_user, db)
 
     # Notify new assignee
     new_assignee_ids = set(await _serialize_assignee_ids(task, db))
@@ -1098,7 +1107,7 @@ async def bulk_update_tasks(
         payload["assigned_to_id"] = assignee_ids[0] if assignee_ids else None
 
     if "assigned_to_id" in payload and payload["assigned_to_id"]:
-        await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], db)
+        await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], current_user, db)
 
     tasks = (
         await db.execute(
@@ -1138,7 +1147,7 @@ async def bulk_update_tasks(
                 setattr(task, field, value)
                 changed = True
         if assignee_ids is not None:
-            await _sync_task_assignees(task, assignee_ids, project_id, db)
+            await _sync_task_assignees(task, assignee_ids, project_id, current_user, db)
             changed = True
 
         if payload.get("status") == "done" and task.progress_percent != 100:

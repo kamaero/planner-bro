@@ -24,6 +24,7 @@ import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineRe
 import { humanizeApiError } from '@/lib/errorMessages'
 import { buildTaskHierarchy, buildTaskNumbering } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
+import { useAuthStore } from '@/store/authStore'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -94,6 +95,7 @@ interface TaskDrawerProps {
 }
 
 export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerProps) {
+  const currentUser = useAuthStore((s) => s.user)
   const updateStatus = useUpdateTaskStatus()
   const deleteTask = useDeleteTask()
   const updateTask = useUpdateTask()
@@ -133,14 +135,31 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
   const { data: deadlineHistory = [] } = useTaskDeadlineHistory(task?.id)
+  const canAssignAcrossOrg = useMemo(() => {
+    const position = (currentUser?.position_title ?? '').toLowerCase()
+    const isGlobalPosition =
+      position.includes('гип') ||
+      position.includes('главный инженер проектов') ||
+      position.includes('зам') ||
+      position.includes('заместитель')
+    return (
+      currentUser?.role === 'admin' ||
+      currentUser?.role === 'manager' ||
+      !!currentUser?.can_manage_team ||
+      isGlobalPosition
+    )
+  }, [currentUser?.can_manage_team, currentUser?.position_title, currentUser?.role])
   const assigneeOptions = useMemo(() => {
-    const baseUsers = members.length > 0 ? members.map((member) => member.user) : users
+    const baseUsers =
+      canAssignAcrossOrg || members.length === 0
+        ? users
+        : members.map((member) => member.user)
     const uniqueUsers = new Map<string, (typeof baseUsers)[number]>()
     for (const user of baseUsers) uniqueUsers.set(user.id, user)
     for (const user of task?.assignees ?? []) uniqueUsers.set(user.id, user)
     if (task?.assignee) uniqueUsers.set(task.assignee.id, task.assignee)
     return Array.from(uniqueUsers.values())
-  }, [members, task?.assignee, task?.assignees, users])
+  }, [canAssignAcrossOrg, members, task?.assignee, task?.assignees, users])
   const blockedParentIds = useMemo(() => {
     if (!task?.id) return new Set<string>()
     const childrenByParent = new Map<string, string[]>()
