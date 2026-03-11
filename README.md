@@ -84,6 +84,10 @@ SKIP_FRONTEND=1 ./scripts/deploy-prod.sh
 
 ## Дополнительная документация
 
+- Портал документации (RU): [docs/ru/00_Портал_PlannerBro.md](./docs/ru/00_Портал_PlannerBro.md)
+- Функционал системы (RU): [docs/ru/12_Функционал_системы.md](./docs/ru/12_Функционал_системы.md)
+- Справка пользователя (RU): [docs/ru/13_Справка_пользователя.md](./docs/ru/13_Справка_пользователя.md)
+- Права, роли и назначения (RU): [docs/ru/15_Права_роли_и_назначения.md](./docs/ru/15_Права_роли_и_назначения.md)
 - Гайд для разработки и эксплуатации: [CLAUDE.md](./CLAUDE.md)
 - Product backlog/TODO: [PlannerBro_TODO.md](./PlannerBro_TODO.md)
 - Краткое описание системы для анонсов: [SYSTEM_OVERVIEW_RU.md](./SYSTEM_OVERVIEW_RU.md)
