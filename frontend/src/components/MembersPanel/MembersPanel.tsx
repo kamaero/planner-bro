@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { UserPlus, Trash2 } from 'lucide-react'
 import type { User } from '@/types'
+import { formatUserDisplayName } from '@/lib/userName'
 
 interface MembersPanelProps {
   projectId: string
@@ -75,7 +76,7 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
     setActionMessage(null)
     try {
       await addMember.mutateAsync({ projectId, userId: user.id, role })
-      setActionMessage({ type: 'ok', text: `Назначение сохранено: ${user.name} (${role})` })
+      setActionMessage({ type: 'ok', text: `Назначение сохранено: ${formatUserDisplayName(user)} (${role})` })
       setSelectedUser(null)
       setQuery('')
       setDebouncedQuery('')
@@ -143,10 +144,10 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
           >
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium text-primary">
-                {m.user.name.charAt(0).toUpperCase()}
+                {formatUserDisplayName(m.user).charAt(0).toUpperCase()}
               </div>
               <div>
-                <p className="text-sm font-medium">{m.user.name}</p>
+                <p className="text-sm font-medium">{formatUserDisplayName(m.user)}</p>
                 <p className="text-xs text-muted-foreground">{m.user.email}</p>
               </div>
             </div>
@@ -206,7 +207,7 @@ export function MembersPanel({ projectId }: MembersPanelProps) {
                       className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors"
                       onMouseDown={() => handleSelectUser(u)}
                     >
-                      <span className="font-medium">{u.name}</span>
+                      <span className="font-medium">{formatUserDisplayName(u)}</span>
                       <span className="text-muted-foreground ml-2">{u.email}</span>
                     </button>
                   ))}

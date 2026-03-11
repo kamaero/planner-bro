@@ -39,6 +39,7 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { humanizeApiError } from '@/lib/errorMessages'
 import { buildTaskHierarchy, parseTaskOrderFromTitle } from '@/lib/taskOrdering'
+import { formatUserDisplayName } from '@/lib/userName'
 import type { Task, GanttTask, ProjectFile } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
@@ -741,7 +742,7 @@ export function ProjectDetail() {
         </div>
         <div className="flex items-center gap-2">
           {task.assignee && (
-            <span className="text-xs text-muted-foreground">{task.assignee.name}</span>
+            <span className="text-xs text-muted-foreground">{formatUserDisplayName(task.assignee)}</span>
           )}
           <select
             value={task.status}
@@ -936,7 +937,7 @@ export function ProjectDetail() {
                   >
                     {users.map((u) => (
                       <option key={u.id} value={u.id}>
-                        {u.name} ({u.role})
+                        {formatUserDisplayName(u)} ({u.role})
                       </option>
                     ))}
                   </select>
@@ -1160,7 +1161,7 @@ export function ProjectDetail() {
                 >
                   {projectAssigneeOptions.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name} ({u.role})
+                      {formatUserDisplayName(u)} ({u.role})
                     </option>
                   ))}
                 </select>
@@ -1336,7 +1337,7 @@ export function ProjectDetail() {
                     <div className="flex items-center justify-between text-muted-foreground">
                       <span>
                         {new Date(change.created_at).toLocaleDateString('ru-RU')}
-                        {change.changed_by && ` · ${change.changed_by.name}`}
+                        {change.changed_by && ` · ${formatUserDisplayName(change.changed_by)}`}
                       </span>
                       <span>
                         {new Date(change.old_date).toLocaleDateString('ru-RU')} →{' '}
@@ -1413,7 +1414,7 @@ export function ProjectDetail() {
                 <option value="unassigned">Без исполнителя</option>
                 {members.map((m) => (
                   <option key={m.user.id} value={m.user.id}>
-                    {m.user.name}
+                    {formatUserDisplayName(m.user)}
                   </option>
                 ))}
               </select>
@@ -1522,7 +1523,7 @@ export function ProjectDetail() {
                     <option value="unassigned">Исполнитель: снять назначение</option>
                     {members.map((m) => (
                       <option key={m.user.id} value={m.user.id}>
-                        Исполнитель: {m.user.name}
+                        Исполнитель: {formatUserDisplayName(m.user)}
                       </option>
                     ))}
                   </select>
@@ -1675,7 +1676,7 @@ export function ProjectDetail() {
                     <p className="text-xs text-muted-foreground">
                       {formatFileSize(file.size)} ·{' '}
                       {new Date(file.created_at).toLocaleDateString()} ·{' '}
-                      {file.uploaded_by?.name ?? 'Неизвестно'}
+                      {formatUserDisplayName(file.uploaded_by) || 'Неизвестно'}
                     </p>
                     <p className="text-xs mt-1 text-muted-foreground">
                       AI: {meta.label}

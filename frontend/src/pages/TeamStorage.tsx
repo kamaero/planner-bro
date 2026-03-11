@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Upload, Trash2, Download, FolderOpen, Lock, File as FileIcon } from 'lucide-react'
 import type { VaultFile } from '@/types'
+import { formatUserDisplayName } from '@/lib/userName'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} Б`
@@ -38,7 +39,7 @@ function FileRow({
         <p className="text-sm font-medium truncate">{file.name}</p>
         <p className="text-xs text-muted-foreground">
           {formatBytes(file.size)}
-          {file.uploaded_by ? ` · ${file.uploaded_by.name}` : ''}
+          {file.uploaded_by ? ` · ${formatUserDisplayName(file.uploaded_by)}` : ''}
           {' · '}{formatDate(file.created_at)}
           {file.description ? ` · ${file.description}` : ''}
         </p>

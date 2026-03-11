@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { Task } from '@/types'
 import { Clock, AlertCircle, CornerDownRight } from 'lucide-react'
 import { buildTaskNumbering } from '@/lib/taskOrdering'
+import { formatUserDisplayName } from '@/lib/userName'
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
@@ -257,10 +258,10 @@ export function TaskTable({
                 <td className={`px-3 ${pyClass}`}>
                   {task.assignees && task.assignees.length > 0 ? (
                     <span className={`text-sm ${commentClamp} whitespace-normal break-words block`}>
-                      {task.assignees.map((u) => u.name).join(', ')}
+                      {task.assignees.map((u) => formatUserDisplayName(u)).join(', ')}
                     </span>
                   ) : task.assignee ? (
-                    <span className="text-sm">{task.assignee.name}</span>
+                    <span className="text-sm">{formatUserDisplayName(task.assignee)}</span>
                   ) : (
                     <span className="text-muted-foreground text-xs">—</span>
                   )}

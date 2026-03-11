@@ -7,9 +7,11 @@ import { Plus, Building2, Users2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { useAuthStore } from '@/store/authStore'
 import type { Department, Project, Task, User, SystemActivityLog } from '@/types'
+import { formatUserDisplayName } from '@/lib/userName'
 
 function cn(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(' ')
@@ -138,6 +140,10 @@ function hexToRgba(hex: string, alpha: number): string {
   const g = Number.parseInt(normalized.slice(2, 4), 16)
   const b = Number.parseInt(normalized.slice(4, 6), 16)
   return `rgba(${r},${g},${b},${alpha})`
+}
+
+function isDigestQueueLog(item: SystemActivityLog): boolean {
+  return item.source === 'analytics_email' && item.message.toLowerCase().includes('email digest queue tick')
 }
 
 export function Dashboard() {
@@ -553,19 +559,18 @@ export function Dashboard() {
                   </select>
                 </div>
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span>Контроль СКИ</span>
+                <Switch
                   checked={form.control_ski}
-                  onChange={(e) =>
+                  onCheckedChange={(checked) =>
                     setForm((f) => ({
                       ...f,
-                      control_ski: e.target.checked,
-                      priority: e.target.checked ? 'critical' : f.priority,
+                      control_ski: checked,
+                      priority: checked ? 'critical' : f.priority,
                     }))
                   }
                 />
-                Контроль СКИ
               </label>
               <div className="space-y-1">
                 <Label>Отделы проекта</Label>
@@ -677,7 +682,7 @@ export function Dashboard() {
                       {project.name}
                     </Link>
                     <p className="text-xs text-muted-foreground">
-                      {PROJECT_STATUS_LABEL[project.status] ?? project.status} · исполнение: {projectProgressById[project.id] ?? 0}% · дедлайн: {formatDate(project.end_date)} · владелец: {project.owner?.name}
+                      {PROJECT_STATUS_LABEL[project.status] ?? project.status} · исполнение: {projectProgressById[project.id] ?? 0}% · дедлайн: {formatDate(project.end_date)} · владелец: {formatUserDisplayName(project.owner)}
                     </p>
                     {!!project.department_ids?.length && (
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -756,6 +761,7 @@ export function Dashboard() {
         </SectionCard>
 
         <SectionCard title="Сигналы контроля" className="xl:col-span-2">
+          <div className="flex h-full flex-col">
           <div className="grid grid-cols-2 gap-2 text-center">
             <div className="rounded border p-2">
               <p className="text-[11px] text-muted-foreground">Создано 7д</p>
@@ -774,14 +780,14 @@ export function Dashboard() {
               <p className="text-lg font-semibold text-amber-700">{weekSignals.stale}</p>
             </div>
           </div>
-          <div className="mt-3 rounded border p-2 text-xs">
+          <div className="mt-3 flex flex-1 min-h-0 flex-col rounded border p-2 text-xs">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Эскалации на мне</span>
               <span className="font-semibold">{escalations.length}</span>
             </div>
-            <div className="mt-2 border-t pt-2">
+            <div className="mt-2 flex flex-1 min-h-0 flex-col border-t pt-2">
               <p className="mb-1 text-muted-foreground">СКИ контроль ({skiControlTasks.length})</p>
-              <div className="max-h-32 space-y-1 overflow-auto pr-1">
+              <div className="flex-1 min-h-0 space-y-1 overflow-auto pr-1">
                 {skiControlTasks.length === 0 && <p className="text-[11px] text-muted-foreground">Нет активных задач СКИ</p>}
                 {skiControlTasks.map((task) => {
                   const d = daysUntil(task.end_date)
@@ -801,6 +807,7 @@ export function Dashboard() {
                 })}
               </div>
             </div>
+          </div>
           </div>
         </SectionCard>
 
@@ -827,7 +834,7 @@ export function Dashboard() {
               >
                 <option value="">Ответственный</option>
                 {users.map((user) => (
-                  <option key={user.id} value={user.id}>{user.name}</option>
+                  <option key={user.id} value={user.id}>{formatUserDisplayName(user)}</option>
                 ))}
               </select>
               <Input
@@ -837,13 +844,12 @@ export function Dashboard() {
                 className="h-8 text-xs"
               />
             </div>
-            <label className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
+            <label className="flex items-center justify-between gap-3 text-xs">
+              <span>Контроль СКИ</span>
+              <Switch
                 checked={urgentForm.control_ski}
-                onChange={(e) => setUrgentForm((f) => ({ ...f, control_ski: e.target.checked }))}
+                onCheckedChange={(checked) => setUrgentForm((f) => ({ ...f, control_ski: checked }))}
               />
-              Контроль СКИ
             </label>
             <p className="text-[11px] text-muted-foreground">По умолчанию: приоритет Высокий</p>
             <p className="text-[11px] text-muted-foreground">Создаются в отдельном inbox «Срочные задачи (вне проектов)»</p>
@@ -918,11 +924,11 @@ export function Dashboard() {
         </SectionCard>
 
         <SectionCard
-          title="Активность системы"
+          title="System log"
           className="xl:col-span-2"
           action={
             <button type="button" onClick={() => setSystemLogOpen(true)} className="text-xs text-primary hover:underline">
-              Открыть лог
+              Open log
             </button>
           }
         >
@@ -932,7 +938,13 @@ export function Dashboard() {
             ) : (
               <div className="space-y-1">
                 {systemActivity.slice(0, 40).map((item) => (
-                  <p key={item.id} className="truncate">
+                  <p
+                    key={item.id}
+                    className={cn(
+                      'truncate',
+                      isDigestQueueLog(item) && 'rounded border border-cyan-400/60 bg-cyan-500/10 px-1 text-cyan-300'
+                    )}
+                  >
                     [{new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}] [{item.level}] {item.source}: {item.message}
                   </p>
                 ))}
@@ -945,14 +957,20 @@ export function Dashboard() {
       <Dialog open={systemLogOpen} onOpenChange={setSystemLogOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Лог системы (последние 24 часа)</DialogTitle>
+            <DialogTitle>System log (последние 24 часа)</DialogTitle>
           </DialogHeader>
           <div className="max-h-[62vh] overflow-auto rounded-md border bg-background p-2">
             {detailedSystemActivity.length === 0 ? (
               <p className="px-2 py-2 text-xs text-muted-foreground">[idle] Нет системных событий за последние 24 часа</p>
             ) : (
               detailedSystemActivity.map((item, index) => (
-                <div key={item.id} className="px-2 py-1.5 text-xs">
+                <div
+                  key={item.id}
+                  className={cn(
+                    'px-2 py-1.5 text-xs',
+                    isDigestQueueLog(item) && 'rounded border border-cyan-500/40 bg-cyan-500/10'
+                  )}
+                >
                   <p className="leading-relaxed">
                     {new Intl.DateTimeFormat('ru-RU', {
                       day: '2-digit',

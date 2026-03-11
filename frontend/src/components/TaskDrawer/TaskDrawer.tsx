@@ -23,6 +23,7 @@ import { CalendarDays, Clock, User, Trash2, ChevronDown, ChevronUp } from 'lucid
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
 import { humanizeApiError } from '@/lib/errorMessages'
 import { buildTaskHierarchy, buildTaskNumbering } from '@/lib/taskOrdering'
+import { formatUserDisplayName } from '@/lib/userName'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -695,7 +696,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 >
                   {assigneeOptions.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name} ({u.role})
+                      {formatUserDisplayName(u)} ({u.role})
                     </option>
                   ))}
                 </select>
@@ -756,7 +757,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                             <div className="flex items-center justify-between text-muted-foreground">
                               <span>
                                 {new Date(change.created_at).toLocaleDateString('ru-RU')}
-                                {change.changed_by && ` · ${change.changed_by.name}`}
+                                {change.changed_by && ` · ${formatUserDisplayName(change.changed_by)}`}
                               </span>
                               <span>
                                 {new Date(change.old_date).toLocaleDateString('ru-RU')} →{' '}
@@ -829,7 +830,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 )}
                 {comments.map((c) => (
                   <div key={c.id} className="text-xs rounded border p-2">
-                    <p className="font-medium">{c.author?.name ?? 'Пользователь'}</p>
+                    <p className="font-medium">{formatUserDisplayName(c.author) || 'Пользователь'}</p>
                     <p className="text-muted-foreground">{c.body}</p>
                   </div>
                 ))}
@@ -857,7 +858,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   <div key={e.id} className="text-xs text-muted-foreground">
                     <span>
                       {new Date(e.created_at).toLocaleString('ru')}
-                      {e.actor?.name ? ` · ${e.actor.name}` : ''}
+                      {e.actor ? ` · ${formatUserDisplayName(e.actor)}` : ''}
                       {' · '}
                       {formatTaskEvent(e.event_type, e.payload)}
                     </span>

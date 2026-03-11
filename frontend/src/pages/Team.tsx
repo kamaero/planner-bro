@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import type { AuthLoginEvent, Department, User, TempAssignee, ReportDispatchSettings } from '@/types'
+import { formatUserDisplayName } from '@/lib/userName'
 
 type UserDraft = Pick<
   User,
@@ -174,7 +175,9 @@ export function Team() {
       grouped[key] = grouped[key] || []
       grouped[key].push(u)
     })
-    Object.values(grouped).forEach((arr) => arr.sort((a, b) => a.name.localeCompare(b.name)))
+    Object.values(grouped).forEach((arr) =>
+      arr.sort((a, b) => formatUserDisplayName(a).localeCompare(formatUserDisplayName(b)))
+    )
     return grouped
   }, [users])
 
@@ -509,7 +512,7 @@ export function Team() {
       setError('Сброс собственного пароля через список команды отключен')
       return
     }
-    if (!window.confirm(`Сбросить пароль для ${user.name} (${user.email})?`)) return
+    if (!window.confirm(`Сбросить пароль для ${formatUserDisplayName(user)} (${user.email})?`)) return
     setBusyUserId(user.id)
     setError('')
     try {
@@ -540,7 +543,7 @@ export function Team() {
 
   const handleDeactivate = async (user: User) => {
     if (!canCreateSubordinates) return
-    if (!window.confirm(`Отключить сотрудника ${user.name}?`)) return
+    if (!window.confirm(`Отключить сотрудника ${formatUserDisplayName(user)}?`)) return
     setBusyUserId(user.id)
     setError('')
     try {
@@ -844,11 +847,13 @@ export function Team() {
                   <tbody>
                     {users
                       .slice()
-                      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+                      .sort((a, b) =>
+                        formatUserDisplayName(a).localeCompare(formatUserDisplayName(b), 'ru')
+                      )
                       .map((user) => (
                         <tr key={user.id} className="border-t">
                           <td className="px-3 py-2">
-                            <div className="font-medium">{user.name}</div>
+                            <div className="font-medium">{formatUserDisplayName(user)}</div>
                             <div className="text-xs text-muted-foreground">{user.email}</div>
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">
@@ -934,7 +939,7 @@ export function Team() {
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-medium">{d.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        Руководитель: {usersById[d.head_user_id || '']?.name || 'не назначен'}
+                        Руководитель: {formatUserDisplayName(usersById[d.head_user_id || '']) || 'не назначен'}
                       </p>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -955,7 +960,7 @@ export function Team() {
                       >
                         <option value="">Без руководителя</option>
                         {users.map((u) => (
-                          <option key={u.id} value={u.id}>{u.name}</option>
+                          <option key={u.id} value={u.id}>{formatUserDisplayName(u)}</option>
                         ))}
                       </select>
                     </div>
@@ -982,10 +987,10 @@ export function Team() {
               <div className="border rounded p-2 max-h-72 overflow-y-auto text-sm space-y-1">
                 {(subordinateTree.root || []).map((rootUser) => (
                   <div key={rootUser.id}>
-                    <p className="font-medium">{rootUser.name} ({rootUser.role})</p>
+                    <p className="font-medium">{formatUserDisplayName(rootUser)} ({rootUser.role})</p>
                     {(subordinateTree[rootUser.id] || []).map((child) => (
                       <p key={child.id} className="ml-4 text-xs text-muted-foreground">
-                        ↳ {child.name} ({child.position_title || child.role})
+                        ↳ {formatUserDisplayName(child)} ({child.position_title || child.role})
                       </p>
                     ))}
                   </div>
@@ -1021,7 +1026,7 @@ export function Team() {
                 >
                   <option value="">Без руководителя</option>
                   {users.map((u) => (
-                    <option key={u.id} value={u.id}>{u.name}</option>
+                    <option key={u.id} value={u.id}>{formatUserDisplayName(u)}</option>
                   ))}
                 </select>
               </div>
@@ -1045,11 +1050,11 @@ export function Team() {
               {users.map((user) => (
                 <div key={user.id} className="rounded-lg border px-3 py-3 flex flex-col gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{user.name} — {user.email}</p>
+                    <p className="text-sm font-medium truncate">{formatUserDisplayName(user)} — {user.email}</p>
                     <p className="text-xs text-muted-foreground">Корпоративная почта: {user.work_email || 'не указана'}</p>
                     <p className="text-xs text-muted-foreground">Должность: {permissionDrafts[user.id]?.position_title || 'не указана'}</p>
                     <p className="text-xs text-muted-foreground">
-                      Руководитель: {usersById[permissionDrafts[user.id]?.manager_id || '']?.name || 'не назначен'}
+                      Руководитель: {formatUserDisplayName(usersById[permissionDrafts[user.id]?.manager_id || '']) || 'не назначен'}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Отдел: {departments.find((d) => d.id === (permissionDrafts[user.id]?.department_id || ''))?.name || 'не назначен'}
@@ -1147,7 +1152,7 @@ export function Team() {
                       >
                         <option value="">Без руководителя</option>
                         {users.filter((u) => u.id !== user.id).map((u) => (
-                          <option key={u.id} value={u.id}>{u.name}</option>
+                          <option key={u.id} value={u.id}>{formatUserDisplayName(u)}</option>
                         ))}
                       </select>
                       <select
@@ -1299,7 +1304,7 @@ export function Team() {
                   >
                     <option value="">Не назначен</option>
                     {users.map((u) => (
-                      <option key={u.id} value={u.id}>{u.name}</option>
+                      <option key={u.id} value={u.id}>{formatUserDisplayName(u)}</option>
                     ))}
                   </select>
                 </div>
@@ -1475,7 +1480,7 @@ export function Team() {
                         <option value="">Связать с пользователем...</option>
                         {users.map((u) => (
                           <option key={u.id} value={u.id}>
-                            {u.name} ({u.email})
+                            {formatUserDisplayName(u)} ({u.email})
                           </option>
                         ))}
                       </select>
