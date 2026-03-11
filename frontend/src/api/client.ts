@@ -88,6 +88,8 @@ export const api = {
       last_name?: string
       password: string
       role?: string
+      visibility_scope?: 'own_tasks_only' | 'department_scope' | 'full_scope'
+      own_tasks_visibility_enabled?: boolean
       position_title?: string
       manager_id?: string
       department_id?: string
@@ -103,12 +105,40 @@ export const api = {
   updateReminderSettings: (reminderDays: string) =>
     apiClient.put('/users/me/reminders', { reminder_days: reminderDays }).then((r) => r.data),
   listUsers: () => apiClient.get('/users/').then((r) => r.data),
+  listTempAssignees: (params?: { status?: string; limit?: number }) =>
+    apiClient.get('/users/temp-assignees', { params }).then((r) => r.data),
+  linkTempAssignee: (tempAssigneeId: string, userId: string) =>
+    apiClient.patch(`/users/temp-assignees/${tempAssigneeId}/link`, { user_id: userId }).then((r) => r.data),
+  ignoreTempAssignee: (tempAssigneeId: string) =>
+    apiClient.patch(`/users/temp-assignees/${tempAssigneeId}/ignore`).then((r) => r.data),
+  promoteTempAssignee: (
+    tempAssigneeId: string,
+    data: {
+      email: string
+      work_email?: string | null
+      role?: 'admin' | 'manager' | 'developer'
+      password?: string
+      position_title?: string | null
+      manager_id?: string | null
+      department_id?: string | null
+    }
+  ) => apiClient.post(`/users/temp-assignees/${tempAssigneeId}/promote`, data).then((r) => r.data),
+  listLoginEvents: (params?: {
+    limit?: number
+    user_id?: string
+    success?: boolean
+    email_query?: string
+    from_dt?: string
+    to_dt?: string
+  }) => apiClient.get('/users/login-events', { params }).then((r) => r.data),
   resetUserPassword: (userId: string) =>
     apiClient.post(`/users/${userId}/reset-password`).then((r) => r.data as { temporary_password: string }),
   updateUserPermissions: (
     userId: string,
     data: Partial<{
       role: 'admin' | 'manager' | 'developer'
+      visibility_scope: 'own_tasks_only' | 'department_scope' | 'full_scope'
+      own_tasks_visibility_enabled: boolean
       work_email: string | null
       position_title: string | null
       manager_id: string | null
@@ -164,9 +194,10 @@ export const api = {
       })
       .then((r) => r.data)
   },
-  importMSProjectTasks: (projectId: string, file: File) => {
+  importMSProjectTasks: (projectId: string, file: File, replaceExisting = false) => {
     const form = new FormData()
     form.append('upload', file)
+    form.append('replace_existing', replaceExisting ? 'true' : 'false')
     return apiClient
       .post(`/projects/${projectId}/tasks/import/ms-project`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -179,6 +210,7 @@ export const api = {
     apiClient.get(`/projects/${projectId}/files/${fileId}/download`, { responseType: 'blob' }),
 
   // Tasks
+  listMyTasks: () => apiClient.get('/tasks/my').then((r) => r.data),
   listTasks: (projectId: string) =>
     apiClient.get(`/projects/${projectId}/tasks`).then((r) => r.data),
   listEscalations: () => apiClient.get('/tasks/escalations/inbox').then((r) => r.data),
@@ -239,12 +271,26 @@ export const api = {
   }) => apiClient.get('/notifications/activity/system', { params }).then((r) => r.data),
   runSmtpHealthcheck: (data?: { recipient?: string }) =>
     apiClient.post('/notifications/activity/smtp-healthcheck', data ?? {}).then((r) => r.data),
+  runAdminDirectiveTest: (data?: { recipient?: string }) =>
+    apiClient.post('/notifications/admin-directive/test', data ?? {}).then((r) => r.data),
   getReportDispatchSettings: () =>
     apiClient.get('/notifications/report-settings').then((r) => r.data),
   updateReportDispatchSettings: (data: {
+    smtp_enabled: boolean
     telegram_summaries_enabled: boolean
     email_analytics_enabled: boolean
     email_analytics_recipients: string
+    admin_directive?: {
+      enabled: boolean
+      recipient: string
+      days: string[]
+      time_window: string
+      include_overdue: boolean
+      include_stale: boolean
+      stale_days: number
+      include_unassigned: boolean
+      custom_text: string
+    }
     digest_filters?: {
       deadline_window_days: number
       priorities: string[]
@@ -311,9 +357,16 @@ export const api = {
   // AI drafts
   listAIJobs: (projectId: string) =>
     apiClient.get(`/projects/${projectId}/ai-jobs`).then((r) => r.data),
-  startAIProcessingForFile: (projectId: string, fileId: string) =>
-    apiClient.post(`/projects/${projectId}/files/${fileId}/ai-process`).then((r) => r.data),
-  listAIDrafts: (projectId: string, params?: { file_id?: string; status_filter?: string }) =>
+  startAIProcessingForFile: (projectId: string, fileId: string, promptInstruction?: string) =>
+    apiClient
+      .post(`/projects/${projectId}/files/${fileId}/ai-process`, {
+        prompt_instruction: promptInstruction?.trim() || null,
+      })
+      .then((r) => r.data),
+  listAIDrafts: (
+    projectId: string,
+    params?: { file_id?: string; status_filter?: string; limit?: number; offset?: number }
+  ) =>
     apiClient.get(`/projects/${projectId}/ai-drafts`, { params }).then((r) => r.data),
   approveAIDraft: (projectId: string, draftId: string) =>
     apiClient.post(`/projects/${projectId}/ai-drafts/${draftId}/approve`).then((r) => r.data),
@@ -321,6 +374,8 @@ export const api = {
     apiClient.post(`/projects/${projectId}/ai-drafts/approve-bulk`, { draft_ids: draftIds }).then((r) => r.data),
   rejectAIDraft: (projectId: string, draftId: string) =>
     apiClient.post(`/projects/${projectId}/ai-drafts/${draftId}/reject`).then((r) => r.data),
+  rejectAIDraftsBulk: (projectId: string, draftIds: string[]) =>
+    apiClient.post(`/projects/${projectId}/ai-drafts/reject-bulk`, { draft_ids: draftIds }).then((r) => r.data),
 
   // Vault (encrypted team file storage)
   listVaultFiles: (folder?: string) =>

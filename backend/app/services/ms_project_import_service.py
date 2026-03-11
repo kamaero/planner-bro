@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import io
 import tempfile
 import re
+import zipfile
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 from math import ceil
 
 
@@ -26,6 +28,12 @@ class ParsedMSProjectTask:
     priority: str
     estimated_hours: int | None
     parent_uid: str | None
+    department: str | None = None
+    bureau: str | None = None
+    task_kind: str | None = None
+    assignee_hint: str | None = None
+    assignee_hints: list[str] = field(default_factory=list)
+    customer: str | None = None
 
 
 @dataclass
@@ -65,6 +73,15 @@ def _parse_datetime(value: str | None) -> datetime | None:
 def _normalize_priority(value: str | None) -> str:
     if not value:
         return "medium"
+    lowered = value.strip().lower()
+    if lowered in {"low", "низкий"}:
+        return "low"
+    if lowered in {"medium", "средний", "normal"}:
+        return "medium"
+    if lowered in {"high", "высокий"}:
+        return "high"
+    if lowered in {"critical", "критический"}:
+        return "critical"
     try:
         numeric = int(value)
     except ValueError:
@@ -104,6 +121,90 @@ def _clamp_progress(value: str | None) -> int:
     except ValueError:
         return 0
     return max(0, min(100, numeric))
+
+
+def _column_index(cell_ref: str) -> int:
+    letters = "".join(ch for ch in cell_ref.upper() if "A" <= ch <= "Z")
+    if not letters:
+        return 0
+    idx = 0
+    for ch in letters:
+        idx = idx * 26 + (ord(ch) - ord("A") + 1)
+    return idx
+
+
+def _sheet_header_normalize(value: str) -> str:
+    return re.sub(r"[^a-z0-9а-я]+", "_", value.strip().lower()).strip("_")
+
+
+def _parse_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    cleaned = value.strip().replace(",", ".")
+    if not cleaned:
+        return None
+    try:
+        return int(float(cleaned))
+    except ValueError:
+        return None
+
+
+def _parse_sheet_date(value: str | None) -> date | None:
+    if value is None:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    iso_dt = _parse_datetime(raw)
+    if iso_dt:
+        return iso_dt.date()
+    numeric = _parse_int(raw)
+    if numeric is not None and 1 <= numeric <= 100000:
+        # Excel serial dates: day 1 is 1899-12-31, with 1900 leap-year bug offset.
+        try:
+            return date(1899, 12, 30) + timedelta(days=numeric)
+        except Exception:
+            return None
+    return None
+
+
+def _normalize_assignee_hint(value: str | None) -> str | None:
+    hints = _normalize_assignee_hints(value)
+    return hints[0] if hints else None
+
+
+def _normalize_assignee_hints(value: str | None) -> list[str]:
+    if not value:
+        return []
+    raw = re.sub(r"\s+", " ", value).strip(" ;,")
+    if not raw:
+        return []
+    tokens = [part.strip() for part in re.split(r"[;,/\n]|(?:\s+и\s+)", raw) if part and part.strip()]
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if "@" in token:
+            value = token.lower()
+        else:
+            match = re.search(r"([А-ЯЁA-Z][а-яёa-z-]+)\s+([А-ЯЁA-Z])\.?\s*([А-ЯЁA-Z])\.?", token)
+            if match:
+                surname = match.group(1)
+                i1 = match.group(2).upper()
+                i2 = match.group(3).upper()
+                value = f"{surname} {i1}.{i2}."
+            else:
+                value = token[:255]
+        key = value.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(value)
+    return normalized
 
 
 def _find_project_root(root: ET.Element) -> ET.Element:
@@ -227,8 +328,8 @@ def _parse_ms_project_mpp(content: bytes) -> MSProjectParseResult:
             except Exception:
                 parent_uid = None
 
-            parsed_tasks.append(
-                ParsedMSProjectTask(
+                parsed_tasks.append(
+                    ParsedMSProjectTask(
                     uid=uid,
                     outline_number=outline_number,
                     title=title,
@@ -239,11 +340,161 @@ def _parse_ms_project_mpp(content: bytes) -> MSProjectParseResult:
                     priority=priority,
                     estimated_hours=estimated_hours,
                     parent_uid=parent_uid,
+                    department=None,
+                    bureau=None,
+                        task_kind=None,
+                        assignee_hint=None,
+                        assignee_hints=[],
+                        customer=None,
+                    )
                 )
-            )
         return MSProjectParseResult(tasks=parsed_tasks, skipped_count=skipped_count)
     finally:
         Path(temp_path).unlink(missing_ok=True)
+
+
+def _parse_ms_project_xlsx(content: bytes) -> MSProjectParseResult:
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(content))
+    except Exception:
+        raise ValueError("Файл .xlsx поврежден или не является валидным ZIP-архивом")
+
+    with archive:
+        names = set(archive.namelist())
+        if "xl/workbook.xml" not in names:
+            raise ValueError("XLSX не содержит xl/workbook.xml")
+
+        shared_strings: list[str] = []
+        if "xl/sharedStrings.xml" in names:
+            root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            for si in root.iter():
+                if _tag_name(si.tag) != "si":
+                    continue
+                chunks: list[str] = []
+                for node in si.iter():
+                    if _tag_name(node.tag) == "t" and node.text:
+                        chunks.append(node.text)
+                shared_strings.append("".join(chunks))
+
+        sheet_names = sorted(
+            name
+            for name in names
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+        )
+        if not sheet_names:
+            raise ValueError("XLSX не содержит листов с задачами")
+
+        rows: list[dict[int, str]] = []
+        for sheet_name in sheet_names:
+            root = ET.fromstring(archive.read(sheet_name))
+            for row in root.iter():
+                if _tag_name(row.tag) != "row":
+                    continue
+                row_cells: dict[int, str] = {}
+                for cell in row:
+                    if _tag_name(cell.tag) != "c":
+                        continue
+                    ref = cell.attrib.get("r", "")
+                    col = _column_index(ref)
+                    if col <= 0:
+                        continue
+                    cell_type = cell.attrib.get("t")
+                    value_text = ""
+                    if cell_type == "inlineStr":
+                        for node in cell.iter():
+                            if _tag_name(node.tag) == "t" and node.text:
+                                value_text += node.text
+                    else:
+                        raw = ""
+                        for node in cell:
+                            if _tag_name(node.tag) == "v" and node.text:
+                                raw = node.text.strip()
+                                break
+                        if cell_type == "s":
+                            try:
+                                s_idx = int(raw)
+                                value_text = shared_strings[s_idx] if 0 <= s_idx < len(shared_strings) else ""
+                            except ValueError:
+                                value_text = raw
+                        else:
+                            value_text = raw
+                    value_text = value_text.strip()
+                    if value_text:
+                        row_cells[col] = value_text
+                if row_cells:
+                    rows.append(row_cells)
+        if not rows:
+            raise ValueError("XLSX не содержит строк с данными")
+
+    header_row = rows[0]
+    header_map: dict[int, str] = {
+        col: _sheet_header_normalize(value)
+        for col, value in header_row.items()
+        if value.strip()
+    }
+    if not header_map:
+        raise ValueError("XLSX не содержит заголовков колонок")
+
+    def read(row: dict[int, str], aliases: set[str]) -> str | None:
+        for col, normalized in header_map.items():
+            if normalized in aliases:
+                value = row.get(col)
+                if value is not None and value.strip():
+                    return value.strip()
+        return None
+
+    uid_aliases = {"uid", "id", "task_id", "task_uid"}
+    title_aliases = {"name", "title", "task", "task_name", "задача", "название", "наименование"}
+    desc_aliases = {"description", "notes", "comment", "описание", "комментарий"}
+    start_aliases = {"start", "start_date", "date_start", "начало", "дата_начала"}
+    end_aliases = {"finish", "end", "end_date", "deadline", "дедлайн", "срок", "дата_окончания"}
+    progress_aliases = {"percent_complete", "progress", "progress_percent", "процент", "прогресс"}
+    priority_aliases = {"priority", "priority_level", "приоритет"}
+    estimate_aliases = {"estimated_hours", "duration_hours", "hours", "часы", "оценка_часы"}
+    parent_aliases = {"parent_uid", "parent_id", "parent", "родитель", "родитель_uid"}
+    outline_aliases = {"outline_number", "wbs", "outline", "иерархия"}
+    department_aliases = {"department", "dept", "отдел"}
+    bureau_aliases = {"bureau", "бюро"}
+    task_kind_aliases = {"task_type", "type", "вид", "вид_задачи"}
+    assignee_aliases = {"assignee", "executor", "responsible", "исполнитель", "ответственный"}
+    customer_aliases = {"customer", "client", "заказчик"}
+
+    parsed_tasks: list[ParsedMSProjectTask] = []
+    skipped_count = 0
+    for idx, row in enumerate(rows[1:], start=2):
+        title = read(row, title_aliases)
+        if not title:
+            skipped_count += 1
+            continue
+        uid = read(row, uid_aliases) or f"row-{idx}"
+        progress = _clamp_progress(read(row, progress_aliases))
+        estimated_hours = _parse_int(read(row, estimate_aliases))
+        if estimated_hours is not None and estimated_hours <= 0:
+            estimated_hours = None
+        raw_assignee = read(row, assignee_aliases)
+        assignee_hints = _normalize_assignee_hints(raw_assignee)
+        parsed_tasks.append(
+            ParsedMSProjectTask(
+                uid=uid,
+                outline_number=read(row, outline_aliases),
+                title=title,
+                description=read(row, desc_aliases),
+                start_date=_parse_sheet_date(read(row, start_aliases)),
+                end_date=_parse_sheet_date(read(row, end_aliases)),
+                progress_percent=progress,
+                priority=_normalize_priority(read(row, priority_aliases)),
+                estimated_hours=estimated_hours,
+                parent_uid=read(row, parent_aliases),
+                department=read(row, department_aliases),
+                bureau=read(row, bureau_aliases),
+                task_kind=read(row, task_kind_aliases),
+                assignee_hint=assignee_hints[0] if assignee_hints else None,
+                assignee_hints=assignee_hints,
+                customer=read(row, customer_aliases),
+            )
+        )
+
+    return MSProjectParseResult(tasks=parsed_tasks, skipped_count=skipped_count)
 
 
 def parse_ms_project_xml(content: bytes) -> MSProjectParseResult:
@@ -251,7 +502,7 @@ def parse_ms_project_xml(content: bytes) -> MSProjectParseResult:
     # Generic non-XML payload guard for clearer UX than raw parser error.
     if not stripped.startswith((b"<", b"\xef\xbb\xbf<", b"\xff\xfe<", b"\xfe\xff<")):
         raise ValueError(
-            "Файл не похож на XML. Нужен XML-экспорт MS Project (MSPDI), а не исходный .mpp."
+            "Файл не похож на XML/MSPDI. Загрузите XML-экспорт MS Project, .mpp или таблицу .xlsx."
         )
 
     try:
@@ -299,7 +550,6 @@ def parse_ms_project_xml(content: bytes) -> MSProjectParseResult:
             end_date = start_date
 
         progress = _clamp_progress(_find_child_text(node, "PercentComplete"))
-
         parsed_tasks.append(
             ParsedMSProjectTask(
                 uid=uid,
@@ -312,6 +562,12 @@ def parse_ms_project_xml(content: bytes) -> MSProjectParseResult:
                 priority=_normalize_priority(_find_child_text(node, "Priority")),
                 estimated_hours=_parse_duration_hours(_find_child_text(node, "Duration")),
                 parent_uid=parent_uid,
+                department=None,
+                bureau=None,
+                task_kind=None,
+                assignee_hint=None,
+                assignee_hints=[],
+                customer=None,
             )
         )
 
@@ -329,4 +585,13 @@ def parse_ms_project_content(content: bytes, filename: str | None = None) -> MSP
     is_mpp = lower_name.endswith(".mpp") or content.startswith(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1")
     if is_mpp:
         return _parse_ms_project_mpp(content)
+    is_xlsx = lower_name.endswith(".xlsx")
+    if not is_xlsx and content.startswith(b"PK"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(content)) as archive:
+                is_xlsx = "xl/workbook.xml" in archive.namelist()
+        except Exception:
+            is_xlsx = False
+    if is_xlsx:
+        return _parse_ms_project_xlsx(content)
     return parse_ms_project_xml(content)

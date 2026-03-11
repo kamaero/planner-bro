@@ -13,12 +13,14 @@ import {
   useProjectFiles,
   useUploadProjectFile,
   useDeleteProjectFile,
+  useImportMSProjectTasks,
   useAIJobs,
   useStartAIProcessing,
   useAIDrafts,
   useApproveAIDraft,
   useApproveAIDraftsBulk,
   useRejectAIDraft,
+  useRejectAIDraftsBulk,
   useProjectDeadlineHistory,
 } from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
@@ -34,6 +36,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { humanizeApiError } from '@/lib/errorMessages'
 import type { Task, GanttTask, ProjectFile } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
@@ -124,10 +128,12 @@ export function ProjectDetail() {
   const updateTaskStatus = useUpdateTaskStatus()
   const bulkUpdateTasks = useBulkUpdateTasks()
   const uploadProjectFile = useUploadProjectFile()
+  const importMSProjectTasks = useImportMSProjectTasks()
   const deleteProjectFile = useDeleteProjectFile()
   const approveAIDraft = useApproveAIDraft()
   const approveAIDraftsBulk = useApproveAIDraftsBulk()
   const rejectAIDraft = useRejectAIDraft()
+  const rejectAIDraftsBulk = useRejectAIDraftsBulk()
   const currentUser = useAuthStore((s) => s.user)
 
   const [view, setView] = useState<'gantt' | 'list' | 'members' | 'files'>('list')
@@ -136,6 +142,8 @@ export function ProjectDetail() {
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [fileToUpload, setFileToUpload] = useState<File | null>(null)
+  const [msProjectFile, setMSProjectFile] = useState<File | null>(null)
+  const [replaceExistingMSImport, setReplaceExistingMSImport] = useState(true)
   const [taskForm, setTaskForm] = useState({
     title: '',
     description: '',
@@ -149,6 +157,7 @@ export function ProjectDetail() {
     assigned_to_id: '',
     assignee_ids: [] as string[],
     parent_task_id: '',
+    predecessor_task_ids: [] as string[],
     is_escalation: false,
     escalation_for: '',
     escalation_sla_hours: '24',
@@ -160,6 +169,10 @@ export function ProjectDetail() {
     status: 'planning',
     priority: 'medium',
     control_ski: false,
+    planning_mode: 'flexible',
+    strict_no_past_start_date: false,
+    strict_no_past_end_date: false,
+    strict_child_within_parent_dates: true,
     launch_basis_text: '',
     launch_basis_file_id: '',
     start_date: '',
@@ -177,6 +190,7 @@ export function ProjectDetail() {
   const [bulkAssignee, setBulkAssignee] = useState('keep')
   const [bulkPriority, setBulkPriority] = useState('keep')
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([])
+  const [aiPromptInstruction, setAIPromptInstruction] = useState('')
   const [showProjectDeadlineModal, setShowProjectDeadlineModal] = useState(false)
   const [pendingProjectFormData, setPendingProjectFormData] = useState<Record<string, unknown> | null>(null)
   const [showProjectDeadlineHistory, setShowProjectDeadlineHistory] = useState(false)
@@ -193,6 +207,12 @@ export function ProjectDetail() {
   const canDelete = currentUser?.role === 'admin' || !!currentUser?.can_delete
   const canImport = currentUser?.role === 'admin' || !!currentUser?.can_import
   const canBulkEdit = currentUser?.role === 'admin' || !!currentUser?.can_bulk_edit
+  const projectAssigneeOptions = useMemo(() => {
+    if (members.length === 0) return users
+    const uniqueUsers = new Map<string, (typeof users)[number]>()
+    for (const member of members) uniqueUsers.set(member.user.id, member.user)
+    return Array.from(uniqueUsers.values())
+  }, [members, users])
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
@@ -240,7 +260,35 @@ export function ProjectDetail() {
       if (!ao && bo) return 1
       return a.idx - b.idx
     })
-    return withIndex.map((entry) => entry.task)
+    const sorted = withIndex.map((entry) => entry.task)
+    const visibleIds = new Set(sorted.map((task) => task.id))
+    const children = new Map<string, Task[]>()
+    const roots: Task[] = []
+
+    for (const task of sorted) {
+      const parentId = task.parent_task_id
+      if (parentId && visibleIds.has(parentId)) {
+        const arr = children.get(parentId) ?? []
+        arr.push(task)
+        children.set(parentId, arr)
+      } else {
+        roots.push(task)
+      }
+    }
+
+    const ordered: Task[] = []
+    const visited = new Set<string>()
+    const appendTree = (node: Task) => {
+      if (visited.has(node.id)) return
+      visited.add(node.id)
+      ordered.push(node)
+      const kids = children.get(node.id) ?? []
+      for (const child of kids) appendTree(child)
+    }
+    for (const root of roots) appendTree(root)
+    for (const task of sorted) appendTree(task)
+
+    return ordered
   }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter, taskSortBy, taskSortDir])
 
   const selectedVisibleCount = filteredTasks.filter((t) => selectedTaskIds.includes(t.id)).length
@@ -262,6 +310,10 @@ export function ProjectDetail() {
         status: project.status,
         priority: project.priority,
         control_ski: project.control_ski,
+        planning_mode: project.planning_mode ?? 'flexible',
+        strict_no_past_start_date: project.strict_no_past_start_date ?? false,
+        strict_no_past_end_date: project.strict_no_past_end_date ?? false,
+        strict_child_within_parent_dates: project.strict_child_within_parent_dates ?? true,
         launch_basis_text: project.launch_basis_text ?? '',
         launch_basis_file_id: project.launch_basis_file_id ?? '',
         start_date: project.start_date ?? '',
@@ -354,6 +406,8 @@ export function ProjectDetail() {
         },
       })
       setSelectedTaskIds([])
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось выполнить массовое обновление статуса'))
     } finally {
       setBulkBusy(false)
     }
@@ -372,6 +426,8 @@ export function ProjectDetail() {
       })
       setSelectedTaskIds([])
       setBulkAssignee('keep')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось выполнить массовое назначение'))
     } finally {
       setBulkBusy(false)
     }
@@ -401,6 +457,8 @@ export function ProjectDetail() {
       }
       setSelectedTaskIds([])
       setBulkPriority('keep')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось выполнить массовое обновление приоритета'))
     } finally {
       setBulkBusy(false)
     }
@@ -419,6 +477,8 @@ export function ProjectDetail() {
         },
       })
       setSelectedTaskIds([])
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось удалить выбранные задачи'))
     } finally {
       setBulkBusy(false)
     }
@@ -426,46 +486,53 @@ export function ProjectDetail() {
 
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault()
-    await createTask.mutateAsync({
-      projectId: id!,
-      data: {
-        ...taskForm,
-        priority: taskForm.control_ski ? 'critical' : taskForm.priority,
-        estimated_hours: taskForm.estimated_hours ? parseInt(taskForm.estimated_hours) : undefined,
-        progress_percent: taskForm.progress_percent ? parseInt(taskForm.progress_percent) : 0,
-        next_step: taskForm.next_step || undefined,
-        start_date: taskForm.start_date || undefined,
-        end_date: taskForm.end_date || undefined,
-        assigned_to_id: taskForm.assigned_to_id || undefined,
-        assignee_ids: taskForm.assignee_ids.length > 0 ? taskForm.assignee_ids : undefined,
-        parent_task_id: taskForm.parent_task_id || undefined,
-        is_escalation: taskForm.is_escalation,
-        escalation_for: taskForm.escalation_for || undefined,
-        escalation_sla_hours: taskForm.escalation_sla_hours
-          ? parseInt(taskForm.escalation_sla_hours)
-          : undefined,
-        repeat_every_days: taskForm.repeat_every_days ? parseInt(taskForm.repeat_every_days) : undefined,
-      },
-    })
-    setTaskDialogOpen(false)
-    setTaskForm({
-      title: '',
-      description: '',
-      priority: 'medium',
-      control_ski: false,
-      progress_percent: '0',
-      next_step: '',
-      start_date: '',
-      end_date: '',
-      estimated_hours: '',
-      assigned_to_id: '',
-      assignee_ids: [],
-      parent_task_id: '',
-      is_escalation: false,
-      escalation_for: '',
-      escalation_sla_hours: '24',
-      repeat_every_days: '',
-    })
+    try {
+      await createTask.mutateAsync({
+        projectId: id!,
+        data: {
+          ...taskForm,
+          priority: taskForm.control_ski ? 'critical' : taskForm.priority,
+          estimated_hours: taskForm.estimated_hours ? parseInt(taskForm.estimated_hours) : undefined,
+          progress_percent: taskForm.progress_percent ? parseInt(taskForm.progress_percent) : 0,
+          next_step: taskForm.next_step || undefined,
+          start_date: taskForm.start_date || undefined,
+          end_date: taskForm.end_date || undefined,
+          assigned_to_id: taskForm.assigned_to_id || undefined,
+          assignee_ids: taskForm.assignee_ids.length > 0 ? taskForm.assignee_ids : undefined,
+          parent_task_id: taskForm.parent_task_id || undefined,
+          predecessor_task_ids:
+            taskForm.predecessor_task_ids.length > 0 ? taskForm.predecessor_task_ids : undefined,
+          is_escalation: taskForm.is_escalation,
+          escalation_for: taskForm.escalation_for || undefined,
+          escalation_sla_hours: taskForm.escalation_sla_hours
+            ? parseInt(taskForm.escalation_sla_hours)
+            : undefined,
+          repeat_every_days: taskForm.repeat_every_days ? parseInt(taskForm.repeat_every_days) : undefined,
+        },
+      })
+      setTaskDialogOpen(false)
+      setTaskForm({
+        title: '',
+        description: '',
+        priority: 'medium',
+        control_ski: false,
+        progress_percent: '0',
+        next_step: '',
+        start_date: '',
+        end_date: '',
+        estimated_hours: '',
+        assigned_to_id: '',
+        assignee_ids: [],
+        parent_task_id: '',
+        predecessor_task_ids: [],
+        is_escalation: false,
+        escalation_for: '',
+        escalation_sla_hours: '24',
+        repeat_every_days: '',
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось создать задачу'))
+    }
   }
 
   const handleUpdateProject = async (e: React.FormEvent) => {
@@ -476,6 +543,10 @@ export function ProjectDetail() {
       status: editForm.status,
       priority: editForm.control_ski ? 'critical' : editForm.priority,
       control_ski: editForm.control_ski,
+      planning_mode: editForm.planning_mode,
+      strict_no_past_start_date: editForm.strict_no_past_start_date,
+      strict_no_past_end_date: editForm.strict_no_past_end_date,
+      strict_child_within_parent_dates: editForm.strict_child_within_parent_dates,
       launch_basis_text: editForm.launch_basis_text.trim() || null,
       launch_basis_file_id: editForm.launch_basis_file_id || null,
       start_date: editForm.start_date || null,
@@ -496,8 +567,7 @@ export function ProjectDetail() {
       await updateProject.mutateAsync({ projectId: id!, data: formData })
     } catch (error: any) {
       setEditOpen(true)
-      const detail = error?.response?.data?.detail
-      window.alert(typeof detail === 'string' ? detail : 'Не удалось сохранить проект')
+      window.alert(humanizeApiError(error, 'Не удалось сохранить проект'))
     }
   }
 
@@ -513,8 +583,7 @@ export function ProjectDetail() {
       setPendingProjectFormData(null)
     } catch (error: any) {
       setEditOpen(true)
-      const detail = error?.response?.data?.detail
-      window.alert(typeof detail === 'string' ? detail : 'Не удалось сохранить проект')
+      window.alert(humanizeApiError(error, 'Не удалось сохранить проект'))
     }
   }
 
@@ -525,25 +594,54 @@ export function ProjectDetail() {
 
   const handleUploadFile = async () => {
     if (!fileToUpload) return
-    await uploadProjectFile.mutateAsync({ projectId: id!, file: fileToUpload })
-    setFileToUpload(null)
+    try {
+      await uploadProjectFile.mutateAsync({ projectId: id!, file: fileToUpload })
+      setFileToUpload(null)
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось загрузить файл'))
+    }
+  }
+
+  const handleImportMSProject = async () => {
+    if (!msProjectFile) return
+    try {
+      const result = await importMSProjectTasks.mutateAsync({
+        projectId: id!,
+        file: msProjectFile,
+        replaceExisting: replaceExistingMSImport,
+      })
+      setMSProjectFile(null)
+      window.alert(
+        `Импорт завершен.\nСоздано: ${result.created}\nСвязано с родителем: ${result.linked_to_parent}\nУдалено старых импортированных: ${result.deleted_existing}\nПропущено: ${result.skipped}`
+      )
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось импортировать задачи из MS Project'))
+    }
   }
 
   const handleDeleteProject = async () => {
     if (!id || !canManage || !canDelete) return
     if (!window.confirm('Удалить проект? Это действие нельзя отменить.')) return
-    await deleteProject.mutateAsync(id)
-    navigate('/')
+    try {
+      await deleteProject.mutateAsync(id)
+      navigate('/')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось удалить проект'))
+    }
   }
 
   const handleQuickStatusChange = async (task: Task, status: string) => {
     const progress = status === 'done' ? 100 : task.progress_percent ?? 0
-    await updateTaskStatus.mutateAsync({
-      taskId: task.id,
-      status,
-      progress_percent: progress,
-      next_step: task.next_step ?? null,
-    })
+    try {
+      await updateTaskStatus.mutateAsync({
+        taskId: task.id,
+        status,
+        progress_percent: progress,
+        next_step: task.next_step ?? null,
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось обновить статус задачи'))
+    }
   }
 
   const handleDownload = async (file: ProjectFile) => {
@@ -589,6 +687,13 @@ export function ProjectDetail() {
   const handleApproveSelectedDrafts = async () => {
     if (selectedDraftIds.length === 0) return
     await approveAIDraftsBulk.mutateAsync({ projectId: id!, draftIds: selectedDraftIds })
+    setSelectedDraftIds([])
+  }
+
+  const handleRejectSelectedDrafts = async () => {
+    if (selectedDraftIds.length === 0) return
+    if (!window.confirm(`Удалить выбранные черновики (${selectedDraftIds.length})?`)) return
+    await rejectAIDraftsBulk.mutateAsync({ projectId: id!, draftIds: selectedDraftIds })
     setSelectedDraftIds([])
   }
 
@@ -683,6 +788,9 @@ export function ProjectDetail() {
           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: project.color }} />
           <h1 className="text-2xl font-bold">{project.name}</h1>
           <Badge variant="secondary">{project.status}</Badge>
+          <Badge variant="outline">
+            {project.planning_mode === 'strict' ? 'strict' : 'flexible'}
+          </Badge>
           <Badge variant="outline" className={PRIORITY_COLORS[project.control_ski ? 'critical' : project.priority]}>
             {project.control_ski ? 'critical · СКИ' : project.priority}
           </Badge>
@@ -768,6 +876,22 @@ export function ProjectDetail() {
                     ))}
                   </select>
                 </div>
+                <div className="space-y-1">
+                  <Label>Режим планирования</Label>
+                  <select
+                    value={editForm.planning_mode}
+                    onChange={(e) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        planning_mode: e.target.value as 'flexible' | 'strict',
+                      }))
+                    }
+                    className="w-full border rounded px-2 py-2 bg-background text-sm"
+                  >
+                    <option value="flexible">Гибкий</option>
+                    <option value="strict">Строгий</option>
+                  </select>
+                </div>
 
                 <div className="space-y-1">
                   <Label>Приоритет</Label>
@@ -784,19 +908,17 @@ export function ProjectDetail() {
                       <option value="critical">Критический</option>
                     </select>
                     <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-                      <input
-                        type="checkbox"
+                      <span>Контроль СКИ</span>
+                      <Switch
                         checked={editForm.control_ski}
-                        onChange={(e) =>
+                        onCheckedChange={(checked) =>
                           setEditForm((f) => ({
                             ...f,
-                            control_ski: e.target.checked,
-                            priority: e.target.checked ? 'critical' : f.priority,
+                            control_ski: checked,
+                            priority: checked ? 'critical' : f.priority,
                           }))
                         }
-                        className="h-4 w-4"
                       />
-                      Контроль СКИ
                     </label>
                   </div>
                 </div>
@@ -821,6 +943,38 @@ export function ProjectDetail() {
                   )}
                 </div>
               </div>
+              {editForm.planning_mode === 'strict' && (
+                <div className="rounded border bg-muted/20 p-3 space-y-2">
+                  <p className="text-sm font-medium">Правила строгого режима</p>
+                  <label className="flex items-center justify-between gap-2 text-sm">
+                    <span>Запрет даты начала в прошлом</span>
+                    <Switch
+                      checked={editForm.strict_no_past_start_date}
+                      onCheckedChange={(checked) =>
+                        setEditForm((f) => ({ ...f, strict_no_past_start_date: checked }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-2 text-sm">
+                    <span>Запрет дедлайна в прошлом</span>
+                    <Switch
+                      checked={editForm.strict_no_past_end_date}
+                      onCheckedChange={(checked) =>
+                        setEditForm((f) => ({ ...f, strict_no_past_end_date: checked }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-2 text-sm">
+                    <span>Дочерняя задача в диапазоне дат родителя</span>
+                    <Switch
+                      checked={editForm.strict_child_within_parent_dates}
+                      onCheckedChange={(checked) =>
+                        setEditForm((f) => ({ ...f, strict_child_within_parent_dates: checked }))
+                      }
+                    />
+                  </label>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <Label>Основание запуска</Label>
@@ -955,19 +1109,17 @@ export function ProjectDetail() {
                     <option value="critical">Критический</option>
                   </select>
                   <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-                    <input
-                      type="checkbox"
+                    <span>Контроль СКИ</span>
+                    <Switch
                       checked={taskForm.control_ski}
-                      onChange={(e) =>
+                      onCheckedChange={(checked) =>
                         setTaskForm((f) => ({
                           ...f,
-                          control_ski: e.target.checked,
-                          priority: e.target.checked ? 'critical' : f.priority,
+                          control_ski: checked,
+                          priority: checked ? 'critical' : f.priority,
                         }))
                       }
-                      className="h-4 w-4"
                     />
-                    Контроль СКИ
                   </label>
                 </div>
               </div>
@@ -1002,7 +1154,7 @@ export function ProjectDetail() {
                   }}
                   className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[112px]"
                 >
-                  {users.map((u) => (
+                  {projectAssigneeOptions.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name} ({u.role})
                     </option>
@@ -1011,19 +1163,40 @@ export function ProjectDetail() {
                 <p className="text-xs text-muted-foreground">Можно выбрать нескольких исполнителей (Ctrl/Cmd + клик).</p>
               </div>
               <div className="space-y-1">
-                <Label>Зависит от</Label>
+                <Label>Родительская задача (структура)</Label>
                 <select
                   value={taskForm.parent_task_id}
                   onChange={(e) => setTaskForm((f) => ({ ...f, parent_task_id: e.target.value }))}
                   className="w-full border rounded px-3 py-2 text-sm bg-background"
                 >
-                  <option value="">Без зависимости</option>
+                  <option value="">Без родителя</option>
                   {tasks.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.title}
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="space-y-1">
+                <Label>Зависит от (блокировка старта)</Label>
+                <select
+                  multiple
+                  value={taskForm.predecessor_task_ids}
+                  onChange={(e) => {
+                    const values = Array.from(e.target.selectedOptions).map((option) => option.value)
+                    setTaskForm((f) => ({ ...f, predecessor_task_ids: values }))
+                  }}
+                  className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[112px]"
+                >
+                  {tasks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Эти задачи должны быть в статусе "Выполнено", прежде чем новая задача перейдет в работу.
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -1382,6 +1555,7 @@ export function ProjectDetail() {
 
           <TaskTable
             tasks={filteredTasks}
+            allTasks={tasks}
             onTaskClick={handleTaskClick}
             onStatusChange={(taskId, status) => {
               const task = tasks.find((t) => t.id === taskId)
@@ -1412,6 +1586,49 @@ export function ProjectDetail() {
             <p className="text-xs text-muted-foreground">
               Единая загрузка: XML/MSPDI, PDF, DOC/DOCX, PPTX, XLSX и текстовые форматы. После обработки черновиков
               файл автоматически переносится в зашифрованное Хранилище (`Processed`) или его можно удалить вручную.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 rounded-lg border p-3">
+            <p className="text-sm font-medium">Импорт задач (MS Project XML/MSPDI, MPP, XLSX)</p>
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
+              <Input
+                type="file"
+                accept=".xml,.mpp,.xlsx"
+                onChange={(e) => setMSProjectFile(e.target.files?.[0] ?? null)}
+              />
+              <label className="flex items-center gap-2 text-xs text-muted-foreground md:min-w-fit">
+                <span>Заменить предыдущий импорт MS Project</span>
+                <Switch
+                  checked={replaceExistingMSImport}
+                  onCheckedChange={setReplaceExistingMSImport}
+                />
+              </label>
+              <Button
+                variant="outline"
+                onClick={handleImportMSProject}
+                disabled={!msProjectFile || importMSProjectTasks.isPending || !canImport}
+              >
+                {importMSProjectTasks.isPending ? 'Импорт...' : 'Импортировать задачи'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              При включенной замене удаляются только задачи, которые ранее были импортированы из MS Project в этом
+              проекте.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 rounded-lg border p-3">
+            <Label htmlFor="ai-prompt-instruction">Промпт для ИИ (опционально)</Label>
+            <textarea
+              id="ai-prompt-instruction"
+              value={aiPromptInstruction}
+              onChange={(e) => setAIPromptInstruction(e.target.value)}
+              rows={3}
+              maxLength={4000}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              placeholder="Например: 'Строго парси колонку Исполнитель, дедлайн брать из колонки Срок, не пропускать строки без заказчика'."
+            />
+            <p className="text-xs text-muted-foreground">
+              Эти указания применяются при нажатии «Запустить ИИ/Запустить сейчас» для файла.
             </p>
           </div>
           {!canImport && (
@@ -1474,7 +1691,13 @@ export function ProjectDetail() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => startAIProcessing.mutate({ projectId: id!, fileId: file.id })}
+                      onClick={() =>
+                        startAIProcessing.mutate({
+                          projectId: id!,
+                          fileId: file.id,
+                          promptInstruction: aiPromptInstruction,
+                        })
+                      }
                       disabled={!canRun || startAIProcessing.isPending}
                     >
                       {startAIProcessing.isPending ? 'Запуск...' : actionLabel}
@@ -1528,6 +1751,16 @@ export function ProjectDetail() {
                   {approveAIDraftsBulk.isPending
                     ? 'Создание...'
                     : `Подтвердить выбранные (${selectedDraftIds.length})`}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleRejectSelectedDrafts}
+                  disabled={selectedDraftIds.length === 0 || rejectAIDraftsBulk.isPending}
+                >
+                  {rejectAIDraftsBulk.isPending
+                    ? 'Удаление...'
+                    : `Удалить выбранные (${selectedDraftIds.length})`}
                 </Button>
               </div>
             </div>

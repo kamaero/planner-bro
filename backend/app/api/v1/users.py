@@ -1,19 +1,26 @@
 import secrets
 import string
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, delete, func
+from sqlalchemy import select, or_, and_, delete, func
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.services.websocket_manager import ws_manager
 from app.core.security import hash_password, verify_password
 from app.models.user import User
+from app.models.auth_login_event import AuthLoginEvent
 from app.models.department import Department
 from app.models.project import Project, ProjectMember, ProjectDepartment
 from app.models.task import Task
+from app.models.task import TaskAssignee
+from app.models.temp_assignee import TempAssignee
 from app.services.access_scope import get_user_access_scope, is_user_in_scope
+from app.services.system_activity_service import log_system_activity
 from app.schemas.user import (
     UserCreate,
     UserOut,
@@ -27,6 +34,10 @@ from app.schemas.user import (
     DepartmentCreate,
     DepartmentUpdate,
     DepartmentOut,
+    AuthLoginEventOut,
+    TempAssigneeOut,
+    TempAssigneeLinkRequest,
+    TempAssigneePromoteRequest,
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -91,6 +102,36 @@ def _default_permissions_for_role(role: str) -> dict[str, bool]:
         "can_import": False,
         "can_bulk_edit": False,
     }
+
+
+def _default_visibility_for_role(role: str) -> str:
+    if role == "admin":
+        return "full_scope"
+    if role == "developer":
+        return "own_tasks_only"
+    return "department_scope"
+
+
+def _validate_visibility_scope(value: str | None, actor: User) -> str | None:
+    if value is None:
+        return None
+    if value not in ("own_tasks_only", "department_scope", "full_scope"):
+        raise HTTPException(status_code=400, detail="Invalid visibility_scope")
+    if actor.role != "admin" and value == "full_scope":
+        raise HTTPException(status_code=403, detail="Only admin can grant full_scope")
+    return value
+
+
+def _validate_own_tasks_toggle(value: bool | None, actor: User, target: User | None = None) -> bool | None:
+    if value is None:
+        return None
+    if actor.role == "admin":
+        return value
+    if not (actor.role == "manager" or _can_manage_team(actor)):
+        raise HTTPException(status_code=403, detail="No permission to change own-tasks visibility")
+    if target and target.manager_id != actor.id:
+        raise HTTPException(status_code=403, detail="You can only change this setting for direct subordinates")
+    return value
 
 
 def _generate_temporary_password(length: int = 14) -> str:
@@ -199,6 +240,12 @@ async def create_user_by_admin(
         department_id=data.department_id,
         password_hash=hash_password(data.password),
         role=data.role,
+        visibility_scope=_validate_visibility_scope(data.visibility_scope, current_user) or _default_visibility_for_role(data.role),
+        own_tasks_visibility_enabled=(
+            _validate_own_tasks_toggle(data.own_tasks_visibility_enabled, current_user)
+            if data.own_tasks_visibility_enabled is not None
+            else True
+        ),
         is_active=True,
         **permissions,
     )
@@ -268,6 +315,86 @@ async def search_users(
     return result.scalars().all()
 
 
+@router.get("/login-events", response_model=list[AuthLoginEventOut])
+async def list_login_events(
+    limit: int = Query(default=200, ge=1, le=1000),
+    user_id: str | None = Query(default=None),
+    success: bool | None = Query(default=None),
+    email_query: str | None = Query(default=None),
+    from_dt: datetime | None = Query(default=None),
+    to_dt: datetime | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_team_manager(current_user)
+    scope = await get_user_access_scope(db, current_user)
+
+    base_stmt = (
+        select(AuthLoginEvent)
+        .options(selectinload(AuthLoginEvent.user))
+        .order_by(AuthLoginEvent.created_at.desc())
+        .limit(limit)
+    )
+
+    filters = []
+    if user_id:
+        filters.append(AuthLoginEvent.user_id == user_id)
+    if success is not None:
+        filters.append(AuthLoginEvent.success == success)
+    if email_query:
+        like = f"%{email_query.strip().lower()}%"
+        filters.append(AuthLoginEvent.normalized_email.ilike(like))
+    if from_dt:
+        filters.append(AuthLoginEvent.created_at >= from_dt)
+    if to_dt:
+        filters.append(AuthLoginEvent.created_at <= to_dt)
+
+    if current_user.role != "admin":
+        scoped_users = set(scope.user_ids)
+        scoped_emails: set[str] = set()
+        if scoped_users:
+            rows = (
+                await db.execute(
+                    select(User.email, User.work_email).where(User.id.in_(scoped_users))
+                )
+            ).all()
+            for row in rows:
+                if row.email:
+                    scoped_emails.add(row.email.strip().lower())
+                if row.work_email:
+                    scoped_emails.add(row.work_email.strip().lower())
+
+        visibility_filters = []
+        if scoped_users:
+            visibility_filters.append(AuthLoginEvent.user_id.in_(scoped_users))
+        if scoped_emails:
+            visibility_filters.append(AuthLoginEvent.normalized_email.in_(scoped_emails))
+        if not visibility_filters:
+            return []
+        filters.append(or_(*visibility_filters))
+
+    if filters:
+        base_stmt = base_stmt.where(and_(*filters))
+
+    events = (await db.execute(base_stmt)).scalars().all()
+    return [
+        AuthLoginEventOut(
+            id=event.id,
+            user_id=event.user_id,
+            user_name=event.user.name if event.user else None,
+            user_email=event.user.email if event.user else None,
+            email_entered=event.email_entered,
+            normalized_email=event.normalized_email,
+            success=event.success,
+            failure_reason=event.failure_reason,
+            client_ip=event.client_ip,
+            user_agent=event.user_agent,
+            created_at=event.created_at,
+        )
+        for event in events
+    ]
+
+
 @router.get("/", response_model=list[UserOut])
 async def list_users(
     current_user: User = Depends(get_current_user),
@@ -283,6 +410,171 @@ async def list_users(
         .order_by(User.created_at.desc())
     )
     return result.scalars().all()
+
+
+def _can_manage_temp_assignees(user: User) -> bool:
+    return user.role in ("admin", "manager") or bool(user.can_manage_team)
+
+
+@router.get("/temp-assignees", response_model=list[TempAssigneeOut])
+async def list_temp_assignees(
+    status: str | None = Query(default="pending"),
+    limit: int = Query(default=200, ge=1, le=2000),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _can_manage_temp_assignees(current_user):
+        raise HTTPException(status_code=403, detail="No permission to manage temp assignees")
+    scope = await get_user_access_scope(db, current_user)
+    stmt = (
+        select(TempAssignee)
+        .options(selectinload(TempAssignee.linked_user))
+        .order_by(TempAssignee.last_seen_at.desc())
+        .limit(limit)
+    )
+    if current_user.role != "admin":
+        stmt = stmt.where(
+            or_(
+                TempAssignee.created_by_id == current_user.id,
+                TempAssignee.created_by_id.in_(scope.user_ids),
+            )
+        )
+    if status:
+        stmt = stmt.where(TempAssignee.status == status)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@router.patch("/temp-assignees/{temp_assignee_id}/link", response_model=TempAssigneeOut)
+async def link_temp_assignee(
+    temp_assignee_id: str,
+    data: TempAssigneeLinkRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _can_manage_temp_assignees(current_user):
+        raise HTTPException(status_code=403, detail="No permission to manage temp assignees")
+    temp = (
+        await db.execute(
+            select(TempAssignee)
+            .where(TempAssignee.id == temp_assignee_id)
+            .options(selectinload(TempAssignee.linked_user))
+        )
+    ).scalar_one_or_none()
+    if not temp:
+        raise HTTPException(status_code=404, detail="Temp assignee not found")
+    scope = await get_user_access_scope(db, current_user)
+    if current_user.role != "admin" and temp.created_by_id not in scope.user_ids | {current_user.id}:
+        raise HTTPException(status_code=403, detail="No permission to manage this temp assignee")
+
+    user = (await db.execute(select(User).where(User.id == data.user_id, User.is_active == True))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    temp.linked_user_id = user.id
+    temp.status = "linked"
+    temp.last_seen_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(temp)
+    return temp
+
+
+@router.patch("/temp-assignees/{temp_assignee_id}/ignore", response_model=TempAssigneeOut)
+async def ignore_temp_assignee(
+    temp_assignee_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _can_manage_temp_assignees(current_user):
+        raise HTTPException(status_code=403, detail="No permission to manage temp assignees")
+    temp = (
+        await db.execute(
+            select(TempAssignee)
+            .where(TempAssignee.id == temp_assignee_id)
+            .options(selectinload(TempAssignee.linked_user))
+        )
+    ).scalar_one_or_none()
+    if not temp:
+        raise HTTPException(status_code=404, detail="Temp assignee not found")
+    scope = await get_user_access_scope(db, current_user)
+    if current_user.role != "admin" and temp.created_by_id not in scope.user_ids | {current_user.id}:
+        raise HTTPException(status_code=403, detail="No permission to manage this temp assignee")
+
+    temp.status = "ignored"
+    temp.last_seen_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(temp)
+    return temp
+
+
+@router.post("/temp-assignees/{temp_assignee_id}/promote")
+async def promote_temp_assignee(
+    temp_assignee_id: str,
+    data: TempAssigneePromoteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _can_manage_temp_assignees(current_user):
+        raise HTTPException(status_code=403, detail="No permission to manage temp assignees")
+    temp = (
+        await db.execute(select(TempAssignee).where(TempAssignee.id == temp_assignee_id))
+    ).scalar_one_or_none()
+    if not temp:
+        raise HTTPException(status_code=404, detail="Temp assignee not found")
+    scope = await get_user_access_scope(db, current_user)
+    if current_user.role != "admin" and temp.created_by_id not in scope.user_ids | {current_user.id}:
+        raise HTTPException(status_code=403, detail="No permission to manage this temp assignee")
+
+    normalized_email = _normalize_email(str(data.email))
+    existing = await db.execute(
+        select(User).where(
+            or_(
+                func.lower(User.email) == normalized_email,
+                func.lower(User.work_email) == normalized_email,
+            )
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    parts = temp.raw_name.split(" ", 1)
+    first_name = parts[0].strip() if parts else temp.raw_name.strip()
+    last_name = parts[1].strip() if len(parts) > 1 else ""
+    password = data.password or _generate_temporary_password()
+    role = data.role if data.role in ("developer", "manager", "admin") else "developer"
+    if current_user.role != "admin" and role == "admin":
+        raise HTTPException(status_code=403, detail="Only admin can create admin accounts")
+
+    created_user = User(
+        email=normalized_email,
+        work_email=_normalize_optional_email(str(data.work_email)) if data.work_email else None,
+        name=f"{first_name} {last_name}".strip(),
+        first_name=first_name,
+        last_name=last_name,
+        position_title=data.position_title,
+        manager_id=data.manager_id or (current_user.id if current_user.role != "admin" else None),
+        department_id=data.department_id,
+        password_hash=hash_password(password),
+        role=role,
+        visibility_scope=_default_visibility_for_role(role),
+        own_tasks_visibility_enabled=True,
+        is_active=True,
+        **_default_permissions_for_role(role),
+    )
+    db.add(created_user)
+    await db.flush()
+
+    temp.linked_user_id = created_user.id
+    temp.status = "promoted"
+    temp.last_seen_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(created_user)
+    await db.refresh(temp)
+    return {
+        "user": UserOut.model_validate(created_user),
+        "temporary_password": password if not data.password else None,
+        "temp_assignee": TempAssigneeOut.model_validate(temp),
+    }
 
 
 @router.post("/{user_id}/reset-password", response_model=ResetPasswordResponse)
@@ -370,6 +662,8 @@ async def update_user_permissions(
         if current_user.id == user.id and new_role != "admin":
             raise HTTPException(status_code=400, detail="You cannot demote your own admin role")
         user.role = new_role
+        if "visibility_scope" not in payload:
+            payload["visibility_scope"] = _default_visibility_for_role(new_role)
 
     if current_user.id == user.id and payload.get("can_manage_team") is False:
         raise HTTPException(status_code=400, detail="You cannot remove your own team management permission")
@@ -391,6 +685,13 @@ async def update_user_permissions(
         payload["work_email"] = normalized_work_email
     if "manager_id" in payload and payload["manager_id"] == user.id:
         raise HTTPException(status_code=400, detail="User cannot be their own manager")
+    if "visibility_scope" in payload:
+        payload["visibility_scope"] = _validate_visibility_scope(payload.get("visibility_scope"), current_user)
+    if "own_tasks_visibility_enabled" in payload:
+        payload["own_tasks_visibility_enabled"] = _validate_own_tasks_toggle(
+            payload.get("own_tasks_visibility_enabled"), current_user, user
+        )
+    old_own_tasks_visibility = user.own_tasks_visibility_enabled
     if current_user.role != "admin":
         scope = await get_user_access_scope(db, current_user)
         if "department_id" in payload and payload["department_id"] and payload["department_id"] not in scope.department_ids:
@@ -404,6 +705,23 @@ async def update_user_permissions(
         if field == "can_manage_team" and current_user.role != "admin":
             raise HTTPException(status_code=403, detail="Only admin can grant team management permission")
         setattr(user, field, value)
+
+    if "own_tasks_visibility_enabled" in payload and user.own_tasks_visibility_enabled != old_own_tasks_visibility:
+        await log_system_activity(
+            db,
+            source="backend",
+            category="authz",
+            level="info",
+            message="own_tasks_visibility toggled",
+            details={
+                "actor_user_id": current_user.id,
+                "target_user_id": user.id,
+                "target_user_email": user.email,
+                "old_value": old_own_tasks_visibility,
+                "new_value": user.own_tasks_visibility_enabled,
+            },
+            commit=False,
+        )
 
     await db.commit()
     await db.refresh(user)
@@ -443,6 +761,17 @@ async def global_search(
             )
         ).scalars().all()
     project_ids = set(member_project_ids) | set(department_project_ids)
+    own_task_project_ids = (
+        await db.execute(select(Task.project_id).where(Task.assigned_to_id == current_user.id))
+    ).scalars().all()
+    own_multi_task_project_ids = (
+        await db.execute(
+            select(Task.project_id)
+            .join(TaskAssignee, TaskAssignee.task_id == Task.id)
+            .where(TaskAssignee.user_id == current_user.id)
+        )
+    ).scalars().all()
+    project_ids |= set(own_task_project_ids) | set(own_multi_task_project_ids)
 
     project_stmt = (
         select(Project)
@@ -452,14 +781,25 @@ async def global_search(
         )
         .limit(10)
     )
-    task_stmt = (
-        select(Task)
-        .where(
-            Task.project_id.in_(project_ids or {""}),
-            or_(Task.title.ilike(like), Task.description.ilike(like)),
-        )
-        .limit(10)
+    task_stmt = select(Task).where(
+        Task.project_id.in_(project_ids or {""}),
+        or_(Task.title.ilike(like), Task.description.ilike(like)),
     )
+    if (
+        current_user.visibility_scope == "own_tasks_only"
+        and current_user.role != "admin"
+        and bool(getattr(current_user, "own_tasks_visibility_enabled", True))
+    ):
+        own_task_ids = (
+            await db.execute(select(TaskAssignee.task_id).where(TaskAssignee.user_id == current_user.id))
+        ).scalars().all()
+        task_stmt = task_stmt.where(
+            or_(
+                Task.assigned_to_id == current_user.id,
+                Task.id.in_(set(own_task_ids) or {""}),
+            )
+        )
+    task_stmt = task_stmt.limit(10)
 
     projects = (await db.execute(project_stmt)).scalars().all()
     tasks = (await db.execute(task_stmt)).scalars().all()

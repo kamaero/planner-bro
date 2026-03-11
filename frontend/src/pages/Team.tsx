@@ -4,18 +4,63 @@ import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { Department, User, ReportDispatchSettings } from '@/types'
+import { Switch } from '@/components/ui/switch'
+import type { AuthLoginEvent, Department, User, TempAssignee, ReportDispatchSettings } from '@/types'
 
 type UserDraft = Pick<
   User,
-  'role' | 'work_email' | 'position_title' | 'manager_id' | 'department_id' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'
+  'role' | 'visibility_scope' | 'own_tasks_visibility_enabled' | 'work_email' | 'position_title' | 'manager_id' | 'department_id' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'
 >
+
+const WEEKDAY_OPTIONS = [
+  { id: 'mon', label: 'Пн' },
+  { id: 'tue', label: 'Вт' },
+  { id: 'wed', label: 'Ср' },
+  { id: 'thu', label: 'Чт' },
+  { id: 'fri', label: 'Пт' },
+  { id: 'sat', label: 'Сб' },
+  { id: 'sun', label: 'Вс' },
+] as const
+
+const TIME_WINDOW_OPTIONS = [
+  '06:00-09:00',
+  '09:00-12:00',
+  '12:00-15:00',
+  '15:00-18:00',
+] as const
+
+const TIME_WINDOW_START: Record<string, { hour: number; minute: number }> = {
+  '06:00-09:00': { hour: 6, minute: 0 },
+  '09:00-12:00': { hour: 9, minute: 0 },
+  '12:00-15:00': { hour: 12, minute: 0 },
+  '15:00-18:00': { hour: 15, minute: 0 },
+}
+
+const FIXED_DIGEST_TIMEZONE = 'Asia/Yekaterinburg'
+const FALLBACK_TIME_WINDOW = '09:00-12:00'
+const ALL_WEEKDAY_IDS = WEEKDAY_OPTIONS.map((d) => d.id)
+
+type DigestChannelKey = 'telegram_projects_slots' | 'telegram_critical_slots' | 'email_analytics_slots'
+
+type DigestChannelPreset = {
+  days: string[]
+  timeWindow: string
+}
+
+const DIGEST_CHANNEL_MINUTE_OFFSET: Record<DigestChannelKey, number> = {
+  telegram_projects_slots: 0,
+  telegram_critical_slots: 10,
+  email_analytics_slots: 20,
+}
 
 export function Team() {
   const currentUser = useAuthStore((s) => s.user)
   const [section, setSection] = useState<'overview' | 'users' | 'org' | 'settings'>('overview')
   const [users, setUsers] = useState<User[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
+  const [loginEvents, setLoginEvents] = useState<AuthLoginEvent[]>([])
+  const [loginEventsLoading, setLoginEventsLoading] = useState(false)
+  const [loginEventsError, setLoginEventsError] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
@@ -23,12 +68,26 @@ export function Team() {
   const [permissionDrafts, setPermissionDrafts] = useState<Record<string, UserDraft>>({})
   const [departmentDrafts, setDepartmentDrafts] = useState<Record<string, { parent_id: string; head_user_id: string }>>({})
 
-  const [invite, setInvite] = useState({
+  const [invite, setInvite] = useState<{
+    first_name: string
+    last_name: string
+    email: string
+    work_email: string
+    role: 'developer' | 'manager' | 'admin'
+    visibility_scope: 'own_tasks_only' | 'department_scope' | 'full_scope'
+    own_tasks_visibility_enabled: boolean
+    password: string
+    position_title: string
+    manager_id: string
+    department_id: string
+  }>({
     first_name: '',
     last_name: '',
     email: '',
     work_email: '',
     role: 'developer',
+    visibility_scope: 'own_tasks_only',
+    own_tasks_visibility_enabled: true,
     password: '',
     position_title: '',
     manager_id: '',
@@ -47,9 +106,21 @@ export function Team() {
   const [ownPasswordError, setOwnPasswordError] = useState('')
   const [ownPasswordForm, setOwnPasswordForm] = useState({ current_password: '', new_password: '' })
   const [reportSettings, setReportSettings] = useState<ReportDispatchSettings>({
+    smtp_enabled: true,
     telegram_summaries_enabled: true,
     email_analytics_enabled: true,
     email_analytics_recipients: '',
+    admin_directive: {
+      enabled: false,
+      recipient: 'aerokamero@gmail.com',
+      days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+      time_window: '09:00-12:00',
+      include_overdue: true,
+      include_stale: true,
+      stale_days: 7,
+      include_unassigned: true,
+      custom_text: '',
+    },
     digest_filters: {
       deadline_window_days: 5,
       priorities: ['high', 'critical'],
@@ -60,7 +131,7 @@ export function Team() {
       anti_noise_ttl_minutes: 360,
     },
     digest_schedule: {
-      timezone: 'Asia/Yekaterinburg',
+      timezone: FIXED_DIGEST_TIMEZONE,
       telegram_projects_enabled: true,
       telegram_critical_enabled: true,
       email_projects_enabled: true,
@@ -73,6 +144,12 @@ export function Team() {
   const [reportSettingsLoading, setReportSettingsLoading] = useState(false)
   const [reportSettingsSaving, setReportSettingsSaving] = useState(false)
   const [reportSettingsMessage, setReportSettingsMessage] = useState('')
+  const [adminDirectiveTestBusy, setAdminDirectiveTestBusy] = useState(false)
+  const [tempAssignees, setTempAssignees] = useState<TempAssignee[]>([])
+  const [tempAssigneesLoading, setTempAssigneesLoading] = useState(false)
+  const [tempAssigneesError, setTempAssigneesError] = useState('')
+  const [tempAssigneeBusyId, setTempAssigneeBusyId] = useState<string | null>(null)
+  const [tempAssigneeLinkDrafts, setTempAssigneeLinkDrafts] = useState<Record<string, string>>({})
 
   const [nameDrafts, setNameDrafts] = useState<Record<string, { first_name: string; last_name: string }>>({})
   const [nameBusyId, setNameBusyId] = useState<string | null>(null)
@@ -118,6 +195,16 @@ export function Team() {
     }).format(dt)
   }
 
+  const getLoginEmailType = (event: AuthLoginEvent) => {
+    if (!event.user_id) return 'неизвестно'
+    const user = usersById[event.user_id]
+    if (!user) return 'неизвестно'
+    const work = (user.work_email || '').trim().toLowerCase()
+    const normalized = (event.normalized_email || '').trim().toLowerCase()
+    if (!work) return 'личный/н/д'
+    return normalized === work ? 'корпоративный' : 'личный'
+  }
+
   const loadAll = async () => {
     setLoading(true)
     setError('')
@@ -130,6 +217,8 @@ export function Team() {
       userData.forEach((user: User) => {
         drafts[user.id] = {
           role: user.role,
+          visibility_scope: user.visibility_scope ?? 'department_scope',
+          own_tasks_visibility_enabled: user.own_tasks_visibility_enabled ?? true,
           work_email: user.work_email ?? null,
           position_title: user.position_title ?? null,
           manager_id: user.manager_id ?? null,
@@ -159,6 +248,25 @@ export function Team() {
     void loadAll()
   }, [])
 
+  const loadLoginEvents = async () => {
+    if (!canManageTeam) return
+    setLoginEventsLoading(true)
+    setLoginEventsError('')
+    try {
+      const events = await api.listLoginEvents({ limit: 200 })
+      setLoginEvents(events)
+    } catch (err: any) {
+      setLoginEventsError(err?.response?.data?.detail ?? 'Не удалось загрузить журнал входов')
+    } finally {
+      setLoginEventsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (section !== 'overview' || !canManageTeam) return
+    void loadLoginEvents()
+  }, [section, canManageTeam])
+
   const loadReportSettings = async () => {
     if (!canManageTeam) return
     setReportSettingsLoading(true)
@@ -173,10 +281,78 @@ export function Team() {
     }
   }
 
+  const loadTempAssignees = async () => {
+    if (!canManageTeam) return
+    setTempAssigneesLoading(true)
+    setTempAssigneesError('')
+    try {
+      const data = await api.listTempAssignees({ status: 'pending', limit: 500 })
+      setTempAssignees(data)
+      const drafts: Record<string, string> = {}
+      data.forEach((item: TempAssignee) => {
+        drafts[item.id] = item.linked_user_id ?? ''
+      })
+      setTempAssigneeLinkDrafts(drafts)
+    } catch (err: any) {
+      setTempAssigneesError(err?.response?.data?.detail ?? 'Не удалось загрузить temp-исполнителей')
+    } finally {
+      setTempAssigneesLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (section !== 'settings' || !canManageTeam) return
     void loadReportSettings()
+    void loadTempAssignees()
   }, [section, canManageTeam])
+
+  const handleLinkTempAssignee = async (item: TempAssignee) => {
+    const userId = (tempAssigneeLinkDrafts[item.id] || '').trim()
+    if (!userId) return
+    setTempAssigneeBusyId(item.id)
+    try {
+      await api.linkTempAssignee(item.id, userId)
+      await loadTempAssignees()
+    } catch (err: any) {
+      setTempAssigneesError(err?.response?.data?.detail ?? 'Не удалось связать temp-исполнителя')
+    } finally {
+      setTempAssigneeBusyId(null)
+    }
+  }
+
+  const handleIgnoreTempAssignee = async (item: TempAssignee) => {
+    setTempAssigneeBusyId(item.id)
+    try {
+      await api.ignoreTempAssignee(item.id)
+      await loadTempAssignees()
+    } catch (err: any) {
+      setTempAssigneesError(err?.response?.data?.detail ?? 'Не удалось скрыть temp-исполнителя')
+    } finally {
+      setTempAssigneeBusyId(null)
+    }
+  }
+
+  const handlePromoteTempAssignee = async (item: TempAssignee) => {
+    const suggested = item.email || ''
+    const email = window.prompt(`Email для создания аккаунта (${item.raw_name})`, suggested)?.trim()
+    if (!email) return
+    setTempAssigneeBusyId(item.id)
+    try {
+      const result = await api.promoteTempAssignee(item.id, { email, role: 'developer' })
+      const temporaryPassword = result?.temporary_password as string | null | undefined
+      if (temporaryPassword) {
+        window.alert(`Аккаунт создан. Временный пароль: ${temporaryPassword}`)
+      } else {
+        window.alert('Аккаунт создан и связан с temp-исполнителем.')
+      }
+      await loadAll()
+      await loadTempAssignees()
+    } catch (err: any) {
+      setTempAssigneesError(err?.response?.data?.detail ?? 'Не удалось создать пользователя из temp')
+    } finally {
+      setTempAssigneeBusyId(null)
+    }
+  }
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -193,6 +369,8 @@ export function Team() {
         work_email: invite.work_email || undefined,
         password: invite.password,
         role: invite.role,
+        visibility_scope: invite.visibility_scope,
+        own_tasks_visibility_enabled: invite.own_tasks_visibility_enabled,
         position_title: invite.position_title || undefined,
         manager_id: invite.manager_id || undefined,
         department_id: invite.department_id || undefined,
@@ -204,6 +382,8 @@ export function Team() {
         email: '',
         work_email: '',
         role: 'developer',
+        visibility_scope: 'own_tasks_only',
+        own_tasks_visibility_enabled: true,
         password: '',
         position_title: '',
         manager_id: '',
@@ -364,6 +544,8 @@ export function Team() {
       [userId]: {
         ...(prev[userId] ?? {
           role: 'developer',
+          visibility_scope: 'department_scope',
+          own_tasks_visibility_enabled: true,
           work_email: null,
           position_title: null,
           manager_id: null,
@@ -383,6 +565,8 @@ export function Team() {
     if (!draft) return false
     return (
       draft.role !== user.role ||
+      (draft.visibility_scope ?? 'department_scope') !== (user.visibility_scope ?? 'department_scope') ||
+      (draft.own_tasks_visibility_enabled ?? true) !== (user.own_tasks_visibility_enabled ?? true) ||
       (draft.work_email ?? '') !== (user.work_email ?? '') ||
       (draft.position_title ?? '') !== (user.position_title ?? '') ||
       (draft.manager_id ?? '') !== (user.manager_id ?? '') ||
@@ -400,8 +584,14 @@ export function Team() {
     setBusyUserId(user.id)
     setError('')
     try {
+      const canChangeOwnOnlyToggle =
+        currentUser?.role === 'admin' || user.manager_id === currentUser?.id
       const updated = await api.updateUserPermissions(user.id, {
         ...draft,
+        visibility_scope: draft.visibility_scope ?? 'department_scope',
+        own_tasks_visibility_enabled: canChangeOwnOnlyToggle
+          ? (draft.own_tasks_visibility_enabled ?? true)
+          : undefined,
         work_email: draft.work_email?.trim() ? draft.work_email.trim() : null,
         position_title: draft.position_title?.trim() ? draft.position_title.trim() : null,
         manager_id: draft.manager_id || null,
@@ -412,6 +602,8 @@ export function Team() {
         ...prev,
         [user.id]: {
           role: updated.role,
+          visibility_scope: updated.visibility_scope ?? 'department_scope',
+          own_tasks_visibility_enabled: updated.own_tasks_visibility_enabled ?? true,
           work_email: updated.work_email ?? null,
           position_title: updated.position_title ?? null,
           manager_id: updated.manager_id ?? null,
@@ -435,12 +627,20 @@ export function Team() {
     setReportSettingsSaving(true)
     setReportSettingsMessage('')
     try {
+      const digestSchedule = reportSettings.digest_schedule
+        ? {
+            ...reportSettings.digest_schedule,
+            timezone: FIXED_DIGEST_TIMEZONE,
+          }
+        : undefined
       const saved = await api.updateReportDispatchSettings({
+        smtp_enabled: reportSettings.smtp_enabled,
         telegram_summaries_enabled: reportSettings.telegram_summaries_enabled,
         email_analytics_enabled: reportSettings.email_analytics_enabled,
         email_analytics_recipients: reportSettings.email_analytics_recipients,
+        admin_directive: reportSettings.admin_directive,
         digest_filters: reportSettings.digest_filters,
-        digest_schedule: reportSettings.digest_schedule,
+        digest_schedule: digestSchedule,
       })
       setReportSettings(saved)
       setReportSettingsMessage('Настройки рассылки сохранены')
@@ -451,12 +651,128 @@ export function Team() {
     }
   }
 
-  const slotsToText = (slots?: string[]) => (slots ?? []).join(', ')
-  const textToSlots = (value: string) =>
-    value
-      .split(',')
-      .map((token) => token.trim().toLowerCase())
-      .filter(Boolean)
+  const detectTimeWindow = (hour: number): string => {
+    if (hour >= 6 && hour < 9) return '06:00-09:00'
+    if (hour >= 9 && hour < 12) return '09:00-12:00'
+    if (hour >= 12 && hour < 15) return '12:00-15:00'
+    if (hour >= 15 && hour < 18) return '15:00-18:00'
+    return FALLBACK_TIME_WINDOW
+  }
+
+  const parseDigestSlotPreset = (slots: string[] | undefined, fallbackWindow = FALLBACK_TIME_WINDOW): DigestChannelPreset => {
+    const normalized = (slots ?? []).map((slot) => slot.trim().toLowerCase()).filter(Boolean)
+    if (normalized.length === 0) return { days: ['mon', 'fri'], timeWindow: fallbackWindow }
+
+    const hasDaily = normalized.some((slot) => slot.startsWith('daily@'))
+    const days = hasDaily
+      ? [...ALL_WEEKDAY_IDS]
+      : Array.from(
+          new Set(
+            normalized
+              .map((slot) => slot.split('@')[0])
+              .filter((day) => ALL_WEEKDAY_IDS.includes(day as (typeof ALL_WEEKDAY_IDS)[number]))
+          )
+        )
+
+    const firstTime = normalized[0]?.split('@')[1] ?? '09:00'
+    const parsedHour = Number.parseInt(firstTime.split(':')[0] ?? '9', 10)
+    const timeWindow = Number.isFinite(parsedHour) ? detectTimeWindow(parsedHour) : fallbackWindow
+
+    return {
+      days: days.length > 0 ? days : ['mon', 'fri'],
+      timeWindow,
+    }
+  }
+
+  const formatSlotTime = (timeWindow: string, minuteOffset: number): string => {
+    const start = TIME_WINDOW_START[timeWindow] ?? TIME_WINDOW_START[FALLBACK_TIME_WINDOW]
+    const totalMinutes = start.hour * 60 + start.minute + minuteOffset
+    const safeMinutes = Math.max(0, Math.min(23 * 60 + 59, totalMinutes))
+    const hour = Math.floor(safeMinutes / 60)
+    const minute = safeMinutes % 60
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  }
+
+  const buildDigestSlots = (days: string[], timeWindow: string, minuteOffset: number): string[] => {
+    const uniqueDays = Array.from(new Set(days)).filter((day) => ALL_WEEKDAY_IDS.includes(day as (typeof ALL_WEEKDAY_IDS)[number]))
+    if (uniqueDays.length === 0) return []
+    const time = formatSlotTime(timeWindow, minuteOffset)
+    return uniqueDays.map((day) => `${day}@${time}`)
+  }
+
+  const getDigestPreset = (channel: DigestChannelKey): DigestChannelPreset => {
+    const schedule = reportSettings.digest_schedule
+    if (!schedule) return { days: ['mon', 'fri'], timeWindow: FALLBACK_TIME_WINDOW }
+    return parseDigestSlotPreset(schedule[channel], FALLBACK_TIME_WINDOW)
+  }
+
+  const updateDigestSchedule = (patch: Partial<NonNullable<ReportDispatchSettings['digest_schedule']>>) => {
+    setReportSettings((prev) => ({
+      ...prev,
+      digest_schedule: {
+        timezone: FIXED_DIGEST_TIMEZONE,
+        telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
+        telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
+        email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
+        email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
+        telegram_projects_slots: prev.digest_schedule?.telegram_projects_slots ?? ['mon@08:00', 'fri@16:00'],
+        telegram_critical_slots: prev.digest_schedule?.telegram_critical_slots ?? ['daily@10:00'],
+        email_analytics_slots: prev.digest_schedule?.email_analytics_slots ?? ['mon@08:10', 'fri@16:10'],
+        ...patch,
+      },
+    }))
+  }
+
+  const updateDigestChannelDays = (channel: DigestChannelKey, days: string[]) => {
+    const preset = getDigestPreset(channel)
+    updateDigestSchedule({
+      [channel]: buildDigestSlots(days, preset.timeWindow, DIGEST_CHANNEL_MINUTE_OFFSET[channel]),
+    } as Partial<NonNullable<ReportDispatchSettings['digest_schedule']>>)
+  }
+
+  const updateDigestChannelWindow = (channel: DigestChannelKey, timeWindow: string) => {
+    const preset = getDigestPreset(channel)
+    updateDigestSchedule({
+      [channel]: buildDigestSlots(preset.days, timeWindow, DIGEST_CHANNEL_MINUTE_OFFSET[channel]),
+    } as Partial<NonNullable<ReportDispatchSettings['digest_schedule']>>)
+  }
+
+  const updateAdminDirective = (patch: Partial<NonNullable<ReportDispatchSettings['admin_directive']>>) => {
+    setReportSettings((prev) => {
+      const base = prev.admin_directive ?? {
+        enabled: false,
+        recipient: 'aerokamero@gmail.com',
+        days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+        time_window: '09:00-12:00',
+        include_overdue: true,
+        include_stale: true,
+        stale_days: 7,
+        include_unassigned: true,
+        custom_text: '',
+      }
+      return {
+        ...prev,
+        admin_directive: { ...base, ...patch },
+      }
+    })
+  }
+
+  const handleAdminDirectiveTest = async () => {
+    if (!canManageTeam) return
+    setAdminDirectiveTestBusy(true)
+    setReportSettingsMessage('')
+    try {
+      const recipient = reportSettings.admin_directive?.recipient?.trim() || 'aerokamero@gmail.com'
+      const result = await api.runAdminDirectiveTest({ recipient })
+      setReportSettingsMessage(
+        `Тест отправлен: ${result.recipient}. Просрочки: ${result.overdue_count}, без движения: ${result.stale_count}, без назначений: ${result.unassigned_count}.`
+      )
+    } catch (err: any) {
+      setReportSettingsMessage(err?.response?.data?.detail ?? 'Не удалось отправить тестовую рассылку')
+    } finally {
+      setAdminDirectiveTestBusy(false)
+    }
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -485,45 +801,102 @@ export function Team() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {section === 'overview' && (
-        <div className="rounded-xl border bg-card p-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-semibold">Текущая команда</h2>
-            <p className="text-xs text-muted-foreground">
-              Пользователей: {users.length} · Отделов: {departments.length}
-            </p>
+        <div className="space-y-4">
+          <div className="rounded-xl border bg-card p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-semibold">Текущая команда</h2>
+              <p className="text-xs text-muted-foreground">
+                Пользователей: {users.length} · Отделов: {departments.length}
+              </p>
+            </div>
+            {loading && <p className="text-sm text-muted-foreground">Загрузка...</p>}
+            {!loading && users.length === 0 && <p className="text-sm text-muted-foreground">Активных аккаунтов пока нет.</p>}
+            {!loading && users.length > 0 && (
+              <div className="overflow-auto rounded-lg border">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-muted/40 text-left">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Имя Фамилия</th>
+                      <th className="px-3 py-2 font-medium">Отдел</th>
+                      <th className="px-3 py-2 font-medium">Last sign-in</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users
+                      .slice()
+                      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+                      .map((user) => (
+                        <tr key={user.id} className="border-t">
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{user.name}</div>
+                            <div className="text-xs text-muted-foreground">{user.email}</div>
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {departmentsById[user.department_id || ''] || 'не назначен'}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {formatDateTime(user.last_sign_in_at ?? user.last_login_at)}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-          {loading && <p className="text-sm text-muted-foreground">Загрузка...</p>}
-          {!loading && users.length === 0 && <p className="text-sm text-muted-foreground">Активных аккаунтов пока нет.</p>}
-          {!loading && users.length > 0 && (
-            <div className="overflow-auto rounded-lg border">
-              <table className="min-w-full text-sm">
-                <thead className="bg-muted/40 text-left">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Имя Фамилия</th>
-                    <th className="px-3 py-2 font-medium">Отдел</th>
-                    <th className="px-3 py-2 font-medium">Last sign-in</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users
-                    .slice()
-                    .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-                    .map((user) => (
-                      <tr key={user.id} className="border-t">
-                        <td className="px-3 py-2">
-                          <div className="font-medium">{user.name}</div>
-                          <div className="text-xs text-muted-foreground">{user.email}</div>
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">
-                          {departmentsById[user.department_id || ''] || 'не назначен'}
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">
-                          {formatDateTime(user.last_sign_in_at ?? user.last_login_at)}
-                        </td>
+
+          {canManageTeam && (
+            <div className="rounded-xl border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="font-semibold">Журнал входов (аудит)</h2>
+                <Button size="sm" variant="outline" onClick={() => void loadLoginEvents()}>
+                  Обновить
+                </Button>
+              </div>
+              {loginEventsLoading && <p className="text-sm text-muted-foreground">Загрузка журнала входов...</p>}
+              {loginEventsError && <p className="text-sm text-destructive">{loginEventsError}</p>}
+              {!loginEventsLoading && !loginEventsError && loginEvents.length === 0 && (
+                <p className="text-sm text-muted-foreground">Событий входа пока нет.</p>
+              )}
+              {!loginEventsLoading && !loginEventsError && loginEvents.length > 0 && (
+                <div className="overflow-auto rounded-lg border max-h-[420px]">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-muted/40 text-left sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Когда</th>
+                        <th className="px-3 py-2 font-medium">Сотрудник</th>
+                        <th className="px-3 py-2 font-medium">Email входа</th>
+                        <th className="px-3 py-2 font-medium">Тип email</th>
+                        <th className="px-3 py-2 font-medium">Результат</th>
+                        <th className="px-3 py-2 font-medium">IP</th>
                       </tr>
-                    ))}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {loginEvents.map((event) => (
+                        <tr key={event.id} className="border-t">
+                          <td className="px-3 py-2 text-muted-foreground">{formatDateTime(event.created_at)}</td>
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{event.user_name || 'неизвестный пользователь'}</div>
+                            <div className="text-xs text-muted-foreground">{event.user_email || '—'}</div>
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">{event.email_entered}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{getLoginEmailType(event)}</td>
+                          <td className="px-3 py-2">
+                            {event.success ? (
+                              <span className="text-emerald-600 font-medium">успешно</span>
+                            ) : (
+                              <span className="text-red-600 font-medium">
+                                ошибка{event.failure_reason ? ` (${event.failure_reason})` : ''}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">{event.client_ip || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -661,6 +1034,12 @@ export function Team() {
                     <p className="text-xs text-muted-foreground">
                       Отдел: {departments.find((d) => d.id === (permissionDrafts[user.id]?.department_id || ''))?.name || 'не назначен'}
                     </p>
+                    <p className="text-xs text-muted-foreground">
+                      Видимость: {permissionDrafts[user.id]?.visibility_scope || 'department_scope'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Фильтр "только свои задачи": {(permissionDrafts[user.id]?.own_tasks_visibility_enabled ?? true) ? 'включен' : 'выключен'}
+                    </p>
                     {tempPasswords[user.id] && (
                       <p className="text-xs text-orange-600 mt-1">Временный пароль: {tempPasswords[user.id]}</p>
                     )}
@@ -708,6 +1087,15 @@ export function Team() {
                         <option value="manager">manager</option>
                         {currentUser?.role === 'admin' && <option value="admin">admin</option>}
                       </select>
+                      <select
+                        value={permissionDrafts[user.id]?.visibility_scope ?? user.visibility_scope ?? 'department_scope'}
+                        onChange={(e) => handlePermissionChange(user.id, 'visibility_scope', e.target.value)}
+                        className="border rounded px-2 py-1 bg-background"
+                      >
+                        <option value="own_tasks_only">own_tasks_only</option>
+                        <option value="department_scope">department_scope</option>
+                        {currentUser?.role === 'admin' && <option value="full_scope">full_scope</option>}
+                      </select>
                       <Input
                         type="email"
                         placeholder="corp@company.com"
@@ -741,39 +1129,43 @@ export function Team() {
                           <option key={d.id} value={d.id}>{d.name}</option>
                         ))}
                       </select>
-                      <div className="flex items-center gap-3">
-                        <label className="flex items-center gap-1">
-                          <input
-                            type="checkbox"
+                      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                        <label className="flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-xs">
+                          <span>own-only</span>
+                          <Switch
+                            checked={permissionDrafts[user.id]?.own_tasks_visibility_enabled ?? true}
+                            onCheckedChange={(checked) => handlePermissionChange(user.id, 'own_tasks_visibility_enabled', checked)}
+                            disabled={!canCreateSubordinates || (currentUser?.role !== 'admin' && user.manager_id !== currentUser?.id)}
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-xs">
+                          <span>team</span>
+                          <Switch
                             checked={permissionDrafts[user.id]?.can_manage_team ?? user.can_manage_team}
-                            onChange={(e) => handlePermissionChange(user.id, 'can_manage_team', e.target.checked)}
+                            onCheckedChange={(checked) => handlePermissionChange(user.id, 'can_manage_team', checked)}
                             disabled={currentUser?.role !== 'admin'}
                           />
-                          team
                         </label>
-                        <label className="flex items-center gap-1">
-                          <input
-                            type="checkbox"
+                        <label className="flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-xs">
+                          <span>delete</span>
+                          <Switch
                             checked={permissionDrafts[user.id]?.can_delete ?? user.can_delete}
-                            onChange={(e) => handlePermissionChange(user.id, 'can_delete', e.target.checked)}
+                            onCheckedChange={(checked) => handlePermissionChange(user.id, 'can_delete', checked)}
                           />
-                          delete
                         </label>
-                        <label className="flex items-center gap-1">
-                          <input
-                            type="checkbox"
+                        <label className="flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-xs">
+                          <span>import</span>
+                          <Switch
                             checked={permissionDrafts[user.id]?.can_import ?? user.can_import}
-                            onChange={(e) => handlePermissionChange(user.id, 'can_import', e.target.checked)}
+                            onCheckedChange={(checked) => handlePermissionChange(user.id, 'can_import', checked)}
                           />
-                          import
                         </label>
-                        <label className="flex items-center gap-1">
-                          <input
-                            type="checkbox"
+                        <label className="flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-xs">
+                          <span>bulk</span>
+                          <Switch
                             checked={permissionDrafts[user.id]?.can_bulk_edit ?? user.can_bulk_edit}
-                            onChange={(e) => handlePermissionChange(user.id, 'can_bulk_edit', e.target.checked)}
+                            onCheckedChange={(checked) => handlePermissionChange(user.id, 'can_bulk_edit', checked)}
                           />
-                          bulk
                         </label>
                       </div>
                     </div>
@@ -889,13 +1281,51 @@ export function Team() {
                   <Label>Роль</Label>
                   <select
                     value={invite.role}
-                    onChange={(e) => setInvite((f) => ({ ...f, role: e.target.value }))}
+                    onChange={(e) =>
+                      setInvite((f) => ({
+                        ...f,
+                        role: e.target.value as 'developer' | 'manager' | 'admin',
+                        visibility_scope:
+                          e.target.value === 'admin'
+                            ? 'full_scope'
+                            : e.target.value === 'manager'
+                              ? 'department_scope'
+                              : 'own_tasks_only',
+                      }))
+                    }
                     className="w-full border rounded px-3 py-2 text-sm bg-background"
                   >
                     <option value="developer">Developer</option>
                     <option value="manager">Manager</option>
                     {currentUser?.role === 'admin' && <option value="admin">Admin</option>}
                   </select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Видимость</Label>
+                  <select
+                    value={invite.visibility_scope}
+                    onChange={(e) =>
+                      setInvite((f) => ({
+                        ...f,
+                        visibility_scope: e.target.value as 'own_tasks_only' | 'department_scope' | 'full_scope',
+                      }))
+                    }
+                    className="w-full border rounded px-3 py-2 text-sm bg-background"
+                  >
+                    <option value="own_tasks_only">own_tasks_only</option>
+                    <option value="department_scope">department_scope</option>
+                    {currentUser?.role === 'admin' && <option value="full_scope">full_scope</option>}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Фильтр "только свои задачи"</Label>
+                  <label className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+                    <span>{invite.own_tasks_visibility_enabled ? 'Включен' : 'Выключен'}</span>
+                    <Switch
+                      checked={invite.own_tasks_visibility_enabled}
+                      onCheckedChange={(checked) => setInvite((f) => ({ ...f, own_tasks_visibility_enabled: checked }))}
+                    />
+                  </label>
                 </div>
                 <div className="space-y-1">
                   <Label>Временный пароль</Label>
@@ -958,6 +1388,89 @@ export function Team() {
             </form>
           </div>
 
+          <div className="rounded-xl border bg-card p-4 space-y-2 max-w-2xl">
+            <h2 className="font-semibold">Режим видимости задач (заглушка)</h2>
+            <p className="text-sm text-muted-foreground">
+              Эту настройку переключает ваш руководитель в карточке сотрудника.
+            </p>
+            <label className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+              <span>Фильтр "только свои задачи"</span>
+              <Switch
+                checked={currentUser?.own_tasks_visibility_enabled ?? true}
+                onCheckedChange={() => {}}
+                disabled
+              />
+            </label>
+          </div>
+
+          <div className="rounded-xl border bg-card p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-semibold">Temp-исполнители из файлов</h2>
+              <Button variant="outline" size="sm" onClick={() => void loadTempAssignees()} disabled={tempAssigneesLoading}>
+                {tempAssigneesLoading ? 'Обновление...' : 'Обновить'}
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Нераспознанные исполнители из импорта. Их можно связать с существующим аккаунтом или завести как нового сотрудника.
+            </p>
+            {tempAssigneesError && <p className="text-sm text-destructive">{tempAssigneesError}</p>}
+            {!tempAssigneesLoading && tempAssignees.length === 0 && (
+              <p className="text-sm text-muted-foreground">Пока нет нераспознанных исполнителей.</p>
+            )}
+            {!tempAssigneesLoading && tempAssignees.length > 0 && (
+              <div className="space-y-2">
+                {tempAssignees.map((item) => (
+                  <div key={item.id} className="rounded border p-3 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-medium">{item.raw_name}</span>
+                      <span className="text-muted-foreground">· source: {item.source}</span>
+                      <span className="text-muted-foreground">· seen: {item.seen_count}</span>
+                      {item.email && <span className="text-muted-foreground">· {item.email}</span>}
+                    </div>
+                    <div className="flex flex-col md:flex-row gap-2 md:items-center">
+                      <select
+                        value={tempAssigneeLinkDrafts[item.id] ?? ''}
+                        onChange={(e) => setTempAssigneeLinkDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                        className="w-full md:w-80 border rounded px-2 py-2 bg-background text-sm"
+                      >
+                        <option value="">Связать с пользователем...</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name} ({u.email})
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleLinkTempAssignee(item)}
+                        disabled={!tempAssigneeLinkDrafts[item.id] || tempAssigneeBusyId === item.id}
+                      >
+                        Связать
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handlePromoteTempAssignee(item)}
+                        disabled={tempAssigneeBusyId === item.id}
+                      >
+                        Создать пользователя
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void handleIgnoreTempAssignee(item)}
+                        disabled={tempAssigneeBusyId === item.id}
+                      >
+                        Игнорировать
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="rounded-xl border bg-card p-4 space-y-3 max-w-2xl">
             <h2 className="font-semibold">Настройки рассылки отчетов</h2>
             {!canManageTeam && (
@@ -967,28 +1480,42 @@ export function Team() {
             )}
             {canManageTeam && (
               <form onSubmit={handleSaveReportSettings} className="space-y-3">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={reportSettings.telegram_summaries_enabled}
-                    onChange={(e) =>
-                      setReportSettings((prev) => ({ ...prev, telegram_summaries_enabled: e.target.checked }))
+                <label className="flex items-center justify-between gap-3 text-sm font-medium">
+                  <span>SMTP-рассылки включены (глобальный рубильник)</span>
+                  <Switch
+                    checked={reportSettings.smtp_enabled}
+                    onCheckedChange={(checked) =>
+                      setReportSettings((prev) => ({ ...prev, smtp_enabled: checked }))
                     }
                     disabled={reportSettingsLoading || reportSettingsSaving}
                   />
-                  Telegram-дайджесты включены
+                </label>
+                {!reportSettings.smtp_enabled && (
+                  <p className="text-xs text-amber-700">
+                    SMTP выключен: письма не отправляются для всех сценариев (уведомления, сброс пароля, дайджесты).
+                  </p>
+                )}
+
+                <label className="flex items-center justify-between gap-3 text-sm">
+                  <span>Telegram-дайджесты включены</span>
+                  <Switch
+                    checked={reportSettings.telegram_summaries_enabled}
+                    onCheckedChange={(checked) =>
+                      setReportSettings((prev) => ({ ...prev, telegram_summaries_enabled: checked }))
+                    }
+                    disabled={reportSettingsLoading || reportSettingsSaving}
+                  />
                 </label>
 
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
+                <label className="flex items-center justify-between gap-3 text-sm">
+                  <span>Email-дайджесты аналитики включены</span>
+                  <Switch
                     checked={reportSettings.email_analytics_enabled}
-                    onChange={(e) =>
-                      setReportSettings((prev) => ({ ...prev, email_analytics_enabled: e.target.checked }))
+                    onCheckedChange={(checked) =>
+                      setReportSettings((prev) => ({ ...prev, email_analytics_enabled: checked }))
                     }
                     disabled={reportSettingsLoading || reportSettingsSaving}
                   />
-                  Email-дайджесты аналитики включены
                 </label>
 
                 <div className="space-y-1">
@@ -1008,213 +1535,218 @@ export function Team() {
                 </div>
 
                 <div className="rounded-lg border p-3 space-y-3">
+                  <p className="text-sm font-medium">Директивная рассылка (админ)</p>
+                  <label className="flex items-center justify-between gap-3 text-sm">
+                    <span>Включить директивную рассылку</span>
+                    <Switch
+                      checked={reportSettings.admin_directive?.enabled ?? false}
+                      onCheckedChange={(checked) => updateAdminDirective({ enabled: checked })}
+                      disabled={reportSettingsLoading || reportSettingsSaving}
+                    />
+                  </label>
+                  <div className="space-y-1">
+                    <Label htmlFor="admin-directive-recipient">Тестовый/целевой email</Label>
+                    <Input
+                      id="admin-directive-recipient"
+                      value={reportSettings.admin_directive?.recipient ?? 'aerokamero@gmail.com'}
+                      onChange={(e) => updateAdminDirective({ recipient: e.target.value })}
+                      disabled={reportSettingsLoading || reportSettingsSaving}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Дни недели</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {WEEKDAY_OPTIONS.map((day) => {
+                        const checked = (reportSettings.admin_directive?.days ?? []).includes(day.id)
+                        return (
+                          <label key={day.id} className="flex items-center gap-1 rounded border px-2 py-1 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                const current = reportSettings.admin_directive?.days ?? []
+                                const next = e.target.checked
+                                  ? Array.from(new Set([...current, day.id]))
+                                  : current.filter((d) => d !== day.id)
+                                updateAdminDirective({ days: next })
+                              }}
+                              disabled={reportSettingsLoading || reportSettingsSaving}
+                            />
+                            {day.label}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="admin-directive-time-window">Интервал отправки</Label>
+                    <select
+                      id="admin-directive-time-window"
+                      value={reportSettings.admin_directive?.time_window ?? '09:00-12:00'}
+                      onChange={(e) => updateAdminDirective({ time_window: e.target.value })}
+                      className="w-full border rounded px-2 py-2 bg-background text-sm"
+                      disabled={reportSettingsLoading || reportSettingsSaving}
+                    >
+                      {TIME_WINDOW_OPTIONS.map((w) => (
+                        <option key={w} value={w}>
+                          {w}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      В выбранном окне письма ставятся в очередь и отправляются по очереди каждые 5 минут.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Просрочки</span>
+                      <Switch
+                        checked={reportSettings.admin_directive?.include_overdue ?? true}
+                        onCheckedChange={(checked) => updateAdminDirective({ include_overdue: checked })}
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Без назначений</span>
+                      <Switch
+                        checked={reportSettings.admin_directive?.include_unassigned ?? true}
+                        onCheckedChange={(checked) => updateAdminDirective({ include_unassigned: checked })}
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Без движения</span>
+                      <Switch
+                        checked={reportSettings.admin_directive?.include_stale ?? true}
+                        onCheckedChange={(checked) => updateAdminDirective({ include_stale: checked })}
+                        disabled={reportSettingsLoading || reportSettingsSaving}
+                      />
+                    </label>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="admin-directive-stale-days">Порог «без движения», дней</Label>
+                    <Input
+                      id="admin-directive-stale-days"
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={reportSettings.admin_directive?.stale_days ?? 7}
+                      onChange={(e) => updateAdminDirective({ stale_days: Math.max(1, Math.min(90, Number.parseInt(e.target.value || '7', 10))) })}
+                      disabled={reportSettingsLoading || reportSettingsSaving}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="admin-directive-custom-text">Свободный текст (добавится в письмо)</Label>
+                    <Input
+                      id="admin-directive-custom-text"
+                      value={reportSettings.admin_directive?.custom_text ?? ''}
+                      onChange={(e) => updateAdminDirective({ custom_text: e.target.value })}
+                      disabled={reportSettingsLoading || reportSettingsSaving}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleAdminDirectiveTest}
+                    disabled={adminDirectiveTestBusy || reportSettingsLoading || reportSettingsSaving}
+                  >
+                    {adminDirectiveTestBusy ? 'Отправка теста...' : 'Отправить тест на указанный email'}
+                  </Button>
+                </div>
+
+                <div className="rounded-lg border p-3 space-y-3">
                   <p className="text-sm font-medium">Расписание и темы дайджестов</p>
-                  <div className="space-y-1">
-                    <Label htmlFor="digest-timezone">Часовой пояс</Label>
-                    <Input
-                      id="digest-timezone"
-                      value={reportSettings.digest_schedule?.timezone ?? 'Asia/Yekaterinburg'}
-                      onChange={(e) =>
-                        setReportSettings((prev) => ({
-                          ...prev,
-                          digest_schedule: {
-                            timezone: e.target.value,
-                            telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
-                            telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
-                            email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
-                            email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
-                            telegram_projects_slots: prev.digest_schedule?.telegram_projects_slots ?? ['mon@08:00', 'fri@16:00'],
-                            telegram_critical_slots: prev.digest_schedule?.telegram_critical_slots ?? ['daily@10:00'],
-                            email_analytics_slots: prev.digest_schedule?.email_analytics_slots ?? ['mon@08:10', 'fri@16:10'],
-                          },
-                        }))
-                      }
-                      placeholder="Asia/Yekaterinburg"
-                      disabled={reportSettingsLoading || reportSettingsSaving}
-                    />
-                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Telegram: тема «Проекты»</span>
+                      <Switch
                         checked={reportSettings.digest_schedule?.telegram_projects_enabled ?? true}
-                        onChange={(e) =>
-                          setReportSettings((prev) => ({
-                            ...prev,
-                            digest_schedule: {
-                              ...(prev.digest_schedule ?? {
-                                timezone: 'Asia/Yekaterinburg',
-                                telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
-                                telegram_critical_slots: ['daily@10:00'],
-                                email_analytics_slots: ['mon@08:10', 'fri@16:10'],
-                              }),
-                              telegram_projects_enabled: e.target.checked,
-                              telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
-                              email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
-                              email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
-                            },
-                          }))
-                        }
+                        onCheckedChange={(checked) => updateDigestSchedule({ telegram_projects_enabled: checked })}
                         disabled={reportSettingsLoading || reportSettingsSaving}
                       />
-                      Telegram: тема «Проекты»
                     </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Telegram: тема «Критические/СКИ»</span>
+                      <Switch
                         checked={reportSettings.digest_schedule?.telegram_critical_enabled ?? true}
-                        onChange={(e) =>
-                          setReportSettings((prev) => ({
-                            ...prev,
-                            digest_schedule: {
-                              ...(prev.digest_schedule ?? {
-                                timezone: 'Asia/Yekaterinburg',
-                                telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
-                                telegram_critical_slots: ['daily@10:00'],
-                                email_analytics_slots: ['mon@08:10', 'fri@16:10'],
-                              }),
-                              telegram_critical_enabled: e.target.checked,
-                              telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
-                              email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
-                              email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
-                            },
-                          }))
-                        }
+                        onCheckedChange={(checked) => updateDigestSchedule({ telegram_critical_enabled: checked })}
                         disabled={reportSettingsLoading || reportSettingsSaving}
                       />
-                      Telegram: тема «Критические/СКИ»
                     </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Email: тема «Проекты»</span>
+                      <Switch
                         checked={reportSettings.digest_schedule?.email_projects_enabled ?? true}
-                        onChange={(e) =>
-                          setReportSettings((prev) => ({
-                            ...prev,
-                            digest_schedule: {
-                              ...(prev.digest_schedule ?? {
-                                timezone: 'Asia/Yekaterinburg',
-                                telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
-                                telegram_critical_slots: ['daily@10:00'],
-                                email_analytics_slots: ['mon@08:10', 'fri@16:10'],
-                              }),
-                              email_projects_enabled: e.target.checked,
-                              telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
-                              telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
-                              email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
-                            },
-                          }))
-                        }
+                        onCheckedChange={(checked) => updateDigestSchedule({ email_projects_enabled: checked })}
                         disabled={reportSettingsLoading || reportSettingsSaving}
                       />
-                      Email: тема «Проекты»
                     </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Email: тема «Критические/СКИ»</span>
+                      <Switch
                         checked={reportSettings.digest_schedule?.email_critical_enabled ?? true}
-                        onChange={(e) =>
-                          setReportSettings((prev) => ({
-                            ...prev,
-                            digest_schedule: {
-                              ...(prev.digest_schedule ?? {
-                                timezone: 'Asia/Yekaterinburg',
-                                telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
-                                telegram_critical_slots: ['daily@10:00'],
-                                email_analytics_slots: ['mon@08:10', 'fri@16:10'],
-                              }),
-                              email_critical_enabled: e.target.checked,
-                              telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
-                              telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
-                              email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
-                            },
-                          }))
-                        }
+                        onCheckedChange={(checked) => updateDigestSchedule({ email_critical_enabled: checked })}
                         disabled={reportSettingsLoading || reportSettingsSaving}
                       />
-                      Email: тема «Критические/СКИ»
                     </label>
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="slots-telegram-projects">Telegram проекты (слоты)</Label>
-                    <Input
-                      id="slots-telegram-projects"
-                      value={slotsToText(reportSettings.digest_schedule?.telegram_projects_slots)}
-                      onChange={(e) =>
-                        setReportSettings((prev) => ({
-                          ...prev,
-                          digest_schedule: {
-                            ...(prev.digest_schedule ?? {
-                              timezone: 'Asia/Yekaterinburg',
-                              telegram_critical_slots: ['daily@10:00'],
-                              email_analytics_slots: ['mon@08:10', 'fri@16:10'],
-                            }),
-                            telegram_projects_slots: textToSlots(e.target.value),
-                            telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
-                            telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
-                            email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
-                            email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
-                          },
-                        }))
-                      }
-                      placeholder="mon@08:00, fri@16:00"
-                      disabled={reportSettingsLoading || reportSettingsSaving}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="slots-telegram-critical">Telegram критические (слоты)</Label>
-                    <Input
-                      id="slots-telegram-critical"
-                      value={slotsToText(reportSettings.digest_schedule?.telegram_critical_slots)}
-                      onChange={(e) =>
-                        setReportSettings((prev) => ({
-                          ...prev,
-                          digest_schedule: {
-                            ...(prev.digest_schedule ?? {
-                              timezone: 'Asia/Yekaterinburg',
-                              telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
-                              email_analytics_slots: ['mon@08:10', 'fri@16:10'],
-                            }),
-                            telegram_critical_slots: textToSlots(e.target.value),
-                            telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
-                            telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
-                            email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
-                            email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
-                          },
-                        }))
-                      }
-                      placeholder="daily@10:00"
-                      disabled={reportSettingsLoading || reportSettingsSaving}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="slots-email-analytics">Email аналитика (слоты)</Label>
-                    <Input
-                      id="slots-email-analytics"
-                      value={slotsToText(reportSettings.digest_schedule?.email_analytics_slots)}
-                      onChange={(e) =>
-                        setReportSettings((prev) => ({
-                          ...prev,
-                          digest_schedule: {
-                            ...(prev.digest_schedule ?? {
-                              timezone: 'Asia/Yekaterinburg',
-                              telegram_projects_slots: ['mon@08:00', 'fri@16:00'],
-                              telegram_critical_slots: ['daily@10:00'],
-                            }),
-                            email_analytics_slots: textToSlots(e.target.value),
-                            telegram_projects_enabled: prev.digest_schedule?.telegram_projects_enabled ?? true,
-                            telegram_critical_enabled: prev.digest_schedule?.telegram_critical_enabled ?? true,
-                            email_projects_enabled: prev.digest_schedule?.email_projects_enabled ?? true,
-                            email_critical_enabled: prev.digest_schedule?.email_critical_enabled ?? true,
-                          },
-                        }))
-                      }
-                      placeholder="mon@08:10, fri@16:10"
-                      disabled={reportSettingsLoading || reportSettingsSaving}
-                    />
-                  </div>
+                  {([
+                    { key: 'telegram_projects_slots', label: 'Telegram проекты' },
+                    { key: 'telegram_critical_slots', label: 'Telegram критические/СКИ' },
+                    { key: 'email_analytics_slots', label: 'Email аналитика' },
+                  ] as Array<{ key: DigestChannelKey; label: string }>).map((channel) => {
+                    const preset = getDigestPreset(channel.key)
+                    return (
+                      <div key={channel.key} className="rounded-md border p-3 space-y-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">{channel.label}</p>
+                          <p className="text-xs text-muted-foreground">Дни недели и интервал отправки</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium">Дни недели</p>
+                          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                            {WEEKDAY_OPTIONS.map((day) => {
+                              const checked = preset.days.includes(day.id)
+                              return (
+                                <label key={`${channel.key}-${day.id}`} className="flex items-center gap-2 rounded border px-2 py-1 text-xs">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      const nextDays = e.target.checked
+                                        ? Array.from(new Set([...preset.days, day.id]))
+                                        : preset.days.filter((d) => d !== day.id)
+                                      updateDigestChannelDays(channel.key, nextDays)
+                                    }}
+                                    disabled={reportSettingsLoading || reportSettingsSaving}
+                                  />
+                                  {day.label}
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor={`${channel.key}-window`}>Интервал отправки</Label>
+                          <select
+                            id={`${channel.key}-window`}
+                            value={preset.timeWindow}
+                            onChange={(e) => updateDigestChannelWindow(channel.key, e.target.value)}
+                            className="w-full border rounded px-2 py-2 bg-background text-sm"
+                            disabled={reportSettingsLoading || reportSettingsSaving}
+                          >
+                            {TIME_WINDOW_OPTIONS.map((w) => (
+                              <option key={w} value={w}>
+                                {w}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )
+                  })}
                   <p className="text-xs text-muted-foreground">
-                    Формат слотов: <code>mon@08:00</code>, <code>fri@16:00</code>, <code>daily@10:00</code>. Дни: mon..sun или daily.
+                    Часовой пояс закреплен системно: <code>{FIXED_DIGEST_TIMEZONE}</code>. Внутри выбранного окна отправка распределяется по очереди.
                   </p>
                 </div>
 
@@ -1276,16 +1808,16 @@ export function Team() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Включать СКИ</span>
+                      <Switch
                         checked={reportSettings.digest_filters?.include_control_ski ?? true}
-                        onChange={(e) =>
+                        onCheckedChange={(checked) =>
                           setReportSettings((prev) => ({
                             ...prev,
                             digest_filters: {
                               ...(prev.digest_filters ?? {}),
-                              include_control_ski: e.target.checked,
+                              include_control_ski: checked,
                               deadline_window_days: prev.digest_filters?.deadline_window_days ?? 5,
                               priorities: prev.digest_filters?.priorities ?? ['high', 'critical'],
                               include_escalations: prev.digest_filters?.include_escalations ?? true,
@@ -1297,18 +1829,17 @@ export function Team() {
                         }
                         disabled={reportSettingsLoading || reportSettingsSaving}
                       />
-                      Включать СКИ
                     </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Включать эскалации</span>
+                      <Switch
                         checked={reportSettings.digest_filters?.include_escalations ?? true}
-                        onChange={(e) =>
+                        onCheckedChange={(checked) =>
                           setReportSettings((prev) => ({
                             ...prev,
                             digest_filters: {
                               ...(prev.digest_filters ?? {}),
-                              include_escalations: e.target.checked,
+                              include_escalations: checked,
                               deadline_window_days: prev.digest_filters?.deadline_window_days ?? 5,
                               priorities: prev.digest_filters?.priorities ?? ['high', 'critical'],
                               include_control_ski: prev.digest_filters?.include_control_ski ?? true,
@@ -1320,18 +1851,17 @@ export function Team() {
                         }
                         disabled={reportSettingsLoading || reportSettingsSaving}
                       />
-                      Включать эскалации
                     </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Включать задачи без дедлайна</span>
+                      <Switch
                         checked={reportSettings.digest_filters?.include_without_deadline ?? false}
-                        onChange={(e) =>
+                        onCheckedChange={(checked) =>
                           setReportSettings((prev) => ({
                             ...prev,
                             digest_filters: {
                               ...(prev.digest_filters ?? {}),
-                              include_without_deadline: e.target.checked,
+                              include_without_deadline: checked,
                               deadline_window_days: prev.digest_filters?.deadline_window_days ?? 5,
                               priorities: prev.digest_filters?.priorities ?? ['high', 'critical'],
                               include_control_ski: prev.digest_filters?.include_control_ski ?? true,
@@ -1343,18 +1873,17 @@ export function Team() {
                         }
                         disabled={reportSettingsLoading || reportSettingsSaving}
                       />
-                      Включать задачи без дедлайна
                     </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
+                    <label className="flex items-center justify-between gap-3 text-sm">
+                      <span>Включить анти-шум</span>
+                      <Switch
                         checked={reportSettings.digest_filters?.anti_noise_enabled ?? true}
-                        onChange={(e) =>
+                        onCheckedChange={(checked) =>
                           setReportSettings((prev) => ({
                             ...prev,
                             digest_filters: {
                               ...(prev.digest_filters ?? {}),
-                              anti_noise_enabled: e.target.checked,
+                              anti_noise_enabled: checked,
                               deadline_window_days: prev.digest_filters?.deadline_window_days ?? 5,
                               priorities: prev.digest_filters?.priorities ?? ['high', 'critical'],
                               include_control_ski: prev.digest_filters?.include_control_ski ?? true,
@@ -1366,7 +1895,6 @@ export function Team() {
                         }
                         disabled={reportSettingsLoading || reportSettingsSaving}
                       />
-                      Включить анти-шум
                     </label>
                   </div>
                 </div>

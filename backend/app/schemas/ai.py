@@ -50,3 +50,11 @@ class AITaskDraftOut(BaseModel):
 
 class AITaskDraftBulkApproveRequest(BaseModel):
     draft_ids: list[str] = Field(default_factory=list, min_length=1)
+
+
+class AITaskDraftBulkRejectRequest(BaseModel):
+    draft_ids: list[str] = Field(default_factory=list, min_length=1)
+
+
+class AIProcessStartRequest(BaseModel):
+    prompt_instruction: Optional[str] = Field(default=None, max_length=4000)

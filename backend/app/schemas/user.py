@@ -11,6 +11,8 @@ class UserBase(BaseModel):
     manager_id: Optional[str] = None
     department_id: Optional[str] = None
     role: str = "developer"
+    visibility_scope: Optional[str] = None
+    own_tasks_visibility_enabled: Optional[bool] = None
     can_manage_team: Optional[bool] = None
     can_delete: Optional[bool] = None
     can_import: Optional[bool] = None
@@ -58,6 +60,8 @@ class UserProfile(UserOut):
 
 class UserPermissionsUpdate(BaseModel):
     role: Optional[str] = None
+    visibility_scope: Optional[str] = None
+    own_tasks_visibility_enabled: Optional[bool] = None
     work_email: Optional[EmailStr] = None
     position_title: Optional[str] = None
     manager_id: Optional[str] = None
@@ -134,3 +138,51 @@ class DepartmentOut(DepartmentBase):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AuthLoginEventOut(BaseModel):
+    id: str
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    user_email: Optional[EmailStr] = None
+    email_entered: str
+    normalized_email: str
+    success: bool
+    failure_reason: Optional[str] = None
+    client_ip: Optional[str] = None
+    user_agent: Optional[str] = None
+    created_at: datetime
+
+
+class TempAssigneeOut(BaseModel):
+    id: str
+    raw_name: str
+    normalized_name: str
+    email: Optional[EmailStr] = None
+    source: str
+    status: str
+    linked_user_id: Optional[str] = None
+    project_id: Optional[str] = None
+    created_by_id: Optional[str] = None
+    seen_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    linked_user: Optional[UserOut] = None
+
+    model_config = {"from_attributes": True}
+
+
+class TempAssigneeLinkRequest(BaseModel):
+    user_id: str
+
+
+class TempAssigneePromoteRequest(BaseModel):
+    email: EmailStr
+    work_email: Optional[EmailStr] = None
+    role: str = "developer"
+    password: Optional[str] = None
+    position_title: Optional[str] = None
+    manager_id: Optional[str] = None
+    department_id: Optional[str] = None

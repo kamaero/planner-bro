@@ -9,6 +9,8 @@ export interface User {
   manager_id?: string | null
   department_id?: string | null
   role: 'admin' | 'manager' | 'developer'
+  visibility_scope?: 'own_tasks_only' | 'department_scope' | 'full_scope'
+  own_tasks_visibility_enabled?: boolean
   can_manage_team: boolean
   can_delete: boolean
   can_import: boolean
@@ -22,6 +24,38 @@ export interface User {
   last_login_at?: string | null
 }
 
+export interface AuthLoginEvent {
+  id: string
+  user_id?: string | null
+  user_name?: string | null
+  user_email?: string | null
+  email_entered: string
+  normalized_email: string
+  success: boolean
+  failure_reason?: string | null
+  client_ip?: string | null
+  user_agent?: string | null
+  created_at: string
+}
+
+export interface TempAssignee {
+  id: string
+  raw_name: string
+  normalized_name: string
+  email?: string | null
+  source: string
+  status: 'pending' | 'linked' | 'promoted' | 'ignored' | string
+  linked_user_id?: string | null
+  project_id?: string | null
+  created_by_id?: string | null
+  seen_count: number
+  first_seen_at: string
+  last_seen_at: string
+  created_at: string
+  updated_at: string
+  linked_user?: User | null
+}
+
 export interface Project {
   id: string
   name: string
@@ -30,6 +64,10 @@ export interface Project {
   status: 'planning' | 'tz' | 'active' | 'testing' | 'on_hold' | 'completed'
   priority: 'low' | 'medium' | 'high' | 'critical'
   control_ski: boolean
+  planning_mode?: 'flexible' | 'strict'
+  strict_no_past_start_date?: boolean
+  strict_no_past_end_date?: boolean
+  strict_child_within_parent_dates?: boolean
   launch_basis_text?: string
   launch_basis_file_id?: string
   start_date?: string
@@ -46,6 +84,7 @@ export interface Task {
   id: string
   project_id: string
   parent_task_id?: string
+  predecessor_ids?: string[]
   title: string
   description?: string
   status: 'planning' | 'tz' | 'todo' | 'in_progress' | 'testing' | 'review' | 'done'
@@ -170,9 +209,21 @@ export interface SystemActivityLog {
 }
 
 export interface ReportDispatchSettings {
+  smtp_enabled: boolean
   telegram_summaries_enabled: boolean
   email_analytics_enabled: boolean
   email_analytics_recipients: string
+  admin_directive?: {
+    enabled: boolean
+    recipient: string
+    days: string[]
+    time_window: '06:00-09:00' | '09:00-12:00' | '12:00-15:00' | '15:00-18:00' | string
+    include_overdue: boolean
+    include_stale: boolean
+    stale_days: number
+    include_unassigned: boolean
+    custom_text: string
+  }
   digest_filters?: {
     deadline_window_days: number
     priorities: string[]
@@ -298,6 +349,7 @@ export interface MSProjectImportResult {
   created: number
   linked_to_parent: number
   skipped: number
+  deleted_existing: number
 }
 
 export interface GlobalSearchResult {
