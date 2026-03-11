@@ -23,6 +23,7 @@ temp_assignee_status = sa.Enum(
     "promoted",
     "ignored",
     name="temp_assignee_status",
+    create_type=False,
 )
 
 
