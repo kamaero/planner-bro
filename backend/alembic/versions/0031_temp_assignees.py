@@ -1,7 +1,7 @@
 """temp assignees registry
 
 Revision ID: 0031_temp_assignees
-Revises: 0030_own_tasks_visibility_toggle
+Revises: 0030_own_tasks_toggle
 Create Date: 2026-03-11
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "0031_temp_assignees"
-down_revision: Union[str, None] = "0030_own_tasks_visibility_toggle"
+down_revision: Union[str, None] = "0030_own_tasks_toggle"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
