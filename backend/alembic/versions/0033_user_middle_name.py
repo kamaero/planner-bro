@@ -1,6 +1,6 @@
 """add middle_name and normalize user short names
 
-Revision ID: 0033_user_middle_name_and_short_name
+Revision ID: 0033_user_middle_name
 Revises: 0032_task_dependency_types
 Create Date: 2026-03-11
 """
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0033_user_middle_name_and_short_name"
+revision: str = "0033_user_middle_name"
 down_revision: Union[str, None] = "0032_task_dependency_types"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
