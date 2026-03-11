@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = "0031_temp_assignees"
@@ -17,7 +18,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-temp_assignee_status = sa.Enum(
+temp_assignee_status = postgresql.ENUM(
     "pending",
     "linked",
     "promoted",
