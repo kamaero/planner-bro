@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -232,11 +232,11 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     }
   }
 
-  const handleStatusSave = async () => {
+  const handleStatusSave = async (): Promise<boolean> => {
     const parsed = Number.parseInt(progressPercent, 10)
     if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
       window.alert('Прогресс должен быть числом от 0 до 100.')
-      return
+      return false
     }
     try {
       await updateStatus.mutateAsync({
@@ -245,9 +245,16 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
         progress_percent: parsed,
         next_step: nextStep.trim() || null,
       })
+      return true
     } catch (error: any) {
       window.alert(humanizeApiError(error, 'Не удалось обновить статус задачи'))
+      return false
     }
+  }
+
+  const handleStatusSaveAndClose = async () => {
+    const ok = await handleStatusSave()
+    if (ok) onOpenChange(false)
   }
 
   const handleAssigneeChange = (assigneeIds: string[]) => {
@@ -409,17 +416,34 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     }
   }
 
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onOpenChange(false)
+      return
+    }
+    if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return
+    const target = event.target as HTMLElement | null
+    if (!target) return
+    const tagName = target.tagName
+    if (tagName === 'TEXTAREA') return
+    if (target.closest('[data-enter-ignore="true"]')) return
+    event.preventDefault()
+    event.stopPropagation()
+    void handleStatusSaveAndClose()
+  }
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-[95vw] max-w-4xl h-[88vh]">
+        <DialogContent className="w-[95vw] max-w-6xl h-[88vh]" onKeyDown={handleDialogKeyDown}>
           <DialogHeader>
             <DialogTitle>{task.title}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 overflow-y-auto pr-1 h-full">
+          <div className="grid gap-4 overflow-y-auto pr-1 h-full lg:grid-cols-2">
             {/* Priority & Status */}
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap lg:col-span-2">
               <span
                 className={`text-xs px-2 py-1 rounded-full font-medium ${PRIORITY_COLORS[controlSki ? 'critical' : priority]}`}
               >
@@ -458,10 +482,18 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               <Button
                 size="sm"
                 variant="outline"
-                onClick={handleStatusSave}
+                onClick={() => void handleStatusSave()}
                 disabled={updateStatus.isPending}
               >
                 {updateStatus.isPending ? 'Сохранение...' : 'Обновить статус'}
+              </Button>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => void handleStatusSaveAndClose()}
+                disabled={updateStatus.isPending}
+              >
+                {updateStatus.isPending ? 'Сохранение...' : 'Обновить и закрыть (Enter)'}
               </Button>
             </div>
 
@@ -489,7 +521,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               <p className="text-sm text-muted-foreground">{task.description}</p>
             )}
 
-            <div className="rounded-lg border p-3 space-y-2">
+            <div className="rounded-lg border p-3 space-y-2" data-enter-ignore="true">
               <p className="text-sm font-medium">Check-in (без смены статуса)</p>
               <p className="text-xs text-muted-foreground">
                 Последний check-in: {task.last_check_in_at ? new Date(task.last_check_in_at).toLocaleString('ru-RU') : 'нет'}
@@ -789,7 +821,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               </div>
             </div>
 
-            <div className="space-y-2 border-t pt-3">
+            <div className="space-y-2 border-t pt-3" data-enter-ignore="true">
               <p className="text-sm font-medium">Комментарии</p>
               <div className="space-y-2 max-h-32 overflow-auto">
                 {comments.length === 0 && (
@@ -838,7 +870,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end pt-2 lg:col-span-2">
               <Button variant="destructive" size="sm" onClick={handleDelete}>
                 <Trash2 className="w-4 h-4 mr-1" />
                 Удалить

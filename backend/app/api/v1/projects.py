@@ -86,6 +86,17 @@ def _fio_short(value: str | None) -> str:
     return cleaned.lower()
 
 
+def _fio_short_from_parts(last_name: str | None, first_name: str | None, middle_name: str | None) -> str:
+    last = re.sub(r"\s+", " ", (last_name or "")).strip()
+    first = re.sub(r"\s+", " ", (first_name or "")).strip()
+    middle = re.sub(r"\s+", " ", (middle_name or "")).strip()
+    if not (last and first):
+        return ""
+    first_initial = first[0].lower()
+    middle_initial = middle[0].lower() if middle else ""
+    return f"{last.lower()} {first_initial}.{middle_initial + '.' if middle_initial else ''}"
+
+
 def _collect_assignee_hints(primary_hint: str | None, raw_payload: dict | None) -> list[str]:
     hints: list[str] = []
     if primary_hint and primary_hint.strip():
@@ -113,26 +124,38 @@ def _collect_assignee_hints(primary_hint: str | None, raw_payload: dict | None) 
 def _match_assignee_ids(hints: list[str], users: list[User]) -> list[str]:
     matched: list[str] = []
     seen: set[str] = set()
-    normalized_users = [(u, (u.email or "").strip().lower(), u.name.strip().lower(), _fio_short(u.name)) for u in users]
+    normalized_users = [
+        (
+            u,
+            (u.email or "").strip().lower(),
+            (u.work_email or "").strip().lower(),
+            u.name.strip().lower(),
+            _fio_short(u.name),
+            _fio_short_from_parts(u.last_name, u.first_name, getattr(u, "middle_name", "")),
+        )
+        for u in users
+    ]
     for raw_hint in hints:
         hint = raw_hint.strip().lower()
         if not hint:
             continue
         candidate_id: str | None = None
-        for user, email, _, _ in normalized_users:
-            if email and email == hint:
+        for user, email, work_email, _, _, _ in normalized_users:
+            if (email and email == hint) or (work_email and work_email == hint):
                 candidate_id = user.id
                 break
         if not candidate_id:
-            for user, _, name, _ in normalized_users:
+            for user, _, _, name, _, _ in normalized_users:
                 if name == hint:
                     candidate_id = user.id
                     break
         if not candidate_id:
             hint_short = _fio_short(hint)
             if hint_short:
-                for user, _, _, user_short in normalized_users:
-                    if user_short and user_short == hint_short:
+                for user, _, _, _, user_short, user_short_from_parts in normalized_users:
+                    if (user_short and user_short == hint_short) or (
+                        user_short_from_parts and user_short_from_parts == hint_short
+                    ):
                         candidate_id = user.id
                         break
         if candidate_id and candidate_id not in seen:
@@ -946,9 +969,22 @@ async def import_tasks_from_ms_project(
     user_candidates = (
         await db.execute(select(User).where(User.is_active == True))
     ).scalars().all()
-    known_emails = {(u.email or "").strip().lower() for u in user_candidates if u.email}
+    known_emails = {
+        value
+        for u in user_candidates
+        for value in ((u.email or "").strip().lower(), (u.work_email or "").strip().lower())
+        if value
+    }
     known_names = {u.name.strip().lower() for u in user_candidates if u.name}
-    known_short_names = {_fio_short(u.name) for u in user_candidates if u.name}
+    known_short_names = {
+        short
+        for u in user_candidates
+        for short in (
+            _fio_short(u.name),
+            _fio_short_from_parts(u.last_name, u.first_name, getattr(u, "middle_name", "")),
+        )
+        if short
+    }
     for item in parsed.tasks:
         status = "done" if item.progress_percent >= 100 else ("in_progress" if item.progress_percent > 0 else "todo")
         title = item.title
@@ -1240,9 +1276,22 @@ async def _approve_single_ai_draft(
     assignee_ids = _match_assignee_ids(assignee_hints, user_candidates)
     if not assignee_ids and draft.assigned_to_id:
         assignee_ids = [draft.assigned_to_id]
-    known_emails = {(u.email or "").strip().lower() for u in user_candidates if u.email}
+    known_emails = {
+        value
+        for u in user_candidates
+        for value in ((u.email or "").strip().lower(), (u.work_email or "").strip().lower())
+        if value
+    }
     known_names = {u.name.strip().lower() for u in user_candidates if u.name}
-    known_short_names = {_fio_short(u.name) for u in user_candidates if u.name}
+    known_short_names = {
+        short
+        for u in user_candidates
+        for short in (
+            _fio_short(u.name),
+            _fio_short_from_parts(u.last_name, u.first_name, getattr(u, "middle_name", "")),
+        )
+        if short
+    }
     unresolved_hints = [
         hint
         for hint in assignee_hints

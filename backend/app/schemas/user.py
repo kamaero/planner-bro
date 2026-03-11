@@ -22,11 +22,13 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     first_name: Optional[str] = None
+    middle_name: Optional[str] = None
     last_name: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
     first_name: Optional[str] = None
+    middle_name: Optional[str] = None
     last_name: Optional[str] = None
     avatar_url: Optional[str] = None
     position_title: Optional[str] = None
@@ -34,12 +36,14 @@ class UserUpdate(BaseModel):
 
 class UserNameUpdate(BaseModel):
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
 
 
 class UserOut(UserBase):
     id: str
     first_name: str = ""
+    middle_name: str = ""
     last_name: str = ""
     avatar_url: Optional[str] = None
     can_manage_team: bool = False

@@ -845,11 +845,11 @@ export function ProjectDetail() {
               Редактировать
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-xl">
+          <DialogContent className="w-[95vw] max-w-5xl max-h-[88vh]">
             <DialogHeader>
               <DialogTitle>Редактировать проект</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleUpdateProject} className="space-y-4">
+            <form onSubmit={handleUpdateProject} className="grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-y-auto max-h-[72vh] pr-1">
               <div className="space-y-1">
                 <Label>Название</Label>
                 <Input
@@ -948,7 +948,7 @@ export function ProjectDetail() {
                 </div>
               </div>
               {editForm.planning_mode === 'strict' && (
-                <div className="rounded border bg-muted/20 p-3 space-y-2">
+                <div className="rounded border bg-muted/20 p-3 space-y-2 lg:col-span-2">
                   <p className="text-sm font-medium">Правила строгого режима</p>
                   <label className="flex items-center justify-between gap-2 text-sm">
                     <span>Запрет даты начала в прошлом</span>
@@ -980,7 +980,7 @@ export function ProjectDetail() {
                 </div>
               )}
 
-              <div className="space-y-1">
+              <div className="space-y-1 lg:col-span-2">
                 <Label>Основание запуска</Label>
                 <Input
                   value={editForm.launch_basis_text}
@@ -989,7 +989,7 @@ export function ProjectDetail() {
                 />
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1 lg:col-span-2">
                 <Label>Файл основания запуска</Label>
                 <select
                   value={editForm.launch_basis_file_id}
@@ -1022,7 +1022,7 @@ export function ProjectDetail() {
                   />
                 </div>
               </div>
-              <div className="space-y-2 rounded-lg border p-3">
+              <div className="space-y-2 rounded-lg border p-3 lg:col-span-2">
                 <Label className="text-sm font-semibold">Definition of Done (обязательный чеклист)</Label>
                 <div className="space-y-2">
                   {editForm.completion_checklist.map((item) => (
@@ -1050,7 +1050,7 @@ export function ProjectDetail() {
                     </p>
                   )}
               </div>
-              <Button type="submit" className="w-full" disabled={updateProject.isPending}>
+              <Button type="submit" className="w-full lg:col-span-2" disabled={updateProject.isPending}>
                 {updateProject.isPending ? 'Сохранение...' : 'Сохранить изменения'}
               </Button>
             </form>
@@ -1076,12 +1076,12 @@ export function ProjectDetail() {
               Добавить задачу
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="w-[95vw] max-w-5xl max-h-[88vh]">
             <DialogHeader>
               <DialogTitle>Создать задачу</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleCreateTask} className="space-y-4">
-              <div className="space-y-1">
+            <form onSubmit={handleCreateTask} className="grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-y-auto max-h-[72vh] pr-1">
+              <div className="space-y-1 lg:col-span-2">
                 <Label>Название</Label>
                 <Input
                   value={taskForm.title}
@@ -1090,7 +1090,7 @@ export function ProjectDetail() {
                   placeholder="Название задачи"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1 lg:col-span-2">
                 <Label>Описание</Label>
                 <Input
                   value={taskForm.description}
@@ -1098,7 +1098,7 @@ export function ProjectDetail() {
                   placeholder="Необязательно"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1 lg:col-span-2">
                 <Label>Приоритет</Label>
                 <div className="flex items-center gap-3">
                   <select
@@ -1147,7 +1147,7 @@ export function ProjectDetail() {
                   />
                 </div>
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1 lg:col-span-2">
                 <Label>Исполнитель</Label>
                 <select
                   multiple
@@ -1166,7 +1166,7 @@ export function ProjectDetail() {
                 </select>
                 <p className="text-xs text-muted-foreground">Можно выбрать нескольких исполнителей (Ctrl/Cmd + клик).</p>
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1 lg:col-span-2">
                 <Label>Родительская задача (структура)</Label>
                 <select
                   value={taskForm.parent_task_id}
@@ -1238,7 +1238,7 @@ export function ProjectDetail() {
                   placeholder="например, 7"
                 />
               </div>
-              <label className="flex items-center gap-2 text-sm">
+              <label className="flex items-center gap-2 text-sm lg:col-span-2">
                 <input
                   type="checkbox"
                   checked={taskForm.is_escalation}
@@ -1247,7 +1247,7 @@ export function ProjectDetail() {
                 Эскалация на руководителя
               </label>
               {taskForm.is_escalation && (
-                <div className="space-y-1">
+                <div className="space-y-1 lg:col-span-2">
                   <Label>Причина эскалации</Label>
                   <Input
                     value={taskForm.escalation_for}
@@ -1269,7 +1269,7 @@ export function ProjectDetail() {
                   />
                 </div>
               )}
-              <Button type="submit" className="w-full" disabled={createTask.isPending}>
+              <Button type="submit" className="w-full lg:col-span-2" disabled={createTask.isPending}>
                 {createTask.isPending ? 'Создание...' : 'Создать задачу'}
               </Button>
             </form>

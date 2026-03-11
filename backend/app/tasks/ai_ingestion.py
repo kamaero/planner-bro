@@ -41,6 +41,20 @@ def _fio_short(value: str | None) -> str:
     return cleaned.lower()
 
 
+def _fio_short_from_parts(last_name: str | None, first_name: str | None, middle_name: str | None) -> str:
+    last = re.sub(r"\s+", " ", (last_name or "")).strip()
+    first = re.sub(r"\s+", " ", (first_name or "")).strip()
+    middle = re.sub(r"\s+", " ", (middle_name or "")).strip()
+    if not last:
+        return ""
+    initials: list[str] = []
+    if first:
+        initials.append(f"{first[0].lower()}.")
+    if middle:
+        initials.append(f"{middle[0].lower()}.")
+    return f"{last.lower()} {' '.join(initials)}".strip()
+
+
 def _match_assignee_id(assignee_hint: str | None, members: list[User]) -> str | None:
     if not assignee_hint:
         return None
@@ -50,6 +64,9 @@ def _match_assignee_id(assignee_hint: str | None, members: list[User]) -> str | 
     for user in members:
         if user.email.lower() == hint:
             return user.id
+        work_email = (user.work_email or "").strip().lower()
+        if work_email and work_email == hint:
+            return user.id
     for user in members:
         if user.name.strip().lower() == hint:
             return user.id
@@ -57,6 +74,12 @@ def _match_assignee_id(assignee_hint: str | None, members: list[User]) -> str | 
     if hint_short:
         for user in members:
             if _fio_short(user.name) == hint_short:
+                return user.id
+            if _fio_short_from_parts(
+                getattr(user, "last_name", ""),
+                getattr(user, "first_name", ""),
+                getattr(user, "middle_name", ""),
+            ) == hint_short:
                 return user.id
     return None
 

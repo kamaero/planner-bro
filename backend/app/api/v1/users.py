@@ -54,6 +54,26 @@ def _normalize_optional_email(email: str | None) -> str | None:
     return cleaned or None
 
 
+def _normalize_name_part(value: str | None) -> str:
+    return " ".join((value or "").strip().split())
+
+
+def _short_name(last_name: str, first_name: str, middle_name: str) -> str:
+    last = _normalize_name_part(last_name)
+    first = _normalize_name_part(first_name)
+    middle = _normalize_name_part(middle_name)
+    if not last and not first and not middle:
+        return ""
+    initials = ""
+    if first:
+        initials += f"{first[0].upper()}."
+    if middle:
+        initials += f"{middle[0].upper()}."
+    if last:
+        return f"{last} {initials}".strip()
+    return initials.strip()
+
+
 def _can_manage_team(user: User) -> bool:
     return user.role == "admin" or bool(user.can_manage_team)
 
@@ -219,21 +239,28 @@ async def create_user_by_admin(
             if value is not None:
                 permissions[key] = value
 
-    first_name = (data.first_name or "").strip()
-    last_name = (data.last_name or "").strip()
-    if first_name or last_name:
-        computed_name = f"{first_name} {last_name}".strip()
-    else:
-        computed_name = data.name.strip()
-        parts = computed_name.split(" ", 1)
-        first_name = parts[0]
-        last_name = parts[1] if len(parts) > 1 else ""
+    first_name = _normalize_name_part(data.first_name)
+    middle_name = _normalize_name_part(data.middle_name)
+    last_name = _normalize_name_part(data.last_name)
+    if not (first_name or middle_name or last_name):
+        computed_name = _normalize_name_part(data.name)
+        parts = [part for part in computed_name.split(" ") if part]
+        if len(parts) >= 3:
+            last_name = parts[0]
+            first_name = parts[1]
+            middle_name = " ".join(parts[2:])
+        elif len(parts) == 2:
+            last_name, first_name = parts
+        elif len(parts) == 1:
+            last_name = parts[0]
+    computed_name = _short_name(last_name, first_name, middle_name)
 
     user = User(
         email=normalized_email,
         work_email=normalized_work_email,
         name=computed_name,
         first_name=first_name,
+        middle_name=middle_name,
         last_name=last_name,
         position_title=data.position_title,
         manager_id=data.manager_id or (current_user.id if current_user.role != "admin" else None),
@@ -263,15 +290,22 @@ async def update_me(
 ):
     payload = data.model_dump(exclude_none=True)
     first_name = payload.pop("first_name", None)
+    middle_name = payload.pop("middle_name", None)
     last_name = payload.pop("last_name", None)
     for field, value in payload.items():
         setattr(current_user, field, value)
     if first_name is not None:
-        current_user.first_name = first_name.strip()
+        current_user.first_name = _normalize_name_part(first_name)
+    if middle_name is not None:
+        current_user.middle_name = _normalize_name_part(middle_name)
     if last_name is not None:
-        current_user.last_name = last_name.strip()
-    if first_name is not None or last_name is not None:
-        current_user.name = f"{current_user.first_name} {current_user.last_name}".strip()
+        current_user.last_name = _normalize_name_part(last_name)
+    if first_name is not None or middle_name is not None or last_name is not None:
+        current_user.name = _short_name(
+            current_user.last_name,
+            current_user.first_name,
+            current_user.middle_name,
+        )
     await db.commit()
     await db.refresh(current_user)
     return current_user
@@ -288,9 +322,10 @@ async def update_user_name(
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
-    user.first_name = data.first_name.strip()
-    user.last_name = data.last_name.strip()
-    user.name = f"{user.first_name} {user.last_name}".strip()
+    user.first_name = _normalize_name_part(data.first_name)
+    user.middle_name = _normalize_name_part(data.middle_name)
+    user.last_name = _normalize_name_part(data.last_name)
+    user.name = _short_name(user.last_name, user.first_name, user.middle_name)
     await db.commit()
     await db.refresh(user)
     return user
@@ -537,9 +572,10 @@ async def promote_temp_assignee(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    parts = temp.raw_name.split(" ", 1)
-    first_name = parts[0].strip() if parts else temp.raw_name.strip()
-    last_name = parts[1].strip() if len(parts) > 1 else ""
+    parts = [part for part in temp.raw_name.split(" ") if part.strip()]
+    last_name = parts[0].strip() if parts else temp.raw_name.strip()
+    first_name = parts[1].strip() if len(parts) > 1 else ""
+    middle_name = " ".join(parts[2:]).strip() if len(parts) > 2 else ""
     password = data.password or _generate_temporary_password()
     role = data.role if data.role in ("developer", "manager", "admin") else "developer"
     if current_user.role != "admin" and role == "admin":
@@ -548,8 +584,9 @@ async def promote_temp_assignee(
     created_user = User(
         email=normalized_email,
         work_email=_normalize_optional_email(str(data.work_email)) if data.work_email else None,
-        name=f"{first_name} {last_name}".strip(),
+        name=_short_name(last_name, first_name, middle_name),
         first_name=first_name,
+        middle_name=middle_name,
         last_name=last_name,
         position_title=data.position_title,
         manager_id=data.manager_id or (current_user.id if current_user.role != "admin" else None),

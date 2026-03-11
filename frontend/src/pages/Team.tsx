@@ -70,6 +70,7 @@ export function Team() {
 
   const [invite, setInvite] = useState<{
     first_name: string
+    middle_name: string
     last_name: string
     email: string
     work_email: string
@@ -82,6 +83,7 @@ export function Team() {
     department_id: string
   }>({
     first_name: '',
+    middle_name: '',
     last_name: '',
     email: '',
     work_email: '',
@@ -151,7 +153,7 @@ export function Team() {
   const [tempAssigneeBusyId, setTempAssigneeBusyId] = useState<string | null>(null)
   const [tempAssigneeLinkDrafts, setTempAssigneeLinkDrafts] = useState<Record<string, string>>({})
 
-  const [nameDrafts, setNameDrafts] = useState<Record<string, { first_name: string; last_name: string }>>({})
+  const [nameDrafts, setNameDrafts] = useState<Record<string, { first_name: string; middle_name: string; last_name: string }>>({})
   const [nameBusyId, setNameBusyId] = useState<string | null>(null)
 
   const { setUser } = useAuthStore()
@@ -213,7 +215,7 @@ export function Team() {
       setUsers(userData)
       setDepartments(departmentData)
       const drafts: Record<string, UserDraft> = {}
-      const nDrafts: Record<string, { first_name: string; last_name: string }> = {}
+      const nDrafts: Record<string, { first_name: string; middle_name: string; last_name: string }> = {}
       userData.forEach((user: User) => {
         drafts[user.id] = {
           role: user.role,
@@ -228,7 +230,11 @@ export function Team() {
           can_import: user.can_import,
           can_bulk_edit: user.can_bulk_edit,
         }
-        nDrafts[user.id] = { first_name: user.first_name ?? '', last_name: user.last_name ?? '' }
+        nDrafts[user.id] = {
+          first_name: user.first_name ?? '',
+          middle_name: user.middle_name ?? '',
+          last_name: user.last_name ?? '',
+        }
       })
       setPermissionDrafts(drafts)
       const depDrafts: Record<string, { parent_id: string; head_user_id: string }> = {}
@@ -360,10 +366,11 @@ export function Team() {
     setInviteError('')
     setInviteSuccess('')
     try {
-      const fullName = `${invite.first_name.trim()} ${invite.last_name.trim()}`.trim()
+      const fullName = `${invite.last_name.trim()} ${invite.first_name.trim()} ${invite.middle_name.trim()}`.trim()
       await api.createUser({
         name: fullName,
         first_name: invite.first_name.trim(),
+        middle_name: invite.middle_name.trim(),
         last_name: invite.last_name.trim(),
         email: invite.email,
         work_email: invite.work_email || undefined,
@@ -378,6 +385,7 @@ export function Team() {
       setInviteSuccess(`Аккаунт создан: ${invite.email}`)
       setInvite({
         first_name: '',
+        middle_name: '',
         last_name: '',
         email: '',
         work_email: '',
@@ -463,11 +471,19 @@ export function Team() {
     try {
       let updated: User
       if (user.id === currentUser?.id) {
-        updated = await api.updateMe({ first_name: draft.first_name.trim(), last_name: draft.last_name.trim() })
+        updated = await api.updateMe({
+          first_name: draft.first_name.trim(),
+          middle_name: draft.middle_name.trim(),
+          last_name: draft.last_name.trim(),
+        })
         setUser(updated)
       } else {
         if (!canManageTeam) return
-        updated = await api.updateUserName(user.id, draft)
+        updated = await api.updateUserName(user.id, {
+          first_name: draft.first_name.trim(),
+          middle_name: draft.middle_name.trim(),
+          last_name: draft.last_name.trim(),
+        })
       }
       setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)))
     } catch (err: any) {
@@ -480,7 +496,11 @@ export function Team() {
   const isNameChanged = (user: User) => {
     const draft = nameDrafts[user.id]
     if (!draft) return false
-    return draft.first_name !== (user.first_name ?? '') || draft.last_name !== (user.last_name ?? '')
+    return (
+      draft.first_name !== (user.first_name ?? '') ||
+      draft.middle_name !== (user.middle_name ?? '') ||
+      draft.last_name !== (user.last_name ?? '')
+    )
   }
 
   const handleResetPassword = async (user: User) => {
@@ -1067,6 +1087,17 @@ export function Team() {
                             }))
                           }
                         />
+                        <input
+                          className="text-xs border rounded px-2 py-1 bg-background w-28"
+                          placeholder="Отчество"
+                          value={nameDrafts[user.id]?.middle_name ?? ''}
+                          onChange={(e) =>
+                            setNameDrafts((prev) => ({
+                              ...prev,
+                              [user.id]: { ...prev[user.id], middle_name: e.target.value },
+                            }))
+                          }
+                        />
                         <Button
                           size="sm"
                           variant="outline"
@@ -1222,6 +1253,14 @@ export function Team() {
                     value={invite.last_name}
                     onChange={(e) => setInvite((f) => ({ ...f, last_name: e.target.value }))}
                     required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Отчество</Label>
+                  <Input
+                    placeholder="Иванович"
+                    value={invite.middle_name}
+                    onChange={(e) => setInvite((f) => ({ ...f, middle_name: e.target.value }))}
                   />
                 </div>
                 <div className="space-y-1">

@@ -4,6 +4,7 @@ export interface User {
   work_email?: string | null
   name: string
   first_name: string
+  middle_name: string
   last_name: string
   position_title?: string | null
   manager_id?: string | null
