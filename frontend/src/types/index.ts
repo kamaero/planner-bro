@@ -119,6 +119,8 @@ export interface Task {
 export interface TaskDependency {
   predecessor_task_id: string
   successor_task_id: string
+  dependency_type: 'finish_to_start' | 'start_to_start' | 'finish_to_finish'
+  lag_days: number
   created_at: string
 }
 

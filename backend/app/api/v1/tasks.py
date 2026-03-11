@@ -1,7 +1,7 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_, func
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
@@ -38,6 +38,16 @@ from app.services.access_scope import can_access_project
 router = APIRouter(tags=["tasks"])
 
 
+DEPENDENCY_TYPE_ALIASES = {
+    "fs": "finish_to_start",
+    "finish_to_start": "finish_to_start",
+    "ss": "start_to_start",
+    "start_to_start": "start_to_start",
+    "ff": "finish_to_finish",
+    "finish_to_finish": "finish_to_finish",
+}
+
+
 async def _require_project_member(project_id: str, user: User, db: AsyncSession):
     if not await _is_project_member(project_id, user, db):
         raise HTTPException(status_code=403, detail="Access denied")
@@ -45,6 +55,29 @@ async def _require_project_member(project_id: str, user: User, db: AsyncSession)
 
 async def _require_project_visibility(project_id: str, user: User, db: AsyncSession) -> None:
     if not await can_access_project(db, user, project_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
+def _is_task_assignee(task: Task, user_id: str) -> bool:
+    if task.assigned_to_id == user_id:
+        return True
+    if task.assignee_links:
+        return any(link.user_id == user_id for link in task.assignee_links)
+    return False
+
+
+def _is_own_tasks_only(user: User) -> bool:
+    return (
+        user.role != "admin"
+        and user.visibility_scope == "own_tasks_only"
+        and bool(getattr(user, "own_tasks_visibility_enabled", True))
+    )
+
+
+def _require_task_visibility(task: Task, user: User) -> None:
+    if not _is_own_tasks_only(user):
+        return
+    if not _is_task_assignee(task, user.id):
         raise HTTPException(status_code=403, detail="Access denied")
 
 
@@ -155,6 +188,10 @@ async def _serialize_assignee_ids(task: Task, db: AsyncSession) -> list[str]:
 async def _require_task_editor(task: Task, user: User, db: AsyncSession) -> None:
     if user.role == "admin":
         return
+    if _is_own_tasks_only(user):
+        if _is_task_assignee(task, user.id):
+            return
+        raise HTTPException(status_code=403, detail="Edit access denied")
     assignee_ids = {task.assigned_to_id} if task.assigned_to_id else set()
     if task.assignee_links:
         assignee_ids |= {link.user_id for link in task.assignee_links}
@@ -179,6 +216,141 @@ async def _log_task_event(
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _normalize_dependency_type(raw: str | None) -> str:
+    value = (raw or "finish_to_start").strip().lower()
+    normalized = DEPENDENCY_TYPE_ALIASES.get(value)
+    if not normalized:
+        raise HTTPException(
+            status_code=422,
+            detail="dependency_type must be one of: finish_to_start(fs), start_to_start(ss), finish_to_finish(ff)",
+        )
+    return normalized
+
+
+def _dependency_short_label(dep_type: str) -> str:
+    if dep_type == "start_to_start":
+        return "SS"
+    if dep_type == "finish_to_finish":
+        return "FF"
+    return "FS"
+
+
+async def _rollup_parent_schedule(db: AsyncSession, parent_task_id: str | None) -> None:
+    cursor = parent_task_id
+    visited: set[str] = set()
+    while cursor and cursor not in visited:
+        visited.add(cursor)
+        parent = await get_task_by_id(db, cursor)
+        if not parent:
+            break
+
+        min_start, max_end = (
+            await db.execute(
+                select(
+                    func.min(Task.start_date),
+                    func.max(Task.end_date),
+                ).where(Task.parent_task_id == parent.id)
+            )
+        ).one()
+
+        if parent.start_date != min_start:
+            parent.start_date = min_start
+        if parent.end_date != max_end:
+            parent.end_date = max_end
+
+        cursor = parent.parent_task_id
+
+
+async def _enforce_dependency_dates_or_autoplan(
+    predecessor: Task,
+    successor: Task,
+    dependency_type: str,
+    lag_days: int,
+    *,
+    auto_shift_fs: bool,
+) -> None:
+    dep_type = _normalize_dependency_type(dependency_type)
+    lag = max(0, int(lag_days or 0))
+
+    if dep_type == "finish_to_start":
+        if predecessor.end_date is None:
+            return
+        required_start = predecessor.end_date + timedelta(days=lag)
+        if successor.start_date is None:
+            successor.start_date = required_start
+        if successor.start_date >= required_start:
+            return
+        if not auto_shift_fs:
+            raise HTTPException(
+                status_code=422,
+                detail="FS-зависимость нарушена: дата начала последующей задачи раньше завершения предшественника",
+            )
+
+        shift_days = (required_start - successor.start_date).days
+        successor.start_date = required_start
+        if successor.end_date is None:
+            successor.end_date = required_start
+        else:
+            successor.end_date = successor.end_date + timedelta(days=shift_days)
+        return
+
+    if dep_type == "start_to_start":
+        if predecessor.start_date is None or successor.start_date is None:
+            return
+        required_start = predecessor.start_date + timedelta(days=lag)
+        if successor.start_date < required_start:
+            raise HTTPException(
+                status_code=422,
+                detail="SS-зависимость нарушена: дата начала задачи раньше допустимой",
+            )
+        return
+
+    if predecessor.end_date is None or successor.end_date is None:
+        return
+    required_end = predecessor.end_date + timedelta(days=lag)
+    if successor.end_date < required_end:
+        raise HTTPException(
+            status_code=422,
+            detail="FF-зависимость нарушена: дедлайн задачи раньше допустимого",
+        )
+
+
+async def _apply_outgoing_fs_autoplan(db: AsyncSession, predecessor_id: str) -> None:
+    queue: list[str] = [predecessor_id]
+    visited: set[str] = set()
+    while queue:
+        current_id = queue.pop(0)
+        if current_id in visited:
+            continue
+        visited.add(current_id)
+        predecessor = await get_task_by_id(db, current_id)
+        if not predecessor:
+            continue
+
+        links = (
+            await db.execute(
+                select(TaskDependency).where(
+                    TaskDependency.predecessor_task_id == current_id,
+                )
+            )
+        ).scalars().all()
+        for link in links:
+            successor = await get_task_by_id(db, link.successor_task_id)
+            if not successor:
+                continue
+            before_start = successor.start_date
+            before_end = successor.end_date
+            await _enforce_dependency_dates_or_autoplan(
+                predecessor,
+                successor,
+                link.dependency_type,
+                link.lag_days,
+                auto_shift_fs=link.dependency_type == "finish_to_start",
+            )
+            if successor.start_date != before_start or successor.end_date != before_end:
+                queue.append(successor.id)
 
 
 def _normalize_priority_for_control_ski(priority: str, control_ski: bool) -> str:
@@ -223,7 +395,10 @@ async def _ensure_predecessors_done(task: Task, target_status: str, db: AsyncSes
         return
     deps = (
         await db.execute(
-            select(TaskDependency.predecessor_task_id).where(TaskDependency.successor_task_id == task.id)
+            select(TaskDependency.predecessor_task_id).where(
+                TaskDependency.successor_task_id == task.id,
+                TaskDependency.dependency_type == "finish_to_start",
+            )
         )
     ).all()
     predecessor_ids = [row[0] for row in deps]
@@ -266,6 +441,166 @@ async def _has_dependency_path(
     return False
 
 
+async def _validate_parent_task(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    task_id: str,
+    parent_task_id: str | None,
+) -> Task | None:
+    if not parent_task_id:
+        return None
+    if parent_task_id == task_id:
+        raise HTTPException(status_code=400, detail="Task cannot be its own parent")
+    parent = await get_task_by_id(db, parent_task_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent task not found")
+    if parent.project_id != project_id:
+        raise HTTPException(status_code=400, detail="Parent must be in the same project")
+
+    visited: set[str] = set()
+    cursor: str | None = parent_task_id
+    while cursor:
+        if cursor == task_id:
+            raise HTTPException(status_code=400, detail="Parent-child cycle is not allowed")
+        if cursor in visited:
+            break
+        visited.add(cursor)
+        cursor = (
+            await db.execute(select(Task.parent_task_id).where(Task.id == cursor))
+        ).scalar_one_or_none()
+    return parent
+
+
+async def _get_project_settings(project_id: str, db: AsyncSession) -> Project:
+    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+def _is_strict(project: Project) -> bool:
+    return getattr(project, "planning_mode", "flexible") == "strict"
+
+
+def _validate_strict_past_dates(
+    project: Project,
+    *,
+    start_date: date | None,
+    end_date: date | None,
+) -> None:
+    if not _is_strict(project):
+        return
+    today = date.today()
+    if getattr(project, "strict_no_past_start_date", False) and start_date and start_date < today:
+        raise HTTPException(status_code=422, detail="В строгом режиме дата начала не может быть в прошлом")
+    if getattr(project, "strict_no_past_end_date", False) and end_date and end_date < today:
+        raise HTTPException(status_code=422, detail="В строгом режиме дедлайн не может быть в прошлом")
+
+
+def _validate_child_dates_within_parent(
+    project: Project,
+    *,
+    parent: Task | None,
+    start_date: date | None,
+    end_date: date | None,
+) -> None:
+    if not _is_strict(project):
+        return
+    if not getattr(project, "strict_child_within_parent_dates", True):
+        return
+    if not parent:
+        return
+    if start_date and parent.start_date and start_date < parent.start_date:
+        raise HTTPException(status_code=422, detail="Дата начала дочерней задачи раньше даты начала родительской")
+    if end_date and parent.end_date and end_date > parent.end_date:
+        raise HTTPException(status_code=422, detail="Дедлайн дочерней задачи позже дедлайна родительской")
+
+
+async def _sync_task_predecessors(
+    db: AsyncSession,
+    *,
+    task: Task,
+    predecessor_task_ids: list[str] | None,
+    actor_id: str,
+) -> None:
+    if predecessor_task_ids is None:
+        return
+    normalized = [pid.strip() for pid in predecessor_task_ids if pid and pid.strip()]
+    unique_ids = list(dict.fromkeys(normalized))
+    for predecessor_id in unique_ids:
+        if predecessor_id == task.id:
+            raise HTTPException(status_code=400, detail="Task cannot depend on itself")
+        predecessor = await get_task_by_id(db, predecessor_id)
+        if not predecessor:
+            raise HTTPException(status_code=404, detail=f"Predecessor task not found: {predecessor_id}")
+        if predecessor.project_id != task.project_id:
+            raise HTTPException(status_code=400, detail="Dependencies must be inside one project")
+        if await _has_dependency_path(db, task.id, predecessor_id):
+            raise HTTPException(status_code=400, detail="Dependency cycle is not allowed")
+
+    existing_rows = (
+        await db.execute(select(TaskDependency).where(TaskDependency.successor_task_id == task.id))
+    ).scalars().all()
+    existing_ids = {row.predecessor_task_id for row in existing_rows}
+    desired_ids = set(unique_ids)
+
+    for row in existing_rows:
+        if row.predecessor_task_id not in desired_ids:
+            await db.delete(row)
+            await _log_task_event(
+                db,
+                task.id,
+                actor_id,
+                "dependency_removed",
+                f"{row.predecessor_task_id}->{task.id}",
+            )
+
+    for predecessor_id in unique_ids:
+        if predecessor_id in existing_ids:
+            continue
+        db.add(
+            TaskDependency(
+                predecessor_task_id=predecessor_id,
+                successor_task_id=task.id,
+                created_by_id=actor_id,
+                dependency_type="finish_to_start",
+                lag_days=0,
+            )
+        )
+        await _log_task_event(
+            db,
+            task.id,
+            actor_id,
+            "dependency_added",
+            f"{predecessor_id}->{task.id}",
+        )
+
+
+async def _validate_incoming_dependency_rules(
+    db: AsyncSession,
+    *,
+    task: Task,
+    auto_shift_fs: bool,
+) -> None:
+    incoming = (
+        await db.execute(
+            select(TaskDependency).where(TaskDependency.successor_task_id == task.id)
+        )
+    ).scalars().all()
+    for dep in incoming:
+        predecessor = await get_task_by_id(db, dep.predecessor_task_id)
+        if not predecessor:
+            continue
+        await _enforce_dependency_dates_or_autoplan(
+            predecessor,
+            task,
+            dep.dependency_type,
+            dep.lag_days,
+            auto_shift_fs=auto_shift_fs,
+        )
+
+
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskOut])
 async def list_tasks(
     project_id: str,
@@ -274,7 +609,10 @@ async def list_tasks(
 ):
     await _require_project_exists(project_id, db)
     await _require_project_visibility(project_id, current_user, db)
-    return await get_tasks_for_project(db, project_id)
+    tasks = await get_tasks_for_project(db, project_id)
+    if _is_own_tasks_only(current_user):
+        return [task for task in tasks if _is_task_assignee(task, current_user.id)]
+    return tasks
 
 
 @router.post("/projects/{project_id}/tasks", response_model=TaskOut, status_code=201)
@@ -286,6 +624,7 @@ async def create_task(
 ):
     await _require_project_member(project_id, current_user, db)
     payload = data.model_dump()
+    predecessor_task_ids = payload.pop("predecessor_task_ids", [])
     assignee_ids = payload.pop("assignee_ids", None)
     if "assignee_ids" not in data.model_fields_set:
         assignee_ids = None
@@ -305,10 +644,34 @@ async def create_task(
 
     if payload.get("assigned_to_id"):
         await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], db)
+    project = await _get_project_settings(project_id, db)
     task = Task(**payload, project_id=project_id, created_by_id=current_user.id)
     task.next_check_in_due_at = _plan_next_check_in(task, _now_utc())
     db.add(task)
     await db.flush()
+    parent_task = await _validate_parent_task(
+        db,
+        project_id=project_id,
+        task_id=task.id,
+        parent_task_id=task.parent_task_id,
+    )
+    _validate_strict_past_dates(project, start_date=task.start_date, end_date=task.end_date)
+    _validate_child_dates_within_parent(
+        project,
+        parent=parent_task,
+        start_date=task.start_date,
+        end_date=task.end_date,
+    )
+    await _sync_task_predecessors(
+        db,
+        task=task,
+        predecessor_task_ids=predecessor_task_ids,
+        actor_id=current_user.id,
+    )
+    await _validate_incoming_dependency_rules(db, task=task, auto_shift_fs=True)
+    await _ensure_predecessors_done(task, task.status, db)
+    await _rollup_parent_schedule(db, task.parent_task_id)
+    await _apply_outgoing_fs_autoplan(db, task.id)
     await _log_task_event(
         db,
         task.id,
@@ -335,6 +698,31 @@ async def create_task(
     return result.scalar_one()
 
 
+@router.get("/tasks/my", response_model=list[TaskOut])
+async def list_my_tasks(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(Task)
+        .outerjoin(TaskAssignee, TaskAssignee.task_id == Task.id)
+        .where(
+            or_(
+                Task.assigned_to_id == current_user.id,
+                TaskAssignee.user_id == current_user.id,
+            )
+        )
+        .options(
+            selectinload(Task.assignee),
+            selectinload(Task.assignee_links).selectinload(TaskAssignee.user),
+            selectinload(Task.predecessor_links),
+        )
+        .order_by(Task.updated_at.desc())
+        .distinct()
+    )
+    return (await db.execute(stmt)).scalars().all()
+
+
 @router.get("/tasks/{task_id}", response_model=TaskOut)
 async def get_task(
     task_id: str,
@@ -345,6 +733,7 @@ async def get_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await _require_project_visibility(task.project_id, current_user, db)
+    _require_task_visibility(task, current_user)
     return task
 
 
@@ -358,18 +747,37 @@ async def update_task(
     task = await get_task_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    await _require_task_editor(task, current_user, db)
 
     old_assignee = task.assigned_to_id
     old_status = task.status
     old_start_date = task.start_date
     old_end_date = task.end_date
+    old_parent_task_id = task.parent_task_id
     # Keep explicitly passed nulls (e.g. clearing dates/assignee) but ignore fields not sent by client.
     payload = data.model_dump(exclude_unset=True)
     assignee_ids = payload.pop("assignee_ids", None)
+    predecessor_task_ids = payload.pop("predecessor_task_ids", None)
     if assignee_ids is not None:
         payload["assigned_to_id"] = assignee_ids[0] if assignee_ids else None
     deadline_change_reason = payload.pop("deadline_change_reason", None)
+
+    title_only_update = (
+        set(payload.keys()) <= {"title"}
+        and assignee_ids is None
+        and deadline_change_reason is None
+    )
+    try:
+        await _require_task_editor(task, current_user, db)
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        can_manager_rename = (
+            current_user.role == "manager"
+            and title_only_update
+            and await can_access_project(db, current_user, task.project_id)
+        )
+        if not can_manager_rename:
+            raise
 
     # Validate deadline change requires a reason
     end_date_provided = "end_date" in payload
@@ -402,6 +810,43 @@ async def update_task(
 
     for field, value in payload.items():
         setattr(task, field, value)
+
+    parent_task = await _validate_parent_task(
+        db,
+        project_id=task.project_id,
+        task_id=task.id,
+        parent_task_id=task.parent_task_id,
+    )
+    project = await _get_project_settings(task.project_id, db)
+    effective_start_date = task.start_date
+    effective_end_date = task.end_date
+    if "start_date" in payload or "end_date" in payload:
+        _validate_strict_past_dates(
+            project,
+            start_date=effective_start_date,
+            end_date=effective_end_date,
+        )
+    if "parent_task_id" in payload or "start_date" in payload or "end_date" in payload:
+        _validate_child_dates_within_parent(
+            project,
+            parent=parent_task,
+            start_date=effective_start_date,
+            end_date=effective_end_date,
+        )
+    await _sync_task_predecessors(
+        db,
+        task=task,
+        predecessor_task_ids=predecessor_task_ids,
+        actor_id=current_user.id,
+    )
+    if (
+        predecessor_task_ids is not None
+        or "start_date" in payload
+        or "end_date" in payload
+    ):
+        await _validate_incoming_dependency_rules(db, task=task, auto_shift_fs=True)
+    if ("status" in payload and task.status != old_status) or predecessor_task_ids is not None:
+        await _ensure_predecessors_done(task, task.status, db)
 
     if task.status == "done":
         task.next_check_in_due_at = None
@@ -439,6 +884,16 @@ async def update_task(
             f"end:{old_end_date}->{task.end_date}",
             reason=deadline_change_reason,
         )
+
+    if (
+        predecessor_task_ids is not None
+        or "start_date" in payload
+        or "end_date" in payload
+    ):
+        await _apply_outgoing_fs_autoplan(db, task.id)
+
+    await _rollup_parent_schedule(db, old_parent_task_id)
+    await _rollup_parent_schedule(db, task.parent_task_id)
 
     task.priority = _normalize_priority_for_control_ski(task.priority, bool(task.control_ski))
     await db.flush()
@@ -528,24 +983,42 @@ async def add_task_dependency(
             )
         )
     ).scalar_one_or_none()
-    if exists:
-        return exists
 
     if await _has_dependency_path(db, successor.id, predecessor.id):
         raise HTTPException(status_code=400, detail="Dependency cycle is not allowed")
 
-    dep = TaskDependency(
-        predecessor_task_id=predecessor.id,
-        successor_task_id=successor.id,
-        created_by_id=current_user.id,
+    dep_type = _normalize_dependency_type(data.dependency_type)
+    lag_days = max(0, int(data.lag_days or 0))
+
+    dep = exists
+    if dep is None:
+        dep = TaskDependency(
+            predecessor_task_id=predecessor.id,
+            successor_task_id=successor.id,
+            created_by_id=current_user.id,
+            dependency_type=dep_type,
+            lag_days=lag_days,
+        )
+        db.add(dep)
+    else:
+        dep.dependency_type = dep_type
+        dep.lag_days = lag_days
+
+    await _enforce_dependency_dates_or_autoplan(
+        predecessor,
+        successor,
+        dep_type,
+        lag_days,
+        auto_shift_fs=True,
     )
-    db.add(dep)
+    await _apply_outgoing_fs_autoplan(db, successor.id)
+    await _rollup_parent_schedule(db, successor.parent_task_id)
     await _log_task_event(
         db,
         successor.id,
         current_user.id,
         "dependency_added",
-        f"{predecessor.id}->{successor.id}",
+        f"{predecessor.id}->{successor.id} [{_dependency_short_label(dep_type)};+{lag_days}d]",
     )
     await db.commit()
     await db.refresh(dep)
@@ -642,10 +1115,13 @@ async def bulk_update_tasks(
     result = TaskBulkUpdateResult(requested=requested, skipped=max(0, requested - len(tasks)))
 
     if delete_requested:
+        affected_parent_ids = {task.parent_task_id for task in tasks if task.parent_task_id}
         for task in tasks:
             await _log_task_event(db, task.id, current_user.id, "task_deleted_bulk")
             await db.delete(task)
             result.deleted += 1
+        for parent_id in affected_parent_ids:
+            await _rollup_parent_schedule(db, parent_id)
         await db.commit()
         return result
 
@@ -724,8 +1200,10 @@ async def delete_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await _require_task_editor(task, current_user, db)
+    parent_task_id = task.parent_task_id
     await _log_task_event(db, task.id, current_user.id, "task_deleted")
     await db.delete(task)
+    await _rollup_parent_schedule(db, parent_task_id)
     await db.commit()
 
 
@@ -964,6 +1442,7 @@ async def list_task_comments(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await _require_project_visibility(task.project_id, current_user, db)
+    _require_task_visibility(task, current_user)
     result = await db.execute(
         select(TaskComment)
         .where(TaskComment.task_id == task_id)
@@ -1006,6 +1485,7 @@ async def list_task_events(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await _require_project_visibility(task.project_id, current_user, db)
+    _require_task_visibility(task, current_user)
     result = await db.execute(
         select(TaskEvent)
         .where(TaskEvent.task_id == task_id)

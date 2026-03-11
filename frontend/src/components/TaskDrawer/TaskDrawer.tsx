@@ -22,7 +22,7 @@ import type { Task } from '@/types'
 import { CalendarDays, Clock, User, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
 import { humanizeApiError } from '@/lib/errorMessages'
-import { buildTaskHierarchy } from '@/lib/taskOrdering'
+import { buildTaskHierarchy, buildTaskNumbering } from '@/lib/taskOrdering'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -32,6 +32,11 @@ const PRIORITY_COLORS: Record<string, string> = {
 }
 
 const STATUS_OPTIONS = ['planning', 'tz', 'todo', 'in_progress', 'testing', 'review', 'done'] as const
+const DEPENDENCY_TYPE_LABELS: Record<string, string> = {
+  finish_to_start: 'FS (Окончание-Начало)',
+  start_to_start: 'SS (Начало-Начало)',
+  finish_to_finish: 'FF (Окончание-Окончание)',
+}
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
   tz: 'ТЗ',
@@ -119,6 +124,8 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [checkInNextDueDate, setCheckInNextDueDate] = useState('')
   const [needManagerHelp, setNeedManagerHelp] = useState(false)
   const [newDependencyTaskId, setNewDependencyTaskId] = useState('')
+  const [newDependencyType, setNewDependencyType] = useState<'finish_to_start' | 'start_to_start' | 'finish_to_finish'>('finish_to_start')
+  const [newDependencyLagDays, setNewDependencyLagDays] = useState('0')
   const [selectedParentTaskId, setSelectedParentTaskId] = useState('')
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([])
 
@@ -157,6 +164,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     return blocked
   }, [projectTasks, task?.id])
   const taskHierarchyOptions = useMemo(() => buildTaskHierarchy(projectTasks), [projectTasks])
+  const taskNumbering = useMemo(() => buildTaskNumbering(projectTasks), [projectTasks])
 
   useEffect(() => {
     if (!task) return
@@ -178,6 +186,8 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     )
     setNeedManagerHelp(false)
     setNewDependencyTaskId('')
+    setNewDependencyType('finish_to_start')
+    setNewDependencyLagDays('0')
     setSelectedParentTaskId(task.parent_task_id ?? '')
     setSelectedAssigneeIds(task.assignee_ids && task.assignee_ids.length > 0
       ? task.assignee_ids
@@ -358,12 +368,21 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
 
   const handleAddDependency = async () => {
     if (!newDependencyTaskId) return
+    const lagDays = Number.parseInt(newDependencyLagDays || '0', 10)
+    if (!Number.isFinite(lagDays) || lagDays < 0) {
+      window.alert('Лаг должен быть целым числом 0 или больше.')
+      return
+    }
     try {
       await addDependency.mutateAsync({
         taskId: task.id,
         predecessorTaskId: newDependencyTaskId,
+        dependencyType: newDependencyType,
+        lagDays,
       })
       setNewDependencyTaskId('')
+      setNewDependencyType('finish_to_start')
+      setNewDependencyLagDays('0')
     } catch (error: any) {
       window.alert(humanizeApiError(error, 'Не удалось сохранить связь задач'))
     }
@@ -532,7 +551,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                     .filter((candidate) => !blockedParentIds.has(candidate.id))
                     .map((candidate) => (
                       <option key={candidate.id} value={candidate.id}>
-                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(candidate.id) ?? 0)}${candidate.title}`}
+                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(candidate.id) ?? 0)}${taskNumbering.get(candidate.id) ?? ''} ${candidate.title}`}
                       </option>
                     ))}
                 </select>
@@ -550,7 +569,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
             <div className="rounded-lg border p-3 space-y-2">
               <p className="text-sm font-medium">Связанные задачи (зависимости)</p>
               <p className="text-xs text-muted-foreground">
-                Текущая задача не стартует, пока не завершатся выбранные предшественники.
+                FS блокирует старт до завершения предшественника. SS/FF синхронизируют старт/финиш.
               </p>
               <div className="flex items-center gap-2">
                 <select
@@ -563,7 +582,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                     .filter((t) => t.id !== task.id)
                     .map((t) => (
                       <option key={t.id} value={t.id}>
-                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(t.id) ?? 0)}${t.title}`}
+                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(t.id) ?? 0)}${taskNumbering.get(t.id) ?? ''} ${t.title}`}
                       </option>
                     ))}
                 </select>
@@ -576,6 +595,28 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   Добавить
                 </Button>
               </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={newDependencyType}
+                  onChange={(e) =>
+                    setNewDependencyType(e.target.value as 'finish_to_start' | 'start_to_start' | 'finish_to_finish')
+                  }
+                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
+                >
+                  <option value="finish_to_start">FS (Окончание-Начало)</option>
+                  <option value="start_to_start">SS (Начало-Начало)</option>
+                  <option value="finish_to_finish">FF (Окончание-Окончание)</option>
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={newDependencyLagDays}
+                  onChange={(e) => setNewDependencyLagDays(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-background w-28"
+                  placeholder="Лаг, дни"
+                />
+              </div>
               <div className="space-y-1">
                 {dependencies.length === 0 && (
                   <p className="text-xs text-muted-foreground">Связей пока нет.</p>
@@ -584,7 +625,13 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   const predecessor = projectTasks.find((t) => t.id === dep.predecessor_task_id)
                   return (
                     <div key={`${dep.predecessor_task_id}-${dep.successor_task_id}`} className="flex items-center justify-between text-sm border rounded px-2 py-1">
-                      <span>{predecessor?.title ?? dep.predecessor_task_id}</span>
+                      <span>
+                        {predecessor?.title ?? dep.predecessor_task_id}
+                        <span className="text-xs text-muted-foreground ml-1">
+                          · {DEPENDENCY_TYPE_LABELS[dep.dependency_type] ?? dep.dependency_type}
+                          {dep.lag_days > 0 ? ` · +${dep.lag_days}д` : ''}
+                        </span>
+                      </span>
                       <Button
                         size="sm"
                         variant="ghost"

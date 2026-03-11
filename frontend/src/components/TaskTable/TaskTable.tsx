@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { Task } from '@/types'
 import { Clock, AlertCircle, CornerDownRight } from 'lucide-react'
+import { buildTaskNumbering } from '@/lib/taskOrdering'
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
@@ -86,6 +87,7 @@ export function TaskTable({
   const commentClamp = rowSize === 'compact' ? 'line-clamp-1' : 'line-clamp-2'
   const sourceTasks = allTasks && allTasks.length > 0 ? allTasks : tasks
   const taskById = new Map(sourceTasks.map((task) => [task.id, task]))
+  const numberingById = buildTaskNumbering(sourceTasks)
   const depthById = new Map<string, number>()
   const computeDepth = (taskId: string): number => {
     if (depthById.has(taskId)) return depthById.get(taskId) ?? 0
@@ -169,6 +171,9 @@ export function TaskTable({
                       </span>
                     )}
                     <div className="min-w-0">
+                      <div className="text-[10px] text-muted-foreground font-medium mb-0.5">
+                        {numberingById.get(task.id) ?? '—'}
+                      </div>
                       <p className="font-medium whitespace-normal break-words group-hover:text-primary transition-colors">
                         {task.title}
                       </p>

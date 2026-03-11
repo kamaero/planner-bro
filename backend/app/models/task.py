@@ -105,6 +105,12 @@ class Task(Base):
             return [link.user for link in self.assignee_links if link.user]
         return [self.assignee] if self.assignee else []
 
+    @property
+    def predecessor_ids(self) -> list[str]:
+        if self.predecessor_links:
+            return [link.predecessor_task_id for link in self.predecessor_links]
+        return []
+
 
 class TaskComment(Base):
     __tablename__ = "task_comments"
@@ -158,6 +164,17 @@ class TaskDependency(Base):
     created_by_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    dependency_type: Mapped[str] = mapped_column(
+        SAEnum(
+            "finish_to_start",
+            "start_to_start",
+            "finish_to_finish",
+            name="task_dependency_type",
+        ),
+        nullable=False,
+        default="finish_to_start",
+    )
+    lag_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

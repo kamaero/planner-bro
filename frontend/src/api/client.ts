@@ -235,8 +235,15 @@ export const api = {
   ) => apiClient.post(`/tasks/${taskId}/check-in`, data).then((r) => r.data),
   listTaskDependencies: (taskId: string) =>
     apiClient.get(`/tasks/${taskId}/dependencies`).then((r) => r.data),
-  addTaskDependency: (taskId: string, predecessorTaskId: string) =>
-    apiClient.post(`/tasks/${taskId}/dependencies`, { predecessor_task_id: predecessorTaskId }).then((r) => r.data),
+  addTaskDependency: (
+    taskId: string,
+    data: {
+      predecessor_task_id: string
+      dependency_type?: 'finish_to_start' | 'start_to_start' | 'finish_to_finish'
+      lag_days?: number
+    }
+  ) =>
+    apiClient.post(`/tasks/${taskId}/dependencies`, data).then((r) => r.data),
   removeTaskDependency: (taskId: string, predecessorTaskId: string) =>
     apiClient.delete(`/tasks/${taskId}/dependencies/${predecessorTaskId}`),
   bulkUpdateTasks: (

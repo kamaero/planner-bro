@@ -206,8 +206,22 @@ export function useTaskDependencies(taskId?: string) {
 export function useAddTaskDependency() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ taskId, predecessorTaskId }: { taskId: string; predecessorTaskId: string }) =>
-      api.addTaskDependency(taskId, predecessorTaskId),
+    mutationFn: ({
+      taskId,
+      predecessorTaskId,
+      dependencyType,
+      lagDays,
+    }: {
+      taskId: string
+      predecessorTaskId: string
+      dependencyType?: 'finish_to_start' | 'start_to_start' | 'finish_to_finish'
+      lagDays?: number
+    }) =>
+      api.addTaskDependency(taskId, {
+        predecessor_task_id: predecessorTaskId,
+        dependency_type: dependencyType,
+        lag_days: lagDays,
+      }),
     onSuccess: (_, { taskId }) => {
       qc.invalidateQueries({ queryKey: ['task-dependencies', taskId] })
       qc.invalidateQueries({ queryKey: ['task-events', taskId] })

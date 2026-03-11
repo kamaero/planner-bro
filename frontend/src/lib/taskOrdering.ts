@@ -67,3 +67,43 @@ export function buildTaskHierarchy<T extends TaskLike>(tasks: T[]): { ordered: T
 
   return { ordered, depthById }
 }
+
+export function buildTaskNumbering<T extends TaskLike>(tasks: T[]): Map<string, string> {
+  const sorted = sortTasksByOrder(tasks)
+  const visibleIds = new Set(sorted.map((task) => task.id))
+  const children = new Map<string, T[]>()
+  const roots: T[] = []
+
+  for (const task of sorted) {
+    const parentId = task.parent_task_id
+    if (parentId && visibleIds.has(parentId)) {
+      const arr = children.get(parentId) ?? []
+      arr.push(task)
+      children.set(parentId, arr)
+    } else {
+      roots.push(task)
+    }
+  }
+
+  const result = new Map<string, string>()
+  const visited = new Set<string>()
+  const append = (node: T, prefix: string) => {
+    if (visited.has(node.id)) return
+    visited.add(node.id)
+    result.set(node.id, prefix)
+    const kids = children.get(node.id) ?? []
+    for (let idx = 0; idx < kids.length; idx += 1) {
+      append(kids[idx], `${prefix}.${idx + 1}`)
+    }
+  }
+
+  for (let idx = 0; idx < roots.length; idx += 1) {
+    append(roots[idx], String(idx + 1))
+  }
+  for (const task of sorted) {
+    if (!visited.has(task.id)) {
+      append(task, String(result.size + 1))
+    }
+  }
+  return result
+}
