@@ -64,6 +64,12 @@ docker-compose up --build
 ./scripts/deploy-prod.sh
 ```
 
+Если нужно обновить прод прямо из GitHub на сервере, без локального `rsync`, используйте:
+
+```bash
+./scripts/deploy-prod-git.sh
+```
+
 Быстрая проверка после выката:
 
 ```bash

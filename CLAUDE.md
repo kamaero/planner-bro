@@ -57,25 +57,25 @@ SKIP_FRONTEND=1 ./scripts/deploy-prod.sh
 ./scripts/deploy-frontend-dist.sh  # build locally, rsync dist/ to VPS nginx
 ```
 
-### Production deploy (manual, on VPS directly)
+### Production deploy from local workspace
 ```bash
-# First-time setup — clone the repo (requires deploy key, see below):
-cd /opt
-git clone git@github-planner:kamaero/planner-bro.git planner-bro-git
-
-# Subsequent deploys — SSH in and pull:
-ssh root@168.222.194.92
-cd /opt/planner-bro
-git pull
-docker compose -f docker-compose.prod.yml up -d --build backend celery_worker celery_beat nginx
+./scripts/deploy-prod.sh
 ```
+
+### Production deploy from GitHub on the server
+```bash
+./scripts/deploy-prod-git.sh
+```
+
+This script keeps a clean Git checkout in `/opt/planner-bro-git`, syncs tracked files into the live directory `/opt/planner-bro`, rebuilds `frontend/dist` on the server, restarts Docker services, and optionally runs the smoke-check.  
+This is intentionally more boring than `ssh && git pull`, because boring deploys are usually the ones that do not invent new problems.
 
 **Deploy key for VPS** (read-only access to the private repo):
 Add this public key to https://github.com/kamaero/planner-bro/settings/keys
 ```
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILLfE3OprmuN3OLalz6w3QTUfdtMmkxISQe6Rbcg6lPe planner-bro-vps-deploy
 ```
-The VPS SSH config (`/root/.ssh/config`) already has the `github-planner` alias pointing to this key.
+The VPS SSH config uses `/root/.ssh/plannerbro_github_ed25519` for `github.com`.
 
 ## Architecture
 
