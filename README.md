@@ -64,6 +64,12 @@ docker-compose up --build
 ./scripts/deploy-prod.sh
 ```
 
+Быстрая проверка после выката:
+
+```bash
+./scripts/smoke-check-prod.sh
+```
+
 Только backend:
 
 ```bash
