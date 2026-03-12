@@ -10,6 +10,10 @@ export function parseTaskOrderFromTitle(title: string): number[] | null {
   return values
 }
 
+export function stripTaskOrderPrefix(title: string): string {
+  return title.replace(/^(\d+(?:\.\d+)*)(?:[.)])?\s+/, '').trim()
+}
+
 export function compareTasksByOrder(a: Pick<TaskLike, 'title' | 'id'>, b: Pick<TaskLike, 'title' | 'id'>): number {
   const ao = parseTaskOrderFromTitle(a.title)
   const bo = parseTaskOrderFromTitle(b.title)

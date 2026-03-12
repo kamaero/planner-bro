@@ -365,6 +365,8 @@ export const api = {
   // AI drafts
   listAIJobs: (projectId: string) =>
     apiClient.get(`/projects/${projectId}/ai-jobs`).then((r) => r.data),
+  getImportFilePrecheck: (projectId: string, fileId: string) =>
+    apiClient.get(`/projects/${projectId}/files/${fileId}/import-precheck`).then((r) => r.data),
   startAIProcessingForFile: (projectId: string, fileId: string, promptInstruction?: string) =>
     apiClient
       .post(`/projects/${projectId}/files/${fileId}/ai-process`, {

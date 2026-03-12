@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import type { Task } from '@/types'
 import { Clock, AlertCircle, CornerDownRight } from 'lucide-react'
-import { buildTaskNumbering } from '@/lib/taskOrdering'
+import { buildTaskNumbering, stripTaskOrderPrefix } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
+import { Link } from 'react-router-dom'
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
@@ -36,6 +37,23 @@ const PRIORITY_LABELS: Record<string, string> = {
   medium: 'Средний',
   high: 'Высокий',
   critical: 'Критический',
+}
+
+function getDeadlineMeta(date?: string, status?: string) {
+  if (!date) return null
+  if (status === 'done') return { label: 'выполнено', tone: 'text-emerald-600' }
+
+  const target = new Date(`${date}T12:00:00`)
+  if (Number.isNaN(target.getTime())) return null
+
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0)
+  const diffDays = Math.round((target.getTime() - today.getTime()) / 86_400_000)
+
+  if (diffDays < 0) return { label: 'просрочено', tone: 'text-red-600' }
+  if (diffDays === 0) return { label: 'сегодня', tone: 'text-red-500' }
+  if (diffDays <= 3) return { label: 'скоро', tone: 'text-amber-600' }
+  return { label: `${diffDays} дн.`, tone: 'text-muted-foreground' }
 }
 
 interface TaskTableProps {
@@ -116,17 +134,24 @@ export function TaskTable({
   return (
     <div className="rounded-lg border">
       <div className="px-4 py-2.5 border-b bg-muted/20 text-xs text-muted-foreground flex flex-wrap items-center gap-3">
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-1">
           <CornerDownRight className="w-3.5 h-3.5" />
           Структура (parent-child)
         </span>
-        <span className="text-muted-foreground/60">|</span>
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
           <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
           Блокировка старта (dependency)
         </span>
-        <span className="text-muted-foreground/60">|</span>
-        <span>Назначение parent-child: откройте задачу и выберите «Родительская задача (структура)»</span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-1 text-red-700">
+          СКИ
+        </span>
+        <span className="text-muted-foreground/80">Parent задаёт структуру. Dependency задаёт порядок старта.</span>
+        <Link
+          to="/help#dependencies"
+          className="ml-auto text-[11px] font-medium text-primary transition-colors hover:text-primary/80"
+        >
+          Подробнее
+        </Link>
       </div>
       <div ref={topRef} className="overflow-x-auto border-b bg-muted/20">
         <div className="h-3 min-w-[1220px]" />
@@ -153,8 +178,12 @@ export function TaskTable({
             const predecessorIds = task.predecessor_ids ?? []
             const hasBlockingDependency = predecessorIds.length > 0
             const parentTitle = task.parent_task_id ? taskById.get(task.parent_task_id)?.title : null
+            const deadlineMeta = getDeadlineMeta(task.end_date, task.status)
             const predecessorTitles = predecessorIds
-              .map((id) => taskById.get(id)?.title || id)
+              .map((id) => {
+                const linkedTask = taskById.get(id)
+                return linkedTask ? stripTaskOrderPrefix(linkedTask.title) : id
+              })
               .slice(0, 2)
 
             return (
@@ -176,7 +205,7 @@ export function TaskTable({
                         {numberingById.get(task.id) ?? '—'}
                       </div>
                       <p className="font-medium whitespace-normal break-words group-hover:text-primary transition-colors">
-                        {task.title}
+                        {stripTaskOrderPrefix(task.title)}
                       </p>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         {hasParent && (
@@ -189,10 +218,15 @@ export function TaskTable({
                             зависимость
                           </span>
                         )}
+                        {task.control_ski && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded border border-red-200 bg-red-50 text-red-700">
+                            СКИ
+                          </span>
+                        )}
                       </div>
                       {hasParent && (
                         <p className="text-[11px] text-muted-foreground mt-0.5">
-                          ↳ Родитель: {parentTitle ?? task.parent_task_id}
+                          ↳ Родитель: {parentTitle ? stripTaskOrderPrefix(parentTitle) : task.parent_task_id}
                         </p>
                       )}
                       {hasBlockingDependency && (
@@ -270,15 +304,22 @@ export function TaskTable({
                 {/* Deadline */}
                 <td className={`px-3 ${pyClass} whitespace-nowrap`}>
                   {task.end_date ? (
-                    <div className="flex items-center gap-1">
-                      {isOverdue && <Clock className="w-3.5 h-3.5 text-red-500 shrink-0" />}
-                      <span className={isOverdue ? 'text-red-600 font-medium' : shiftCount > 0 ? 'text-amber-600' : ''}>
-                        {new Date(task.end_date).toLocaleDateString('ru-RU', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </span>
+                    <div className="flex flex-col items-start gap-0.5">
+                      <div className="flex items-center gap-1">
+                        {isOverdue && <Clock className="w-3.5 h-3.5 text-red-500 shrink-0" />}
+                        <span className={isOverdue ? 'text-red-600 font-medium' : shiftCount > 0 ? 'text-amber-600' : ''}>
+                          {new Date(task.end_date).toLocaleDateString('ru-RU', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })}
+                        </span>
+                      </div>
+                      {deadlineMeta && (
+                        <span className={`text-[11px] ${deadlineMeta.tone}`}>
+                          {deadlineMeta.label}
+                        </span>
+                      )}
                     </div>
                   ) : (
                     <span className="text-muted-foreground text-xs">—</span>

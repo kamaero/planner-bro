@@ -355,6 +355,15 @@ export interface MSProjectImportResult {
   deleted_existing: number
 }
 
+export interface ImportFilePrecheck {
+  file_type: string
+  detected_headers: string[]
+  recognized_columns: string[]
+  missing_columns: string[]
+  warnings: string[]
+  can_start_ai: boolean
+}
+
 export interface GlobalSearchResult {
   projects: Array<{ id: string; name: string; status: string }>
   tasks: Array<{ id: string; title: string; project_id: string; status: string }>

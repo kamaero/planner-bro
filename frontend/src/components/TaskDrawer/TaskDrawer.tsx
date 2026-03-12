@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
 import {
   useUpdateTaskStatus,
   useDeleteTask,
@@ -25,6 +26,10 @@ import { humanizeApiError } from '@/lib/errorMessages'
 import { buildTaskHierarchy, buildTaskNumbering } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
 import { useAuthStore } from '@/store/authStore'
+import { Link } from 'react-router-dom'
+import { AssigneePicker } from '@/components/AssigneePicker/AssigneePicker'
+import { TaskRelationPicker } from '@/components/TaskRelationPicker/TaskRelationPicker'
+import { stripTaskOrderPrefix } from '@/lib/taskOrdering'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -131,6 +136,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [newDependencyLagDays, setNewDependencyLagDays] = useState('0')
   const [selectedParentTaskId, setSelectedParentTaskId] = useState('')
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([])
+  const [titleInput, setTitleInput] = useState('')
 
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
@@ -209,6 +215,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     setNewDependencyType('finish_to_start')
     setNewDependencyLagDays('0')
     setSelectedParentTaskId(task.parent_task_id ?? '')
+    setTitleInput(task.title)
     setSelectedAssigneeIds(task.assignee_ids && task.assignee_ids.length > 0
       ? task.assignee_ids
       : task.assigned_to_id
@@ -303,6 +310,20 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       } catch (error: any) {
         window.alert(humanizeApiError(error, 'Не удалось удалить задачу'))
       }
+    }
+  }
+
+  const handleSaveTitle = async () => {
+    const nextTitle = titleInput.trim()
+    if (!nextTitle || nextTitle === task.title) return
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: { title: nextTitle },
+      })
+    } catch (error: any) {
+      setTitleInput(task.title)
+      window.alert(humanizeApiError(error, 'Не удалось изменить название задачи'))
     }
   }
 
@@ -458,10 +479,65 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="w-[95vw] max-w-6xl h-[88vh]" onKeyDown={handleDialogKeyDown}>
           <DialogHeader>
-            <DialogTitle>{task.title}</DialogTitle>
+            <DialogTitle>{stripTaskOrderPrefix(task.title)}</DialogTitle>
           </DialogHeader>
 
           <div className="grid gap-4 overflow-y-auto pr-1 h-full lg:grid-cols-2">
+            <div className="lg:col-span-2 rounded-lg border p-3 space-y-2">
+              <p className="text-sm font-medium">Название задачи</p>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={titleInput}
+                  onChange={(e) => setTitleInput(e.target.value)}
+                  placeholder="Название задачи"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSaveTitle}
+                  disabled={updateTask.isPending || !titleInput.trim()}
+                >
+                  Сохранить
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Здесь меняется только читаемое название. Нумерация в списке живёт отдельно и не ломается.
+              </p>
+            </div>
+
+            <div className="lg:col-span-2 rounded-xl border bg-muted/30 p-3">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                <div className="rounded-lg border bg-background px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Статус</p>
+                  <p className="text-sm font-semibold">{STATUS_LABELS[status] ?? status}</p>
+                </div>
+                <div className="rounded-lg border bg-background px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Дедлайн</p>
+                  <p className="text-sm font-semibold">{endDate ? new Date(endDate).toLocaleDateString('ru-RU') : 'Не задан'}</p>
+                </div>
+                <div className="rounded-lg border bg-background px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Прогресс</p>
+                  <p className="text-sm font-semibold">{progressPercent || '0'}%</p>
+                </div>
+                <div className="rounded-lg border bg-background px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Исполнители</p>
+                  <p className="text-sm font-semibold">
+                    {task.assignees && task.assignees.length > 0
+                      ? task.assignees.map((u) => formatUserDisplayName(u)).join(', ')
+                      : task.assignee
+                        ? formatUserDisplayName(task.assignee)
+                        : 'Не назначен'}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-background px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Режим</p>
+                  <p className="text-sm font-semibold">
+                    {controlSki ? 'СКИ-контроль' : isEscalation ? 'Эскалация' : 'Обычная задача'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Priority & Status */}
             <div className="flex items-center gap-2 flex-wrap lg:col-span-2">
               <span
@@ -589,24 +665,29 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
 
             <div className="rounded-lg border p-3 space-y-2">
               <p className="text-sm font-medium">Родительская задача (структура)</p>
-              <p className="text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
                 Это только иерархия. Для блокировки старта используйте раздел зависимостей ниже.
-              </p>
-              <div className="flex items-center gap-2">
-                <select
-                  value={selectedParentTaskId}
-                  onChange={(e) => setSelectedParentTaskId(e.target.value)}
-                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
+                </p>
+                <Link
+                  to="/help#dependencies"
+                  className="text-[11px] font-medium text-primary transition-colors hover:text-primary/80"
                 >
-                  <option value="">Без родителя</option>
-                  {taskHierarchyOptions.ordered
-                    .filter((candidate) => !blockedParentIds.has(candidate.id))
-                    .map((candidate) => (
-                      <option key={candidate.id} value={candidate.id}>
-                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(candidate.id) ?? 0)}${taskNumbering.get(candidate.id) ?? ''} ${candidate.title}`}
-                      </option>
-                    ))}
-                </select>
+                  Parent vs dependency
+                </Link>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <TaskRelationPicker
+                    tasks={taskHierarchyOptions.ordered.filter((candidate) => !blockedParentIds.has(candidate.id))}
+                    depthById={taskHierarchyOptions.depthById}
+                    numberingById={taskNumbering}
+                    value={selectedParentTaskId}
+                    onChange={(next) => setSelectedParentTaskId(String(next))}
+                    emptyLabel="Без родителя"
+                    placeholder="Найти родительскую задачу"
+                  />
+                </div>
                 <Button
                   size="sm"
                   variant="outline"
@@ -620,24 +701,29 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
 
             <div className="rounded-lg border p-3 space-y-2">
               <p className="text-sm font-medium">Связанные задачи (зависимости)</p>
-              <p className="text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
                 FS блокирует старт до завершения предшественника. SS/FF синхронизируют старт/финиш.
-              </p>
-              <div className="flex items-center gap-2">
-                <select
-                  value={newDependencyTaskId}
-                  onChange={(e) => setNewDependencyTaskId(e.target.value)}
-                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
+                </p>
+                <Link
+                  to="/help#dependencies"
+                  className="text-[11px] font-medium text-primary transition-colors hover:text-primary/80"
                 >
-                  <option value="">Выберите предшественника</option>
-                  {taskHierarchyOptions.ordered
-                    .filter((t) => t.id !== task.id)
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(t.id) ?? 0)}${taskNumbering.get(t.id) ?? ''} ${t.title}`}
-                      </option>
-                    ))}
-                </select>
+                  Типы зависимостей
+                </Link>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <TaskRelationPicker
+                    tasks={taskHierarchyOptions.ordered.filter((candidate) => candidate.id !== task.id)}
+                    depthById={taskHierarchyOptions.depthById}
+                    numberingById={taskNumbering}
+                    value={newDependencyTaskId}
+                    onChange={(next) => setNewDependencyTaskId(String(next))}
+                    emptyLabel="Предшественник не выбран"
+                    placeholder="Найти задачу-предшественник"
+                  />
+                </div>
                 <Button
                   size="sm"
                   variant="outline"
@@ -678,7 +764,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   return (
                     <div key={`${dep.predecessor_task_id}-${dep.successor_task_id}`} className="flex items-center justify-between text-sm border rounded px-2 py-1">
                       <span>
-                        {predecessor?.title ?? dep.predecessor_task_id}
+                        {predecessor ? stripTaskOrderPrefix(predecessor.title) : dep.predecessor_task_id}
                         <span className="text-xs text-muted-foreground ml-1">
                           · {DEPENDENCY_TYPE_LABELS[dep.dependency_type] ?? dep.dependency_type}
                           {dep.lag_days > 0 ? ` · +${dep.lag_days}д` : ''}
@@ -703,24 +789,16 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               {/* Assignee selector */}
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-muted-foreground shrink-0" />
-                <select
-                  multiple
-                  value={selectedAssigneeIds}
-                  onChange={(e) =>
-                    handleAssigneeChange(
-                      Array.from(e.target.selectedOptions).map((option) => option.value)
-                    )
-                  }
-                  className="text-sm border rounded px-2 py-1 bg-background flex-1 min-h-[96px]"
-                >
-                  {assigneeOptions.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {formatUserDisplayName(u)} ({u.role})
-                    </option>
-                  ))}
-                </select>
+                <div className="flex-1">
+                  <AssigneePicker
+                    users={assigneeOptions}
+                    value={selectedAssigneeIds}
+                    onChange={handleAssigneeChange}
+                    placeholder="Поиск по имени, почте или должности"
+                  />
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">Можно выбрать нескольких исполнителей (Ctrl/Cmd + клик).</p>
+              <p className="text-xs text-muted-foreground">Выбирайте нескольких исполнителей через поиск и чекбоксы.</p>
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <CalendarDays className="w-4 h-4" />
