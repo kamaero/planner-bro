@@ -52,9 +52,12 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
 # Backend only (faster, skip frontend rebuild):
 SKIP_FRONTEND=1 ./scripts/deploy-prod.sh
 
+# Same entry-point, but server updates itself from GitHub:
+DEPLOY_MODE=git ./scripts/deploy-prod.sh
+
 # Individual helper scripts:
-./scripts/deploy-prod-backend.sh   # rsync backend + restart containers
-./scripts/deploy-frontend-dist.sh  # build locally, rsync dist/ to VPS nginx
+./scripts/deploy-prod-backend.sh   # low-level backend rsync + restart
+./scripts/deploy-frontend-dist.sh  # low-level local build + dist sync
 ```
 
 ### Production deploy from local workspace
@@ -232,6 +235,6 @@ Migration chain (`backend/alembic/versions/`):
 | 0018 | `task_status_planning.py` | adds `planning` value to `task_status` enum (default task status) |
 | 0019 | `email_dispatch_logs.py` | `email_dispatch_logs` table for SMTP activity monitor in sidebar |
 
-Alembic runs automatically on container start via the `command:` in `docker-compose.yml`.
+Alembic runs automatically on container start via the `command:` in `docker-compose.prod.yml`.
 
 Redis uses 3 databases: `/0` = general cache, `/1` = Celery broker, `/2` = Celery result backend.
