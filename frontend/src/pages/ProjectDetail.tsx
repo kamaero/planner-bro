@@ -2026,10 +2026,6 @@ export function ProjectDetail() {
                     >
                       {startAIProcessing.isPending ? 'Запуск...' : actionLabel}
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDownload(file)}>
-                      <Download className="w-4 h-4 mr-1" />
-                      Скачать
-                    </Button>
                     {canManage && (
                       <Button
                         variant="ghost"
