@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REMOTE_HOST="${REMOTE_HOST:-root@95.164.92.165}"
+REMOTE_HOST="${REMOTE_HOST:-root@168.222.194.92}"
 EMAIL="${1:-}"
 
 if [ -z "$EMAIL" ]; then

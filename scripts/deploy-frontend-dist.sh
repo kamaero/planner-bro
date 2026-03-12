@@ -6,7 +6,7 @@ set -euo pipefail
 # 2) sync dist to VPS
 # 3) restart frontend nginx container
 
-REMOTE_HOST="${REMOTE_HOST:-root@95.164.92.165}"
+REMOTE_HOST="${REMOTE_HOST:-root@168.222.194.92}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/planner-bro}"
 LOCAL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

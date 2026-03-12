@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REMOTE_HOST="${REMOTE_HOST:-root@95.164.92.165}"
+REMOTE_HOST="${REMOTE_HOST:-root@168.222.194.92}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/planner-bro}"
 NETWORK_NAME="${NETWORK_NAME:-planner-bro_default}"
 SSH_OPTS="${SSH_OPTS:- -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=8}"

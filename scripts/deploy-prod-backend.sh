@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REMOTE_HOST="${REMOTE_HOST:-root@95.164.92.165}"
+REMOTE_HOST="${REMOTE_HOST:-root@168.222.194.92}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/planner-bro}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 PRUNE_IMAGES="${PRUNE_IMAGES:-0}"

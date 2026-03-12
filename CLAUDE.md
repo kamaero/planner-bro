@@ -64,7 +64,7 @@ cd /opt
 git clone git@github-planner:kamaero/planner-bro.git planner-bro-git
 
 # Subsequent deploys — SSH in and pull:
-ssh root@95.164.92.165
+ssh root@168.222.194.92
 cd /opt/planner-bro
 git pull
 docker compose -f docker-compose.prod.yml up -d --build backend celery_worker celery_beat nginx
@@ -175,9 +175,9 @@ Required before features work:
 - **Vault storage**: `VAULT_FILES_DIR` (default `uploads/vault`) — persistent volume in production. `VAULT_ENCRYPTION_KEY` — 64-char hex string (32-byte AES master key). Generate: `python3 -c "import os; print(os.urandom(32).hex())"`. Falls back to `SHA-256(SECRET_KEY)` with a warning if unset.
 - **Telegram summaries**: `TELEGRAM_BOT_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_TIMEZONE` (default `Asia/Yekaterinburg`), optional `TELEGRAM_ADMIN_USER_IDS` (comma-separated IDs; if empty, only Telegram chat admins can execute commands).
 
-## Production Security (VPS: 95.164.92.165)
+## Production Security (VPS: 168.222.194.92)
 
-Current hardening state on the live server (as of 2026-02-24):
+Current hardening state on the live server. Re-check these items after infra changes so the docs do not become confident fiction.
 
 ### SSH
 - `PasswordAuthentication no` — only key auth

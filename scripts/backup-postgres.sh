@@ -5,7 +5,7 @@
 #   0 3 * * * bash /opt/planner-bro/scripts/backup-postgres.sh --local >> /var/log/planner-backup.log 2>&1
 set -euo pipefail
 
-REMOTE_HOST="${REMOTE_HOST:-root@95.164.92.165}"
+REMOTE_HOST="${REMOTE_HOST:-root@168.222.194.92}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/planner-bro}"
 COMPOSE_FILE="${COMPOSE_FILE:-$REMOTE_DIR/docker-compose.prod.yml}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/backups/postgres}"
