@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import secrets
 import string
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -17,6 +17,7 @@ from app.core.security import (
 )
 from app.core.token_store import is_refresh_token_revoked, revoke_refresh_token
 from app.models.user import User
+from app.models.auth_login_event import AuthLoginEvent
 from app.services.notification_service import _send_email_to_recipients
 from app.schemas.user import (
     TokenPair,
@@ -39,6 +40,17 @@ def _generate_temporary_password(length: int = 14) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def _extract_client_ip(request: Request) -> str | None:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    if request.client and request.client.host:
+        return request.client.host
+    return None
+
+
 @router.post("/register", response_model=TokenPair, status_code=201)
 async def register():
     raise HTTPException(
@@ -48,16 +60,54 @@ async def register():
 
 
 @router.post("/login", response_model=TokenPair)
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     email = _normalize_email(data.email)
     result = await db.execute(select(User).where(func.lower(User.email) == email))
     user = result.scalar_one_or_none()
+    client_ip = _extract_client_ip(request)
+    user_agent = request.headers.get("user-agent")
+
     if not user or not user.password_hash or not verify_password(data.password, user.password_hash):
+        db.add(
+            AuthLoginEvent(
+                user_id=user.id if user else None,
+                email_entered=data.email,
+                normalized_email=email,
+                success=False,
+                failure_reason="invalid_credentials",
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
+        )
+        await db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
+        db.add(
+            AuthLoginEvent(
+                user_id=user.id,
+                email_entered=data.email,
+                normalized_email=email,
+                success=False,
+                failure_reason="inactive_user",
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
+        )
+        await db.commit()
         raise HTTPException(status_code=403, detail="User account is inactive")
 
     user.last_login_at = datetime.now(timezone.utc)
+    db.add(
+        AuthLoginEvent(
+            user_id=user.id,
+            email_entered=data.email,
+            normalized_email=email,
+            success=True,
+            failure_reason=None,
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
+    )
     await db.commit()
 
     return TokenPair(

@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone, timedelta
 import logging
+import html
 from email.mime.multipart import MIMEMultipart
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from app.core.firebase import send_push_to_multiple
 from app.services.websocket_manager import ws_manager
 from app.services import events as ev
 from app.services.system_activity_service import log_system_activity
+from app.services.report_settings_service import get_smtp_enabled
 import aiosmtplib
 from email.mime.text import MIMEText
 from app.core.config import settings
@@ -27,6 +29,31 @@ def _build_task_link(project_id: str, task_id: str) -> str:
 
 def _build_project_link(project_id: str) -> str:
     return f"{settings.APP_WEB_URL.rstrip('/')}/projects/{project_id}"
+
+
+def _default_html_email_template(subject: str, body: str) -> str:
+    safe_subject = html.escape(subject or "PlannerBro уведомление")
+    # Preserve line breaks from plain text body.
+    safe_body = html.escape(body or "").replace("\n", "<br>")
+    return (
+        "<!doctype html>"
+        "<html><head><meta charset=\"utf-8\"></head>"
+        "<body style=\"margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;\">"
+        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
+        "style=\"padding:24px 12px;background:#f3f4f6;\">"
+        "<tr><td align=\"center\">"
+        "<table role=\"presentation\" width=\"640\" cellspacing=\"0\" cellpadding=\"0\" "
+        "style=\"max-width:640px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;\">"
+        "<tr><td style=\"padding:16px 20px;background:#111827;color:#ffffff;font-size:18px;font-weight:700;\">PlannerBro</td></tr>"
+        f"<tr><td style=\"padding:18px 20px 6px 20px;font-size:16px;font-weight:600;\">{safe_subject}</td></tr>"
+        f"<tr><td style=\"padding:0 20px 18px 20px;font-size:14px;line-height:1.55;color:#374151;\">{safe_body}</td></tr>"
+        "<tr><td style=\"padding:12px 20px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;\">"
+        "Это служебное сообщение PlannerBro."
+        "</td></tr>"
+        "</table>"
+        "</td></tr></table>"
+        "</body></html>"
+    )
 
 
 async def _create_notification(
@@ -124,6 +151,19 @@ async def _send_email_to_recipients(
 ) -> None:
     if not recipients:
         return
+    if not await get_smtp_enabled():
+        for email in recipients:
+            await _record_email_dispatch(
+                db,
+                recipient=email,
+                subject=subject,
+                status="skipped",
+                source=source,
+                error_text="SMTP is disabled by admin switch",
+                payload=payload,
+            )
+        await db.commit()
+        return
     if not settings.SMTP_HOST:
         for email in recipients:
             await _record_email_dispatch(
@@ -140,12 +180,9 @@ async def _send_email_to_recipients(
     max_attempts = max(1, int(settings.SMTP_MAX_ATTEMPTS))
     base_delay = max(0.0, float(settings.SMTP_RETRY_BASE_DELAY_SECONDS))
     for email in recipients:
-        if html_body:
-            msg = MIMEMultipart("alternative")
-            msg.attach(MIMEText(body, "plain", "utf-8"))
-            msg.attach(MIMEText(html_body, "html", "utf-8"))
-        else:
-            msg = MIMEText(body, "plain", "utf-8")
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        msg.attach(MIMEText(html_body or _default_html_email_template(subject, body), "html", "utf-8"))
         msg["Subject"] = subject
         msg["From"] = settings.EMAILS_FROM
         msg["To"] = email

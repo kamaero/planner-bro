@@ -20,6 +20,7 @@ from app.models import (  # noqa
     TaskComment,
     TaskEvent,
     Notification,
+    AuthLoginEvent,
     AIIngestionJob,
     AITaskDraft,
 )

@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_USE_TLS: bool = False
     SMTP_USE_STARTTLS: bool = True
+    SMTP_ENABLED: bool = True
     EMAILS_FROM: str = "noreply@planner-bro.com"
     SMTP_TIMEOUT_SECONDS: float = 8.0
     SMTP_MAX_ATTEMPTS: int = 3
@@ -85,6 +86,7 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
+    AI_MAX_DRAFTS: int = 2000
 
     @model_validator(mode="after")
     def validate_secret_key(self):
