@@ -1,5 +1,3 @@
-import { Button } from '@/components/ui/button'
-
 const TEAM_ROOM_ID = 'plannerbro_team_whiteboard'
 const TEAM_ROOM_KEY = 'plannerbro_room_key_22'
 
@@ -10,30 +8,35 @@ function buildTeamBoardUrl() {
 }
 
 export function TeamBoard() {
+  const boardUrl = buildTeamBoardUrl()
+
   return (
-    <div className="p-6">
-      <div className="rounded-2xl border bg-card p-6">
-        <h1 className="text-2xl font-bold mb-3">Доска команды</h1>
-        <p className="text-muted-foreground mb-6">
-          Единая доска для всей команды. Все участники работают в одном общем пространстве.
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            onClick={() => {
-              window.location.assign(buildTeamBoardUrl())
-            }}
+    <div className="h-[calc(100vh-1rem)] p-2">
+      <div className="flex h-full flex-col overflow-hidden rounded-2xl border bg-card">
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+          <div>
+            <h1 className="text-lg font-semibold">Доска команды</h1>
+            <p className="text-xs text-muted-foreground">
+              Общая живая доска команды открывается сразу внутри PlannerBro.
+            </p>
+          </div>
+          <a
+            href={boardUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-accent"
           >
-            Открыть общую доску
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              window.open(buildTeamBoardUrl(), '_blank', 'noopener,noreferrer')
-            }}
-          >
-            Открыть в новой вкладке
-          </Button>
+            В новой вкладке
+          </a>
         </div>
+
+        <iframe
+          key={boardUrl}
+          src={boardUrl}
+          title="Доска команды"
+          referrerPolicy="no-referrer"
+          className="min-h-0 w-full flex-1 bg-background"
+        />
       </div>
     </div>
   )
