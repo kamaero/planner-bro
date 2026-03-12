@@ -13,6 +13,7 @@ __pycache__/
 dist/
 build/
 .venv/
+.venv-*/
 venv/
 *.egg
 
@@ -82,3 +83,6 @@ backend/alembic/versions/*.pyc
 
 # Logs
 *.log
+
+# Temporary local sandboxes
+.tmp-*/
