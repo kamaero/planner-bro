@@ -42,6 +42,16 @@ class MSProjectParseResult:
     skipped_count: int
 
 
+@dataclass
+class ImportPrecheckResult:
+    file_type: str
+    detected_headers: list[str] = field(default_factory=list)
+    recognized_columns: list[str] = field(default_factory=list)
+    missing_columns: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    can_start_ai: bool = True
+
+
 def _tag_name(tag: str) -> str:
     if "}" in tag:
         return tag.split("}", 1)[1]
@@ -207,6 +217,185 @@ def _normalize_assignee_hints(value: str | None) -> list[str]:
     return normalized
 
 
+_XLSX_COLUMN_ALIASES: dict[str, tuple[str, set[str]]] = {
+    "uid": ("UID", {"uid", "id", "task_id", "task_uid"}),
+    "title": ("Наименование", {"name", "title", "task", "task_name", "задача", "название", "наименование"}),
+    "description": ("Описание", {"description", "notes", "comment", "описание", "комментарий"}),
+    "start_date": ("Дата начала", {"start", "start_date", "date_start", "начало", "дата_начала"}),
+    "end_date": ("Срок", {"finish", "end", "end_date", "deadline", "дедлайн", "срок", "дата_окончания"}),
+    "progress": ("Прогресс", {"percent_complete", "progress", "progress_percent", "процент", "прогресс"}),
+    "priority": ("Приоритет", {"priority", "priority_level", "приоритет"}),
+    "estimated_hours": ("Трудоёмкость", {"estimated_hours", "duration_hours", "hours", "часы", "оценка_часы"}),
+    "parent_uid": ("Родитель", {"parent_uid", "parent_id", "parent", "родитель", "родитель_uid"}),
+    "outline_number": ("WBS / номер", {"outline_number", "wbs", "outline", "иерархия"}),
+    "department": ("Отдел", {"department", "dept", "отдел"}),
+    "bureau": ("Бюро", {"bureau", "бюро"}),
+    "task_kind": ("Вид задачи", {"task_type", "type", "вид", "вид_задачи"}),
+    "assignee": ("Исполнитель", {"assignee", "executor", "responsible", "исполнитель", "ответственный"}),
+    "customer": ("Заказчик", {"customer", "client", "заказчик"}),
+}
+
+_XLSX_RECOMMENDED_FIELDS = ("title", "end_date", "assignee", "customer", "task_kind")
+
+
+def _read_xlsx_rows(content: bytes) -> list[dict[int, str]]:
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(content))
+    except Exception:
+        raise ValueError("Файл .xlsx поврежден или не является валидным ZIP-архивом")
+
+    with archive:
+        names = set(archive.namelist())
+        if "xl/workbook.xml" not in names:
+            raise ValueError("XLSX не содержит xl/workbook.xml")
+
+        shared_strings: list[str] = []
+        if "xl/sharedStrings.xml" in names:
+            root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            for si in root.iter():
+                if _tag_name(si.tag) != "si":
+                    continue
+                chunks: list[str] = []
+                for node in si.iter():
+                    if _tag_name(node.tag) == "t" and node.text:
+                        chunks.append(node.text)
+                shared_strings.append("".join(chunks))
+
+        sheet_names = sorted(
+            name
+            for name in names
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+        )
+        if not sheet_names:
+            raise ValueError("XLSX не содержит листов с задачами")
+
+        rows: list[dict[int, str]] = []
+        for sheet_name in sheet_names:
+            root = ET.fromstring(archive.read(sheet_name))
+            for row in root.iter():
+                if _tag_name(row.tag) != "row":
+                    continue
+                row_cells: dict[int, str] = {}
+                for cell in row:
+                    if _tag_name(cell.tag) != "c":
+                        continue
+                    ref = cell.attrib.get("r", "")
+                    col = _column_index(ref)
+                    if col <= 0:
+                        continue
+                    cell_type = cell.attrib.get("t")
+                    value_text = ""
+                    if cell_type == "inlineStr":
+                        for node in cell.iter():
+                            if _tag_name(node.tag) == "t" and node.text:
+                                value_text += node.text
+                    else:
+                        raw = ""
+                        for node in cell:
+                            if _tag_name(node.tag) == "v" and node.text:
+                                raw = node.text.strip()
+                                break
+                        if cell_type == "s":
+                            try:
+                                s_idx = int(raw)
+                                value_text = shared_strings[s_idx] if 0 <= s_idx < len(shared_strings) else ""
+                            except ValueError:
+                                value_text = raw
+                        else:
+                            value_text = raw
+                    value_text = value_text.strip()
+                    if value_text:
+                        row_cells[col] = value_text
+                if row_cells:
+                    rows.append(row_cells)
+        if not rows:
+            raise ValueError("XLSX не содержит строк с данными")
+        return rows
+
+
+def _build_xlsx_header_map(rows: list[dict[int, str]]) -> tuple[list[str], dict[int, str]]:
+    header_row = rows[0]
+    detected_headers = [value.strip() for _, value in sorted(header_row.items()) if value.strip()]
+    header_map: dict[int, str] = {
+        col: _sheet_header_normalize(value)
+        for col, value in header_row.items()
+        if value.strip()
+    }
+    if not header_map:
+        raise ValueError("XLSX не содержит заголовков колонок")
+    return detected_headers, header_map
+
+
+def inspect_import_file(content: bytes, filename: str | None = None) -> ImportPrecheckResult:
+    lower_name = (filename or "").strip().lower()
+    is_xlsx = lower_name.endswith(".xlsx")
+    if not is_xlsx and content.startswith(b"PK"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(content)) as archive:
+                is_xlsx = "xl/workbook.xml" in archive.namelist()
+        except Exception:
+            is_xlsx = False
+
+    if is_xlsx:
+        try:
+            rows = _read_xlsx_rows(content)
+            detected_headers, header_map = _build_xlsx_header_map(rows)
+        except ValueError as exc:
+            return ImportPrecheckResult(
+                file_type="xlsx",
+                warnings=[str(exc)],
+                can_start_ai=False,
+            )
+
+        normalized_headers = set(header_map.values())
+        recognized_columns: list[str] = []
+        missing_columns: list[str] = []
+        for field_key, (label, aliases) in _XLSX_COLUMN_ALIASES.items():
+            if normalized_headers & aliases:
+                recognized_columns.append(label)
+            elif field_key in _XLSX_RECOMMENDED_FIELDS:
+                missing_columns.append(label)
+
+        warnings: list[str] = []
+        if "Наименование" not in recognized_columns:
+            warnings.append("Не найдена ключевая колонка с названием задачи. Нужна, например, `Наименование` или `Название`.")
+        if "Срок" not in recognized_columns:
+            warnings.append("Колонка дедлайна не распознана. Лучше добавить `Срок` или `Дедлайн`.")
+        if "Исполнитель" not in recognized_columns:
+            warnings.append("Колонка исполнителя не распознана. Тогда ИИ не сможет аккуратно привязать людей к задачам.")
+        if len(rows) <= 1:
+            warnings.append("В файле есть только заголовок без строк с задачами.")
+
+        return ImportPrecheckResult(
+            file_type="xlsx",
+            detected_headers=detected_headers,
+            recognized_columns=recognized_columns,
+            missing_columns=missing_columns,
+            warnings=warnings,
+            can_start_ai="Наименование" in recognized_columns and len(rows) > 1,
+        )
+
+    if lower_name.endswith(".xml"):
+        return ImportPrecheckResult(
+            file_type="xml",
+            warnings=["XML/MSPDI выглядит подходящим для импорта структуры задач."],
+            can_start_ai=True,
+        )
+
+    if lower_name.endswith(".mpp"):
+        return ImportPrecheckResult(
+            file_type="mpp",
+            warnings=["MPP поддерживается, но при спорной структуре надёжнее выгрузить XML/MSPDI."],
+            can_start_ai=True,
+        )
+
+    return ImportPrecheckResult(
+        file_type="generic",
+        warnings=["Для задач лучше всего работают XML/MSPDI, MPP или XLSX с явными колонками."],
+        can_start_ai=True,
+    )
+
+
 def _find_project_root(root: ET.Element) -> ET.Element:
     if _tag_name(root.tag) == "Project":
         return root
@@ -354,86 +543,8 @@ def _parse_ms_project_mpp(content: bytes) -> MSProjectParseResult:
 
 
 def _parse_ms_project_xlsx(content: bytes) -> MSProjectParseResult:
-    try:
-        archive = zipfile.ZipFile(io.BytesIO(content))
-    except Exception:
-        raise ValueError("Файл .xlsx поврежден или не является валидным ZIP-архивом")
-
-    with archive:
-        names = set(archive.namelist())
-        if "xl/workbook.xml" not in names:
-            raise ValueError("XLSX не содержит xl/workbook.xml")
-
-        shared_strings: list[str] = []
-        if "xl/sharedStrings.xml" in names:
-            root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
-            for si in root.iter():
-                if _tag_name(si.tag) != "si":
-                    continue
-                chunks: list[str] = []
-                for node in si.iter():
-                    if _tag_name(node.tag) == "t" and node.text:
-                        chunks.append(node.text)
-                shared_strings.append("".join(chunks))
-
-        sheet_names = sorted(
-            name
-            for name in names
-            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
-        )
-        if not sheet_names:
-            raise ValueError("XLSX не содержит листов с задачами")
-
-        rows: list[dict[int, str]] = []
-        for sheet_name in sheet_names:
-            root = ET.fromstring(archive.read(sheet_name))
-            for row in root.iter():
-                if _tag_name(row.tag) != "row":
-                    continue
-                row_cells: dict[int, str] = {}
-                for cell in row:
-                    if _tag_name(cell.tag) != "c":
-                        continue
-                    ref = cell.attrib.get("r", "")
-                    col = _column_index(ref)
-                    if col <= 0:
-                        continue
-                    cell_type = cell.attrib.get("t")
-                    value_text = ""
-                    if cell_type == "inlineStr":
-                        for node in cell.iter():
-                            if _tag_name(node.tag) == "t" and node.text:
-                                value_text += node.text
-                    else:
-                        raw = ""
-                        for node in cell:
-                            if _tag_name(node.tag) == "v" and node.text:
-                                raw = node.text.strip()
-                                break
-                        if cell_type == "s":
-                            try:
-                                s_idx = int(raw)
-                                value_text = shared_strings[s_idx] if 0 <= s_idx < len(shared_strings) else ""
-                            except ValueError:
-                                value_text = raw
-                        else:
-                            value_text = raw
-                    value_text = value_text.strip()
-                    if value_text:
-                        row_cells[col] = value_text
-                if row_cells:
-                    rows.append(row_cells)
-        if not rows:
-            raise ValueError("XLSX не содержит строк с данными")
-
-    header_row = rows[0]
-    header_map: dict[int, str] = {
-        col: _sheet_header_normalize(value)
-        for col, value in header_row.items()
-        if value.strip()
-    }
-    if not header_map:
-        raise ValueError("XLSX не содержит заголовков колонок")
+    rows = _read_xlsx_rows(content)
+    _, header_map = _build_xlsx_header_map(rows)
 
     def read(row: dict[int, str], aliases: set[str]) -> str | None:
         for col, normalized in header_map.items():
@@ -443,21 +554,21 @@ def _parse_ms_project_xlsx(content: bytes) -> MSProjectParseResult:
                     return value.strip()
         return None
 
-    uid_aliases = {"uid", "id", "task_id", "task_uid"}
-    title_aliases = {"name", "title", "task", "task_name", "задача", "название", "наименование"}
-    desc_aliases = {"description", "notes", "comment", "описание", "комментарий"}
-    start_aliases = {"start", "start_date", "date_start", "начало", "дата_начала"}
-    end_aliases = {"finish", "end", "end_date", "deadline", "дедлайн", "срок", "дата_окончания"}
-    progress_aliases = {"percent_complete", "progress", "progress_percent", "процент", "прогресс"}
-    priority_aliases = {"priority", "priority_level", "приоритет"}
-    estimate_aliases = {"estimated_hours", "duration_hours", "hours", "часы", "оценка_часы"}
-    parent_aliases = {"parent_uid", "parent_id", "parent", "родитель", "родитель_uid"}
-    outline_aliases = {"outline_number", "wbs", "outline", "иерархия"}
-    department_aliases = {"department", "dept", "отдел"}
-    bureau_aliases = {"bureau", "бюро"}
-    task_kind_aliases = {"task_type", "type", "вид", "вид_задачи"}
-    assignee_aliases = {"assignee", "executor", "responsible", "исполнитель", "ответственный"}
-    customer_aliases = {"customer", "client", "заказчик"}
+    uid_aliases = _XLSX_COLUMN_ALIASES["uid"][1]
+    title_aliases = _XLSX_COLUMN_ALIASES["title"][1]
+    desc_aliases = _XLSX_COLUMN_ALIASES["description"][1]
+    start_aliases = _XLSX_COLUMN_ALIASES["start_date"][1]
+    end_aliases = _XLSX_COLUMN_ALIASES["end_date"][1]
+    progress_aliases = _XLSX_COLUMN_ALIASES["progress"][1]
+    priority_aliases = _XLSX_COLUMN_ALIASES["priority"][1]
+    estimate_aliases = _XLSX_COLUMN_ALIASES["estimated_hours"][1]
+    parent_aliases = _XLSX_COLUMN_ALIASES["parent_uid"][1]
+    outline_aliases = _XLSX_COLUMN_ALIASES["outline_number"][1]
+    department_aliases = _XLSX_COLUMN_ALIASES["department"][1]
+    bureau_aliases = _XLSX_COLUMN_ALIASES["bureau"][1]
+    task_kind_aliases = _XLSX_COLUMN_ALIASES["task_kind"][1]
+    assignee_aliases = _XLSX_COLUMN_ALIASES["assignee"][1]
+    customer_aliases = _XLSX_COLUMN_ALIASES["customer"][1]
 
     parsed_tasks: list[ParsedMSProjectTask] = []
     skipped_count = 0

@@ -1,7 +1,18 @@
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from datetime import datetime, date
 from typing import Optional, List
 from app.schemas.user import UserOut
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _ensure_iso_date_string(value: object, field_name: str) -> object:
+    if value is None or isinstance(value, date):
+        return value
+    if isinstance(value, str) and _ISO_DATE_RE.fullmatch(value):
+        return value
+    raise ValueError(f"{field_name} must be in YYYY-MM-DD format")
 
 
 class ProjectChecklistItem(BaseModel):
@@ -17,12 +28,21 @@ class ProjectBase(BaseModel):
     status: str = "planning"
     priority: str = "medium"
     control_ski: bool = False
+    planning_mode: str = "flexible"
+    strict_no_past_start_date: bool = False
+    strict_no_past_end_date: bool = False
+    strict_child_within_parent_dates: bool = True
     launch_basis_text: Optional[str] = None
     launch_basis_file_id: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     department_ids: List[str] = Field(default_factory=list)
     completion_checklist: List[ProjectChecklistItem] = Field(default_factory=list)
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def validate_date_fields(cls, value: object, info: ValidationInfo) -> object:
+        return _ensure_iso_date_string(value, info.field_name)
 
 
 class ProjectCreate(ProjectBase):
@@ -36,6 +56,10 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     control_ski: Optional[bool] = None
+    planning_mode: Optional[str] = None
+    strict_no_past_start_date: Optional[bool] = None
+    strict_no_past_end_date: Optional[bool] = None
+    strict_child_within_parent_dates: Optional[bool] = None
     launch_basis_text: Optional[str] = None
     launch_basis_file_id: Optional[str] = None
     start_date: Optional[date] = None
@@ -44,6 +68,11 @@ class ProjectUpdate(BaseModel):
     owner_id: Optional[str] = None
     completion_checklist: Optional[List[ProjectChecklistItem]] = None
     deadline_change_reason: Optional[str] = None
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def validate_date_fields(cls, value: object, info: ValidationInfo) -> object:
+        return _ensure_iso_date_string(value, info.field_name)
 
 
 class ProjectOut(ProjectBase):
@@ -90,6 +119,16 @@ class MSProjectImportResult(BaseModel):
     created: int
     linked_to_parent: int
     skipped: int
+    deleted_existing: int = 0
+
+
+class ImportFilePrecheckOut(BaseModel):
+    file_type: str
+    detected_headers: List[str] = Field(default_factory=list)
+    recognized_columns: List[str] = Field(default_factory=list)
+    missing_columns: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    can_start_ai: bool = True
 
 
 # Gantt format for gantt-task-react

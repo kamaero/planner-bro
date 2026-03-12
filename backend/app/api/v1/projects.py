@@ -30,7 +30,7 @@ from app.models.vault import VaultFile
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
     AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut, MSProjectImportResult,
-    DepartmentProjectsResponse, DepartmentProjectsSection,
+    DepartmentProjectsResponse, DepartmentProjectsSection, ImportFilePrecheckOut,
 )
 from app.schemas.ai import (
     AIIngestionJobOut,
@@ -45,6 +45,7 @@ from app.services.access_scope import (
     can_access_project,
     get_user_access_scope,
     get_task_assignment_scope_user_ids,
+    has_department_level_access,
 )
 from app.services.notification_service import (
     notify_project_updated,
@@ -53,7 +54,7 @@ from app.services.notification_service import (
     notify_project_assigned,
 )
 from app.services.system_activity_service import log_system_activity
-from app.services.ms_project_import_service import parse_ms_project_content
+from app.services.ms_project_import_service import parse_ms_project_content, inspect_import_file
 from app.services.temp_assignee_service import upsert_temp_assignees
 from app.services.vault_crypto import encrypt_file
 from app.services.project_file_storage import (
@@ -700,7 +701,7 @@ async def update_project(
     checklist_payload = payload.pop("completion_checklist", None)
     deadline_change_reason = payload.pop("deadline_change_reason", None)
 
-    # Department heads (role=manager) can rename projects even without project-manager role.
+    # Department-level actors can rename projects even without explicit project-manager membership.
     # Any other project edits still require owner/manager membership (or admin).
     title_only_update = (
         set(payload.keys()) <= {"name"}
@@ -711,7 +712,12 @@ async def update_project(
     )
     has_manager_membership = requester_member and requester_member.role in ("owner", "manager")
     if current_user.role != "admin" and not has_manager_membership:
-        if not (current_user.role == "manager" and title_only_update):
+        can_rename_with_scope = (
+            title_only_update
+            and await has_department_level_access(db, current_user)
+            and await can_access_project(db, current_user, project_id)
+        )
+        if not can_rename_with_scope:
             raise HTTPException(status_code=403, detail="Manager access required")
 
     if checklist_payload is not None:
@@ -1142,6 +1148,33 @@ async def download_project_file(
         media_type=record.content_type or "application/octet-stream",
         headers=headers,
     )
+
+
+@router.get("/{project_id}/files/{file_id}/import-precheck", response_model=ImportFilePrecheckOut)
+async def get_project_file_import_precheck(
+    project_id: str,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_access(project_id, current_user, db)
+    result = await db.execute(
+        select(ProjectFile).where(
+            ProjectFile.id == file_id,
+            ProjectFile.project_id == project_id,
+        )
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        payload = read_project_file_bytes(record)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File missing on disk")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not decrypt file: {exc}")
+
+    return ImportFilePrecheckOut(**inspect_import_file(payload, filename=record.filename).__dict__)
 
 
 @router.delete("/{project_id}/files/{file_id}", status_code=204)

@@ -33,7 +33,11 @@ from app.services.notification_service import (
     notify_check_in_help_requested,
 )
 from app.services.check_in_policy import compute_next_check_in_due_at
-from app.services.access_scope import can_access_project, get_task_assignment_scope_user_ids
+from app.services.access_scope import (
+    can_access_project,
+    get_task_assignment_scope_user_ids,
+    has_department_level_access,
+)
 
 router = APIRouter(tags=["tasks"])
 
@@ -780,12 +784,12 @@ async def update_task(
     except HTTPException as exc:
         if exc.status_code != 403:
             raise
-        can_manager_rename = (
-            current_user.role == "manager"
-            and title_only_update
+        can_rename_with_scope = (
+            title_only_update
+            and await has_department_level_access(db, current_user)
             and await can_access_project(db, current_user, task.project_id)
         )
-        if not can_manager_rename:
+        if not can_rename_with_scope:
             raise
 
     # Validate deadline change requires a reason

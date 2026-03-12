@@ -38,6 +38,11 @@ async def _is_department_head(db: AsyncSession, user_id: str) -> bool:
     return bool(hit)
 
 
+async def has_department_level_access(db: AsyncSession, actor: User) -> bool:
+    actor_is_head = await _is_department_head(db, actor.id)
+    return actor.role in ("admin", "manager") or bool(actor.can_manage_team) or actor_is_head
+
+
 async def _collect_subordinate_ids(db: AsyncSession, root_user_id: str) -> set[str]:
     rows = (await db.execute(select(User.id, User.manager_id).where(User.is_active == True))).all()  # noqa: E712
     children_map: dict[str, list[str]] = {}
@@ -213,8 +218,7 @@ async def get_task_assignment_scope_user_ids(db: AsyncSession, actor: User) -> s
             ).scalars().all()
         )
 
-    actor_is_head = await _is_department_head(db, actor.id)
-    if actor.role == "manager" or bool(actor.can_manage_team) or actor_is_head:
+    if await has_department_level_access(db, actor):
         return set(
             (
                 await db.execute(
