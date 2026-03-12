@@ -12,9 +12,11 @@ import { TeamBoard } from '@/pages/TeamBoard'
 import { Analytics } from '@/pages/Analytics'
 import { TeamStorage } from '@/pages/TeamStorage'
 import { Chat } from '@/pages/Chat'
+import { Help } from '@/pages/Help'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatUserDisplayName } from '@/lib/userName'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useQuery } from '@tanstack/react-query'
@@ -30,6 +32,8 @@ import {
   Sun,
   MessageSquare,
   ListChecks,
+  CircleHelp,
+  Search,
 } from 'lucide-react'
 
 function ThemeToggle() {
@@ -57,6 +61,13 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchQuery, setSearchQuery] = useState('')
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [paletteQuery, setPaletteQuery] = useState('')
+  const [paletteData, setPaletteData] = useState<{
+    projects: Array<{ id: string; name: string; status: string }>
+    tasks: Array<{ id: string; title: string; project_id: string; status: string }>
+    users: Array<{ id: string; name: string; email: string }>
+  } | null>(null)
   const clientErrorFloodGuardRef = useRef<Record<string, number>>({})
   const [searchData, setSearchData] = useState<{
     projects: Array<{ id: string; name: string; status: string }>
@@ -123,6 +134,49 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       clearTimeout(timer)
     }
   }, [searchQuery])
+
+  useEffect(() => {
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      if (!paletteOpen) return
+      if (!paletteQuery.trim()) {
+        setPaletteData(null)
+        return
+      }
+      try {
+        const res = await api.globalSearch(paletteQuery.trim())
+        if (!cancelled) setPaletteData(res)
+      } catch {
+        if (!cancelled) setPaletteData(null)
+      }
+    }, 180)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [paletteOpen, paletteQuery])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen(true)
+      }
+      if (event.key === 'Escape') {
+        setPaletteOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  useEffect(() => {
+    setPaletteOpen(false)
+    setPaletteQuery('')
+    setPaletteData(null)
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     const reportClientError = (payload: {
@@ -193,8 +247,137 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     navigate(`/chat?mode=direct&peer=${member.id}`)
   }
 
+  const quickActions = [
+    ...(user?.visibility_scope === 'own_tasks_only' && user?.own_tasks_visibility_enabled !== false
+      ? [{ label: 'Мои задачи', description: 'Открыть личный список задач', to: '/my-tasks' }]
+      : []),
+    { label: 'Проекты', description: 'Открыть дашборд проектов', to: '/' },
+    { label: 'Аналитика', description: 'Открыть аналитические срезы', to: '/analytics' },
+    { label: 'Команда', description: 'Открыть команду и роли', to: '/team' },
+    { label: 'Доска команды', description: 'Открыть доску команды', to: '/team-board' },
+    { label: 'Хранилище', description: 'Открыть зашифрованное хранилище', to: '/storage' },
+    { label: 'Общий чат', description: 'Открыть командный чат', to: '/chat' },
+    { label: 'Help', description: 'Открыть встроенную справку', to: '/help' },
+  ]
+
+  const openPaletteTarget = (to: string) => {
+    setPaletteOpen(false)
+    setPaletteQuery('')
+    setPaletteData(null)
+    navigate(to)
+  }
+
   return (
     <div className="min-h-screen bg-background flex">
+      <Dialog open={paletteOpen} onOpenChange={setPaletteOpen}>
+        <DialogContent className="w-[92vw] max-w-2xl p-0 overflow-hidden">
+          <DialogHeader className="border-b px-4 py-3">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Search className="h-4 w-4" />
+              Быстрый переход
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-4">
+            <Input
+              autoFocus
+              placeholder="Проекты, задачи, люди, разделы…"
+              value={paletteQuery}
+              onChange={(e) => setPaletteQuery(e.target.value)}
+            />
+            <div className="mt-4 max-h-[60vh] space-y-4 overflow-y-auto">
+              {!paletteQuery.trim() && (
+                <div className="space-y-2">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Быстрые разделы</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {quickActions.map((item) => (
+                      <button
+                        key={item.to}
+                        type="button"
+                        onClick={() => openPaletteTarget(item.to)}
+                        className="rounded-xl border bg-card px-3 py-3 text-left transition-colors hover:bg-accent"
+                      >
+                        <p className="text-sm font-medium">{item.label}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {paletteQuery.trim() && (
+                <>
+                  {paletteData?.projects?.length ? (
+                    <div>
+                      <p className="mb-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Проекты</p>
+                      <div className="space-y-2">
+                        {paletteData.projects.map((project) => (
+                          <button
+                            key={project.id}
+                            type="button"
+                            onClick={() => openPaletteTarget(`/projects/${project.id}`)}
+                            className="w-full rounded-xl border bg-card px-3 py-2 text-left transition-colors hover:bg-accent"
+                          >
+                            <p className="text-sm font-medium">{project.name}</p>
+                            <p className="text-xs text-muted-foreground">{project.status}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {paletteData?.tasks?.length ? (
+                    <div>
+                      <p className="mb-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Задачи</p>
+                      <div className="space-y-2">
+                        {paletteData.tasks.map((task) => (
+                          <button
+                            key={task.id}
+                            type="button"
+                            onClick={() => openPaletteTarget(`/projects/${task.project_id}?task=${task.id}`)}
+                            className="w-full rounded-xl border bg-card px-3 py-2 text-left transition-colors hover:bg-accent"
+                          >
+                            <p className="text-sm font-medium">{task.title}</p>
+                            <p className="text-xs text-muted-foreground">{task.status}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {paletteData?.users?.length ? (
+                    <div>
+                      <p className="mb-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Люди</p>
+                      <div className="space-y-2">
+                        {paletteData.users.map((member) => (
+                          <button
+                            key={member.id}
+                            type="button"
+                            onClick={() => openPaletteTarget('/team')}
+                            className="w-full rounded-xl border bg-card px-3 py-2 text-left transition-colors hover:bg-accent"
+                          >
+                            <p className="text-sm font-medium">{member.name}</p>
+                            <p className="text-xs text-muted-foreground">{member.email}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {paletteData &&
+                    paletteData.projects.length === 0 &&
+                    paletteData.tasks.length === 0 &&
+                    paletteData.users.length === 0 && (
+                      <p className="rounded-xl border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                        Ничего не найдено. Попробуйте часть названия проекта, задачи или email.
+                      </p>
+                    )}
+                </>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <aside className="w-64 border-r bg-card/60 flex flex-col h-screen sticky top-0">
         <div className="px-4 py-4 flex items-start justify-between gap-2">
           <div className="flex items-center gap-3">
@@ -207,6 +390,14 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <Link
+              to="/help"
+              className="rounded-md border border-primary/20 bg-primary/5 p-1.5 text-primary transition-colors hover:bg-primary/10 hover:text-primary"
+              aria-label="Открыть справку"
+              title="Справка"
+            >
+              <CircleHelp className="w-4 h-4" />
+            </Link>
             <ThemeToggle />
           </div>
         </div>
@@ -217,6 +408,14 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              title="Быстрый переход"
+            >
+              ⌘K
+            </button>
             {searchData && (
               <div className="absolute z-20 mt-1 w-full rounded-lg border bg-card shadow-md p-2 space-y-2 max-h-80 overflow-auto">
                 {searchData.projects.length > 0 && (
@@ -502,6 +701,16 @@ export function App() {
           <AuthGuard>
             <AppLayout>
               <Chat />
+            </AppLayout>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/help"
+        element={
+          <AuthGuard>
+            <AppLayout>
+              <Help />
             </AppLayout>
           </AuthGuard>
         }

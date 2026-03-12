@@ -66,6 +66,17 @@ export function useWebSocket() {
     }
   }, [])
 
+  const connect = useCallback(() => {
+    const latestAccessToken = useAuthStore.getState().accessToken
+    if (!latestAccessToken) return null
+
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const wsUrl = `${protocol}://${window.location.host}/ws?token=${latestAccessToken}`
+    const ws = new WebSocket(wsUrl)
+    wsRef.current = ws
+    return ws
+  }, [])
+
   const scheduleReconnect = useCallback(() => {
     if (!activeRef.current) return
     if (reconnectTimerRef.current != null) return
@@ -79,10 +90,8 @@ export function useWebSocket() {
     reconnectTimerRef.current = window.setTimeout(() => {
       reconnectTimerRef.current = null
       if (!activeRef.current) return
-      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const wsUrl = `${protocol}://${window.location.host}/ws?token=${accessToken}`
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
+      const ws = connect()
+      if (!ws) return
 
       ws.onopen = () => {
         retryRef.current = 0
@@ -105,17 +114,15 @@ export function useWebSocket() {
         scheduleReconnect()
       }
     }, delay)
-  }, [accessToken, clearTimers, handleMessage])
+  }, [clearTimers, connect, handleMessage])
 
   useEffect(() => {
     if (!accessToken) return
 
     activeRef.current = true
 
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const wsUrl = `${protocol}://${window.location.host}/ws?token=${accessToken}`
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
+    const ws = connect()
+    if (!ws) return
 
     ws.onmessage = handleMessage
     ws.onerror = () => {}
@@ -142,7 +149,7 @@ export function useWebSocket() {
       clearTimers()
       ws.close()
     }
-  }, [accessToken, clearTimers, handleMessage, scheduleReconnect])
+  }, [accessToken, clearTimers, connect, handleMessage, scheduleReconnect])
 
   return wsRef
 }

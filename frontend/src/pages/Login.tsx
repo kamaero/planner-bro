@@ -24,7 +24,11 @@ export function Login() {
       setTokens(tokens.access_token, tokens.refresh_token)
       const user = await api.getMe()
       setUser(user)
-      navigate('/')
+      navigate(
+        user.visibility_scope === 'own_tasks_only' && user.own_tasks_visibility_enabled !== false
+          ? '/my-tasks'
+          : '/'
+      )
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setError(msg || 'Authentication failed')

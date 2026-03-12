@@ -168,6 +168,11 @@ export function Dashboard() {
   const [selectedDepartmentTab, setSelectedDepartmentTab] = useState<string>('all')
   const [projectSearch, setProjectSearch] = useState('')
   const [onlyMine, setOnlyMine] = useState(false)
+  const [projectListDensity, setProjectListDensity] = useState<'compact' | 'normal'>(() => {
+    if (typeof window === 'undefined') return 'normal'
+    const saved = window.localStorage.getItem('plannerbro-dashboard-project-density')
+    return saved === 'compact' ? 'compact' : 'normal'
+  })
   const [systemLogOpen, setSystemLogOpen] = useState(false)
   const [assignProject, setAssignProject] = useState<Project | null>(null)
   const [assignDepartmentIds, setAssignDepartmentIds] = useState<string[]>([])
@@ -227,6 +232,11 @@ export function Dashboard() {
     const exists = departmentTabs.some((dep) => dep.department_id === selectedDepartmentTab)
     if (!exists) setSelectedDepartmentTab('all')
   }, [departmentTabs, selectedDepartmentTab])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('plannerbro-dashboard-project-density', projectListDensity)
+  }, [projectListDensity])
 
   useEffect(() => {
     const pickRandomQuote = () => {
@@ -620,38 +630,48 @@ export function Dashboard() {
             <Input value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} placeholder="Поиск проекта" className="h-8 w-48 text-xs" />
           }
         >
-          <div className="mb-3">
-            <button
-              type="button"
-              onClick={() => setOnlyMine((v) => !v)}
-              className={cn(
-                'rounded-md border px-3 py-1.5 text-xs font-medium transition-all animate-pulse',
-                onlyMine
-                  ? 'border-blue-600 bg-blue-600/15 text-blue-700 shadow-[0_0_12px_rgba(37,99,235,0.45)]'
-                  : 'border-blue-400/80 bg-blue-500/10 text-blue-700 shadow-[0_0_10px_rgba(59,130,246,0.3)]'
-              )}
-            >
-              Мои проекты и задачи
-            </button>
-          </div>
-          <div className="mb-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setSelectedDepartmentTab('all')}
-              className={cn('rounded-md border px-2 py-1 text-xs', selectedDepartmentTab === 'all' ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}
-            >
-              Все отделы
-            </button>
-            {departmentTabs.map((dep) => (
+          <div className="-mx-4 sticky top-0 z-10 mb-3 border-b bg-card/95 px-4 pb-3 pt-1 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               <button
-                key={dep.department_id}
                 type="button"
-                onClick={() => setSelectedDepartmentTab(dep.department_id)}
-                className={cn('rounded-md border px-2 py-1 text-xs', selectedDepartmentTab === dep.department_id ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}
+                onClick={() => setOnlyMine((v) => !v)}
+                className={cn(
+                  'rounded-md border px-3 py-1.5 text-xs font-medium transition-all animate-pulse',
+                  onlyMine
+                    ? 'border-blue-600 bg-blue-600/15 text-blue-700 shadow-[0_0_12px_rgba(37,99,235,0.45)]'
+                    : 'border-blue-400/80 bg-blue-500/10 text-blue-700 shadow-[0_0_10px_rgba(59,130,246,0.3)]'
+                )}
               >
-                {dep.department_name} ({dep.projects.length})
+                Мои проекты и задачи
               </button>
-            ))}
+              <select
+                value={projectListDensity}
+                onChange={(e) => setProjectListDensity(e.target.value as 'compact' | 'normal')}
+                className="rounded-md border bg-background px-2 py-1.5 text-xs text-muted-foreground"
+              >
+                <option value="compact">Плотность: компактно</option>
+                <option value="normal">Плотность: обычная</option>
+              </select>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedDepartmentTab('all')}
+                className={cn('rounded-md border px-2 py-1 text-xs', selectedDepartmentTab === 'all' ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}
+              >
+                Все отделы
+              </button>
+              {departmentTabs.map((dep) => (
+                <button
+                  key={dep.department_id}
+                  type="button"
+                  onClick={() => setSelectedDepartmentTab(dep.department_id)}
+                  className={cn('rounded-md border px-2 py-1 text-xs', selectedDepartmentTab === dep.department_id ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}
+                >
+                  {dep.department_name} ({dep.projects.length})
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="max-h-[590px] space-y-1.5 overflow-auto pr-1">
@@ -660,7 +680,8 @@ export function Dashboard() {
               <div
                 key={project.id}
                 className={cn(
-                  'rounded-lg border p-2.5 transition-all',
+                  'rounded-lg border transition-all',
+                  projectListDensity === 'compact' ? 'p-2' : 'p-2.5',
                   (() => {
                     const d = daysUntil(project.end_date)
                     if (d !== null && d >= 3 && d <= 5) {
@@ -678,14 +699,17 @@ export function Dashboard() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <Link to={`/projects/${project.id}`} className="truncate text-sm font-semibold hover:text-primary">
+                    <Link
+                      to={`/projects/${project.id}`}
+                      className={cn('truncate font-semibold hover:text-primary', projectListDensity === 'compact' ? 'text-[13px]' : 'text-sm')}
+                    >
                       {project.name}
                     </Link>
-                    <p className="text-xs text-muted-foreground">
+                    <p className={cn('text-muted-foreground', projectListDensity === 'compact' ? 'text-[11px]' : 'text-xs')}>
                       {PROJECT_STATUS_LABEL[project.status] ?? project.status} · исполнение: {projectProgressById[project.id] ?? 0}% · дедлайн: {formatDate(project.end_date)} · владелец: {formatUserDisplayName(project.owner)}
                     </p>
                     {!!project.department_ids?.length && (
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className={cn('mt-1 text-muted-foreground', projectListDensity === 'compact' ? 'text-[11px]' : 'text-xs')}>
                         Отделы: {project.department_ids.map((id) => departmentNameById[id] ?? id).join(', ')}
                       </p>
                     )}
@@ -760,8 +784,8 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Сигналы контроля" className="xl:col-span-2">
-          <div className="flex h-full flex-col">
+        <SectionCard title="Сигналы контроля" className="xl:col-span-2 overflow-hidden">
+          <div className="flex h-full min-h-0 flex-col overflow-hidden">
           <div className="grid grid-cols-2 gap-2 text-center">
             <div className="rounded border p-2">
               <p className="text-[11px] text-muted-foreground">Создано 7д</p>
@@ -780,14 +804,14 @@ export function Dashboard() {
               <p className="text-lg font-semibold text-amber-700">{weekSignals.stale}</p>
             </div>
           </div>
-          <div className="mt-3 flex flex-1 min-h-0 flex-col rounded border p-2 text-xs">
+          <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded border p-2 text-xs">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Эскалации на мне</span>
               <span className="font-semibold">{escalations.length}</span>
             </div>
-            <div className="mt-2 flex flex-1 min-h-0 flex-col border-t pt-2">
+            <div className="mt-2 flex min-h-0 flex-1 flex-col border-t pt-2">
               <p className="mb-1 text-muted-foreground">СКИ контроль ({skiControlTasks.length})</p>
-              <div className="flex-1 min-h-0 space-y-1 overflow-auto pr-1">
+              <div className="flex-1 min-h-0 space-y-1 overflow-y-auto overflow-x-hidden pr-1">
                 {skiControlTasks.length === 0 && <p className="text-[11px] text-muted-foreground">Нет активных задач СКИ</p>}
                 {skiControlTasks.map((task) => {
                   const d = daysUntil(task.end_date)

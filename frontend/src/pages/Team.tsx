@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import type { AuthLoginEvent, Department, User, TempAssignee, ReportDispatchSettings } from '@/types'
 import { formatUserDisplayName } from '@/lib/userName'
+import { Link } from 'react-router-dom'
 
 type UserDraft = Pick<
   User,
@@ -200,6 +201,42 @@ export function Team() {
     }).format(dt)
   }
 
+  const getSignInStatus = (user: User) => {
+    const raw = user.last_sign_in_at ?? user.last_login_at
+    if (!raw) {
+      return {
+        label: 'никогда не входил',
+        tone: 'border-red-200 bg-red-50 text-red-700',
+      }
+    }
+
+    const dt = new Date(raw)
+    if (Number.isNaN(dt.getTime())) {
+      return {
+        label: 'статус не определён',
+        tone: 'border-slate-200 bg-slate-50 text-slate-600',
+      }
+    }
+
+    const diffHours = (Date.now() - dt.getTime()) / (1000 * 60 * 60)
+    if (diffHours <= 72) {
+      return {
+        label: 'недавно активен',
+        tone: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      }
+    }
+    if (diffHours <= 24 * 14) {
+      return {
+        label: 'заходил недавно',
+        tone: 'border-amber-200 bg-amber-50 text-amber-700',
+      }
+    }
+    return {
+      label: 'давно не входил',
+      tone: 'border-orange-200 bg-orange-50 text-orange-700',
+    }
+  }
+
   const getLoginEmailType = (event: AuthLoginEvent) => {
     if (!event.user_id) return 'неизвестно'
     const user = usersById[event.user_id]
@@ -208,6 +245,18 @@ export function Team() {
     const normalized = (event.normalized_email || '').trim().toLowerCase()
     if (!work) return 'личный/н/д'
     return normalized === work ? 'корпоративный' : 'личный'
+  }
+
+  const getVisibilitySummary = (value?: User['visibility_scope']) => {
+    if (value === 'own_tasks_only') return 'Видит в основном свои задачи и связанные проекты.'
+    if (value === 'full_scope') return 'Видит всю систему без отделочных ограничений.'
+    return 'Видит свой управленческий или departmental-контур.'
+  }
+
+  const getRoleSummary = (value?: User['role']) => {
+    if (value === 'admin') return 'Полный доступ, глобальные настройки и сквозные назначения.'
+    if (value === 'manager') return 'Управление людьми, проектами и задачами в рабочем контуре.'
+    return 'Исполнение задач и работа в личном или ограниченном контуре.'
   }
 
   const loadAll = async () => {
@@ -804,6 +853,12 @@ export function Team() {
         <p className="text-sm text-muted-foreground">
           Разделен на подразделы: обзор, управление пользователями, оргструктура, настройки.
         </p>
+        <Link
+          to="/help#roles"
+          className="mt-2 inline-flex text-xs font-medium text-primary transition-colors hover:text-primary/80"
+        >
+          Как работают роли, видимость и last sign-in
+        </Link>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -828,9 +883,17 @@ export function Team() {
           <div className="rounded-xl border bg-card p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-semibold">Текущая команда</h2>
-              <p className="text-xs text-muted-foreground">
-                Пользователей: {users.length} · Отделов: {departments.length}
-              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Пользователей: {users.length} · Отделов: {departments.length}
+                </p>
+                <Link
+                  to="/help#signals"
+                  className="text-xs font-medium text-primary transition-colors hover:text-primary/80"
+                >
+                  Как читать статусы активности
+                </Link>
+              </div>
             </div>
             {loading && <p className="text-sm text-muted-foreground">Загрузка...</p>}
             {!loading && users.length === 0 && <p className="text-sm text-muted-foreground">Активных аккаунтов пока нет.</p>}
@@ -860,7 +923,12 @@ export function Team() {
                             {departmentsById[user.department_id || ''] || 'не назначен'}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">
-                            {formatDateTime(user.last_sign_in_at ?? user.last_login_at)}
+                            <div className="flex flex-col gap-1">
+                              <span>{formatDateTime(user.last_sign_in_at ?? user.last_login_at)}</span>
+                              <span className={`inline-flex w-fit rounded-full border px-2 py-0.5 text-[10px] font-medium ${getSignInStatus(user).tone}`}>
+                                {getSignInStatus(user).label}
+                              </span>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1041,7 +1109,25 @@ export function Team() {
       {section === 'users' && (
         <>
           <div className="rounded-xl border bg-card p-4 space-y-3">
-            <h2 className="font-semibold">Управление пользователями</h2>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="font-semibold">Управление пользователями</h2>
+                <p className="text-sm text-muted-foreground">
+                  Здесь настраиваются роль, видимость и точечные рабочие права пользователя.
+                </p>
+              </div>
+              <Link
+                to="/help#roles"
+                className="text-xs font-medium text-primary transition-colors hover:text-primary/80"
+              >
+                Подробнее о правах и видимости
+              </Link>
+            </div>
+            <div className="grid gap-2 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground md:grid-cols-3">
+              <p><span className="font-medium text-foreground">Role</span> задаёт базовый уровень полномочий.</p>
+              <p><span className="font-medium text-foreground">Visibility</span> определяет, какой контур проектов и задач человек видит.</p>
+              <p><span className="font-medium text-foreground">own-only</span> включает персональный режим `Мои задачи` как основной.</p>
+            </div>
             {loading && <p className="text-sm text-muted-foreground">Загрузка...</p>}
             {!loading && users.length === 0 && (
               <p className="text-sm text-muted-foreground">Активных аккаунтов пока нет.</p>
@@ -1114,24 +1200,36 @@ export function Team() {
                       </div>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-                      <select
-                        value={permissionDrafts[user.id]?.role ?? user.role}
-                        onChange={(e) => handlePermissionChange(user.id, 'role', e.target.value)}
-                        className="border rounded px-2 py-1 bg-background"
-                      >
-                        <option value="developer">developer</option>
-                        <option value="manager">manager</option>
-                        {currentUser?.role === 'admin' && <option value="admin">admin</option>}
-                      </select>
-                      <select
-                        value={permissionDrafts[user.id]?.visibility_scope ?? user.visibility_scope ?? 'department_scope'}
-                        onChange={(e) => handlePermissionChange(user.id, 'visibility_scope', e.target.value)}
-                        className="border rounded px-2 py-1 bg-background"
-                      >
-                        <option value="own_tasks_only">own_tasks_only</option>
-                        <option value="department_scope">department_scope</option>
-                        {currentUser?.role === 'admin' && <option value="full_scope">full_scope</option>}
-                      </select>
+                      <div className="min-w-[220px] rounded-lg border bg-muted/20 px-2 py-2">
+                        <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Role</p>
+                        <select
+                          value={permissionDrafts[user.id]?.role ?? user.role}
+                          onChange={(e) => handlePermissionChange(user.id, 'role', e.target.value)}
+                          className="w-full border rounded px-2 py-1 bg-background"
+                        >
+                          <option value="developer">developer</option>
+                          <option value="manager">manager</option>
+                          {currentUser?.role === 'admin' && <option value="admin">admin</option>}
+                        </select>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          {getRoleSummary((permissionDrafts[user.id]?.role ?? user.role) as User['role'])}
+                        </p>
+                      </div>
+                      <div className="min-w-[240px] rounded-lg border bg-muted/20 px-2 py-2">
+                        <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Visibility</p>
+                        <select
+                          value={permissionDrafts[user.id]?.visibility_scope ?? user.visibility_scope ?? 'department_scope'}
+                          onChange={(e) => handlePermissionChange(user.id, 'visibility_scope', e.target.value)}
+                          className="w-full border rounded px-2 py-1 bg-background"
+                        >
+                          <option value="own_tasks_only">own_tasks_only</option>
+                          <option value="department_scope">department_scope</option>
+                          {currentUser?.role === 'admin' && <option value="full_scope">full_scope</option>}
+                        </select>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          {getVisibilitySummary((permissionDrafts[user.id]?.visibility_scope ?? user.visibility_scope ?? 'department_scope') as User['visibility_scope'])}
+                        </p>
+                      </div>
                       <Input
                         type="email"
                         placeholder="corp@company.com"
@@ -1238,8 +1336,23 @@ export function Team() {
           </div>
 
           <div className="rounded-xl border bg-card p-4">
-            <h2 className="font-semibold mb-1">Добавить сотрудника</h2>
-            <p className="text-sm text-muted-foreground mb-4">Создает новую учетную запись подчиненного.</p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="font-semibold mb-1">Добавить сотрудника</h2>
+                <p className="text-sm text-muted-foreground mb-4">Создает новую учетную запись подчиненного.</p>
+              </div>
+              <Link
+                to="/help#assignment-policy"
+                className="text-xs font-medium text-primary transition-colors hover:text-primary/80"
+              >
+                Кто кого может назначать
+              </Link>
+            </div>
+            <div className="mb-4 grid gap-2 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground md:grid-cols-3">
+              <p><span className="font-medium text-foreground">Developer</span> обычно работает в личном контуре.</p>
+              <p><span className="font-medium text-foreground">Manager</span> получает departmental-видимость и управление подчинёнными.</p>
+              <p><span className="font-medium text-foreground">Admin</span> видит всю систему и назначает без ограничений.</p>
+            </div>
             <form onSubmit={handleInvite} className="space-y-4 max-w-2xl">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1">
