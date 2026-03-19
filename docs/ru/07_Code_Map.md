@@ -41,6 +41,7 @@
 - `backend/app/services/task_dependency_service.py`
 - `backend/app/services/task_rules_service.py`
 - `backend/app/services/task_lifecycle_service.py`
+- `backend/app/services/task_mutation_service.py`
 - `frontend/src/types/index.ts`
 - `frontend/src/pages/ProjectDetail.tsx`
 - `frontend/src/pages/Analytics.tsx`
@@ -232,5 +233,5 @@
 
 - развивать карту вокруг `tasks.py` и `ProjectDetail.tsx` по мере их разрезания;
 - зафиксировать более детальную модульную карту для `App.tsx` (auth bootstrap / route shell / layout state);
-- после фиксации текущего локального шага отдельно разложить `tasks.py` на access / dependency / rules / orchestration зоны;
+- обновить backend map для `tasks.py` с явным разделением access / dependency / rules / lifecycle / mutation / route orchestration зон;
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.

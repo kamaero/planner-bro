@@ -1,4 +1,3 @@
-from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
@@ -60,6 +59,11 @@ from app.services.task_lifecycle_service import (
     prepare_escalation_fields as _prepare_escalation_fields,
     rollup_parent_schedule as _rollup_parent_schedule,
     validate_parent_task as _validate_parent_task,
+)
+from app.services.task_mutation_service import (
+    apply_status_update as _apply_status_update,
+    apply_task_check_in as _apply_task_check_in,
+    validate_task_status as _validate_task_status,
 )
 from app.services.task_dependency_service import (
     apply_outgoing_fs_autoplan as _apply_outgoing_fs_autoplan,
@@ -577,9 +581,7 @@ async def bulk_update_tasks(
         _require_delete_permission(current_user)
 
     if "status" in payload:
-        valid_statuses = {"planning", "tz", "todo", "in_progress", "testing", "review", "done"}
-        if payload["status"] not in valid_statuses:
-            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+        _validate_task_status(payload["status"])
     if "priority" in payload:
         valid_priorities = {"low", "medium", "high", "critical"}
         if payload["priority"] not in valid_priorities:
@@ -712,71 +714,20 @@ async def update_task_status(
         raise HTTPException(status_code=404, detail="Task not found")
     await _require_task_editor(task, current_user, db)
 
-    valid_statuses = {"planning", "tz", "todo", "in_progress", "testing", "review", "done"}
-    if data.status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    _validate_task_status(data.status)
     await ensure_predecessors_done(task, data.status, db)
 
-    now = _now_utc()
-    task.status = data.status
-    if data.progress_percent is not None:
-        task.progress_percent = data.progress_percent
-    elif data.status == "done":
-        task.progress_percent = 100
-    if data.next_step is not None:
-        task.next_step = data.next_step.strip() or None
-    task.last_check_in_at = now
-    task.last_check_in_note = "Статус обновлен"
-    task.next_check_in_due_at = _plan_next_check_in(task, now)
-    await _log_task_event(db, task.id, current_user.id, "status_changed", data.status)
-    if data.progress_percent is not None:
-        await _log_task_event(
-            db,
-            task.id,
-            current_user.id,
-            "progress_updated",
-            str(data.progress_percent),
-        )
-    if data.next_step is not None:
-        await _log_task_event(
-            db,
-            task.id,
-            current_user.id,
-            "next_step_updated",
-            task.next_step,
-        )
-
-    if data.status == "done" and task.repeat_every_days and task.repeat_every_days > 0:
-        next_start = task.start_date + timedelta(days=task.repeat_every_days) if task.start_date else None
-        next_end = task.end_date + timedelta(days=task.repeat_every_days) if task.end_date else None
-        next_task = Task(
-            project_id=task.project_id,
-            parent_task_id=task.parent_task_id,
-            title=task.title,
-            description=task.description,
-            status="todo",
-            priority=task.priority,
-            control_ski=task.control_ski,
-            progress_percent=0,
-            next_step=None,
-            start_date=next_start,
-            end_date=next_end,
-            assigned_to_id=task.assigned_to_id,
-            is_escalation=task.is_escalation,
-            escalation_for=task.escalation_for,
-            repeat_every_days=task.repeat_every_days,
-            created_by_id=current_user.id,
-            estimated_hours=task.estimated_hours,
-        )
-        db.add(next_task)
-        await db.flush()
-        await _log_task_event(
-            db,
-            next_task.id,
-            current_user.id,
-            "task_created_from_recurrence",
-            f"source={task.id}",
-        )
+    await _apply_status_update(
+        db,
+        task=task,
+        actor_id=current_user.id,
+        status=data.status,
+        progress_percent=data.progress_percent,
+        next_step=data.next_step,
+        now=_now_utc(),
+        plan_next_check_in=_plan_next_check_in,
+        log_task_event=_log_task_event,
+    )
     await notify_task_updated(db, task, current_user.id)
     await db.commit()
     await db.refresh(task)
@@ -801,36 +752,20 @@ async def check_in_task(
         raise HTTPException(status_code=404, detail="Task not found")
     await _require_task_editor(task, current_user, db)
 
-    now = _now_utc()
     summary = data.summary.strip()
     blockers = data.blockers.strip() if data.blockers else None
 
-    task.last_check_in_at = now
-    task.last_check_in_note = summary
-    if task.status == "done":
-        task.next_check_in_due_at = None
-    elif data.next_check_in_due_at:
-        task.next_check_in_due_at = data.next_check_in_due_at
-    else:
-        task.next_check_in_due_at = _plan_next_check_in(task, now)
-
-    comment_lines = [f"CHECK-IN: {summary}"]
-    if blockers:
-        comment_lines.append(f"Blockers: {blockers}")
-    comment_lines.append(
-        f"Next check-in due: {task.next_check_in_due_at.isoformat() if task.next_check_in_due_at else 'n/a'}"
-    )
-    if data.need_manager_help:
-        comment_lines.append("Manager help requested: yes")
-    comment = TaskComment(task_id=task.id, author_id=current_user.id, body="\n".join(comment_lines))
-    db.add(comment)
-
-    await _log_task_event(
+    await _apply_task_check_in(
         db,
-        task.id,
-        current_user.id,
-        "check_in_recorded",
-        f"help={'1' if data.need_manager_help else '0'}",
+        task=task,
+        actor_id=current_user.id,
+        summary=summary,
+        blockers=blockers,
+        need_manager_help=data.need_manager_help,
+        next_check_in_due_at=data.next_check_in_due_at,
+        now=_now_utc(),
+        plan_next_check_in=_plan_next_check_in,
+        log_task_event=_log_task_event,
     )
     await _mark_escalation_response(task, current_user.id, db, _log_task_event)
     await db.commit()
