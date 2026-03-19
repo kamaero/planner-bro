@@ -38,7 +38,7 @@
 - `backend/app/schemas/task.py`
 - `backend/app/api/v1/tasks.py`
 - `backend/app/services/task_access_service.py`
-- `backend/app/services/task_dependency_service.py`
+- `backend/app/services/task_dependency_service.py` (dependency rules + endpoint helpers `upsert_dependency` / `get_dependency_or_404`)
 - `backend/app/services/task_rules_service.py`
 - `backend/app/services/task_lifecycle_service.py`
 - `backend/app/services/task_mutation_service.py`

@@ -234,6 +234,68 @@ async def validate_incoming_dependency_rules(
         )
 
 
+async def upsert_dependency(
+    db: AsyncSession,
+    *,
+    successor: Task,
+    predecessor: Task,
+    actor_id: str,
+    dependency_type: str,
+    lag_days: int,
+) -> TaskDependency:
+    if predecessor.project_id != successor.project_id:
+        raise HTTPException(status_code=400, detail="Dependencies must be inside one project")
+    if predecessor.id == successor.id:
+        raise HTTPException(status_code=400, detail="Task cannot depend on itself")
+    if await has_dependency_path(db, successor.id, predecessor.id):
+        raise HTTPException(status_code=400, detail="Dependency cycle is not allowed")
+
+    dep_type = normalize_dependency_type(dependency_type)
+    lag = max(0, int(lag_days or 0))
+    existing = (
+        await db.execute(
+            select(TaskDependency).where(
+                TaskDependency.predecessor_task_id == predecessor.id,
+                TaskDependency.successor_task_id == successor.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    dep = existing
+    if dep is None:
+        dep = TaskDependency(
+            predecessor_task_id=predecessor.id,
+            successor_task_id=successor.id,
+            created_by_id=actor_id,
+            dependency_type=dep_type,
+            lag_days=lag,
+        )
+        db.add(dep)
+    else:
+        dep.dependency_type = dep_type
+        dep.lag_days = lag
+    return dep
+
+
+async def get_dependency_or_404(
+    db: AsyncSession,
+    *,
+    successor_task_id: str,
+    predecessor_task_id: str,
+) -> TaskDependency:
+    dep = (
+        await db.execute(
+            select(TaskDependency).where(
+                TaskDependency.successor_task_id == successor_task_id,
+                TaskDependency.predecessor_task_id == predecessor_task_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not dep:
+        raise HTTPException(status_code=404, detail="Dependency not found")
+    return dep
+
+
 async def project_critical_path(db: AsyncSession, project_id: str) -> dict[str, object]:
     tasks = (await db.execute(select(Task).where(Task.project_id == project_id))).scalars().all()
     by_id = {task.id: task for task in tasks}

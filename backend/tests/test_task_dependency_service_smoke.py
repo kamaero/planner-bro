@@ -10,8 +10,10 @@ from fastapi import HTTPException
 from app.services.task_dependency_service import (
     dependency_short_label,
     enforce_dependency_dates_or_autoplan,
+    get_dependency_or_404,
     has_dependency_path,
     normalize_dependency_type,
+    upsert_dependency,
 )
 
 
@@ -23,14 +25,26 @@ class _Result:
         return list(self._rows)
 
 
+class _ScalarResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
 class _FakeDB:
     def __init__(self, results: list[_Result]):
         self._results = list(results)
+        self.added = []
 
     async def execute(self, _query):
         if not self._results:
             raise AssertionError("No more fake DB results queued")
         return self._results.pop(0)
+
+    def add(self, value):
+        self.added.append(value)
 
 
 class TaskDependencyServiceSmokeTest(unittest.TestCase):
@@ -72,6 +86,38 @@ class TaskDependencyServiceSmokeTest(unittest.TestCase):
             return await has_dependency_path(db, "start", "target")
 
         self.assertTrue(asyncio.run(_run()))
+
+    def test_upsert_dependency_creates_new_link(self):
+        async def _run():
+            db = _FakeDB([_Result(rows=[]), _ScalarResult(None)])
+            successor = SimpleNamespace(id="s1", project_id="p1")
+            predecessor = SimpleNamespace(id="p1", project_id="p1")
+            dep = await upsert_dependency(
+                db,
+                successor=successor,
+                predecessor=predecessor,
+                actor_id="u1",
+                dependency_type="fs",
+                lag_days=2,
+            )
+            return dep, db
+
+        dep, db = asyncio.run(_run())
+        self.assertEqual(dep.dependency_type, "finish_to_start")
+        self.assertEqual(dep.lag_days, 2)
+        self.assertEqual(len(db.added), 1)
+
+    def test_get_dependency_or_404_raises(self):
+        async def _run():
+            db = _FakeDB([_ScalarResult(None)])
+            with self.assertRaises(HTTPException):
+                await get_dependency_or_404(
+                    db,
+                    successor_task_id="s1",
+                    predecessor_task_id="p1",
+                )
+
+        asyncio.run(_run())
 
 
 if __name__ == "__main__":

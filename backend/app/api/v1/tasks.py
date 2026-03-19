@@ -88,9 +88,9 @@ from app.services.task_dependency_service import (
     apply_outgoing_fs_autoplan as _apply_outgoing_fs_autoplan,
     dependency_short_label as _dependency_short_label,
     enforce_dependency_dates_or_autoplan as _enforce_dependency_dates_or_autoplan,
-    has_dependency_path as _has_dependency_path,
-    normalize_dependency_type as _normalize_dependency_type,
+    get_dependency_or_404 as _get_dependency_or_404,
     project_critical_path,
+    upsert_dependency as _upsert_dependency,
     sync_task_predecessors as _sync_task_predecessors,
     validate_incoming_dependency_rules as _validate_incoming_dependency_rules,
 )
@@ -449,44 +449,20 @@ async def add_task_dependency(
     predecessor = await get_task_by_id(db, data.predecessor_task_id)
     if not predecessor:
         raise HTTPException(status_code=404, detail="Predecessor task not found")
-    if predecessor.project_id != successor.project_id:
-        raise HTTPException(status_code=400, detail="Dependencies must be inside one project")
-    if predecessor.id == successor.id:
-        raise HTTPException(status_code=400, detail="Task cannot depend on itself")
-
-    exists = (
-        await db.execute(
-            select(TaskDependency).where(
-                TaskDependency.predecessor_task_id == predecessor.id,
-                TaskDependency.successor_task_id == successor.id,
-            )
-        )
-    ).scalar_one_or_none()
-
-    if await _has_dependency_path(db, successor.id, predecessor.id):
-        raise HTTPException(status_code=400, detail="Dependency cycle is not allowed")
-
-    dep_type = _normalize_dependency_type(data.dependency_type)
     lag_days = max(0, int(data.lag_days or 0))
+    dep = await _upsert_dependency(
+        db,
+        successor=successor,
+        predecessor=predecessor,
+        actor_id=current_user.id,
+        dependency_type=data.dependency_type,
+        lag_days=lag_days,
+    )
 
-    dep = exists
-    if dep is None:
-        dep = TaskDependency(
-            predecessor_task_id=predecessor.id,
-            successor_task_id=successor.id,
-            created_by_id=current_user.id,
-            dependency_type=dep_type,
-            lag_days=lag_days,
-        )
-        db.add(dep)
-    else:
-        dep.dependency_type = dep_type
-        dep.lag_days = lag_days
-
-    await enforce_dependency_dates_or_autoplan(
+    await _enforce_dependency_dates_or_autoplan(
         predecessor,
         successor,
-        dep_type,
+        dep.dependency_type,
         lag_days,
         auto_shift_fs=True,
     )
@@ -497,7 +473,7 @@ async def add_task_dependency(
         successor.id,
         current_user.id,
         "dependency_added",
-        f"{predecessor.id}->{successor.id} [{_dependency_short_label(dep_type)};+{lag_days}d]",
+        f"{predecessor.id}->{successor.id} [{_dependency_short_label(dep.dependency_type)};+{lag_days}d]",
     )
     await db.commit()
     await db.refresh(dep)
@@ -515,16 +491,11 @@ async def remove_task_dependency(
     if not successor:
         raise HTTPException(status_code=404, detail="Task not found")
     await _require_task_editor(successor, current_user, db)
-    dep = (
-        await db.execute(
-            select(TaskDependency).where(
-                TaskDependency.successor_task_id == task_id,
-                TaskDependency.predecessor_task_id == predecessor_task_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if not dep:
-        raise HTTPException(status_code=404, detail="Dependency not found")
+    dep = await _get_dependency_or_404(
+        db,
+        successor_task_id=task_id,
+        predecessor_task_id=predecessor_task_id,
+    )
     await db.delete(dep)
     await _log_task_event(
         db,
