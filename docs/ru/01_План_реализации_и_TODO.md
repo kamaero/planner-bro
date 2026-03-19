@@ -147,6 +147,7 @@
 - [x] Сделана четвёртая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectEditDialog`.
 - [x] Сделана пятая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `useProjectTaskListState`.
 - [x] Сделана шестая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через вынос `ProjectDetailHeader` и `ProjectDetailSummaryCard`.
+- [x] Сделана седьмая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через вынос `ProjectDetailGanttSection` и `ProjectDetailTaskListSection`.
 - [x] Проведена поэтапная разгрузка `frontend/src/pages/Team.tsx` через вынос секций в `frontend/src/components/Team/*`.
 - [x] Вынесена логика report settings из `frontend/src/pages/Team.tsx` в `frontend/src/hooks/useTeamReportSettings.ts`.
 - [x] Вынесены invite/name/permission drafts из `frontend/src/pages/Team.tsx` в `frontend/src/hooks/useTeamUsersAdminState.ts`.

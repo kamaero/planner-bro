@@ -17,16 +17,15 @@ import { useMembers } from '@/hooks/useMembers'
 import { useProjectTaskListState } from '@/hooks/useProjectTaskListState'
 import { useUsers } from '@/hooks/useUsers'
 import { api } from '@/api/client'
-import { GanttChart } from '@/components/GanttChart/GanttChart'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
 import { MembersPanel } from '@/components/MembersPanel/MembersPanel'
 import { ProjectEditDialog, type ProjectEditFormState } from '@/components/ProjectEditDialog/ProjectEditDialog'
 import { ProjectFilesSection } from '@/components/ProjectFilesSection/ProjectFilesSection'
 import { ProjectTaskCreateDialog, type ProjectTaskFormState } from '@/components/ProjectTaskCreateDialog/ProjectTaskCreateDialog'
-import { ProjectTaskListToolbar } from '@/components/ProjectTaskListToolbar/ProjectTaskListToolbar'
 import { ProjectDetailHeader } from '@/components/ProjectDetail/ProjectDetailHeader'
+import { ProjectDetailGanttSection } from '@/components/ProjectDetail/ProjectDetailGanttSection'
 import { ProjectDetailSummaryCard } from '@/components/ProjectDetail/ProjectDetailSummaryCard'
-import { TaskTable } from '@/components/TaskTable/TaskTable'
+import { ProjectDetailTaskListSection } from '@/components/ProjectDetail/ProjectDetailTaskListSection'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
 import { Button } from '@/components/ui/button'
 import {
@@ -364,7 +363,6 @@ export function ProjectDetail() {
     taskRowSize,
     setTaskRowSize,
     filteredTasks,
-    handleToggleTaskSelection,
     handleToggleSelectAllVisible,
     handleBulkStatusUpdate,
     handleBulkAssign,
@@ -470,74 +468,56 @@ export function ProjectDetail() {
 
       {/* Content */}
       {view === 'gantt' ? (
-        <div className="space-y-3">
-          <div className="rounded-xl border bg-card p-4 overflow-x-auto">
-            <GanttChart
-              tasks={ganttData?.tasks ?? []}
-              onTaskClick={handleGanttTaskClick}
-            />
-          </div>
-          <div className="rounded-xl border bg-card p-4">
-            <p className="text-sm font-semibold mb-2">Critical Path</p>
-            {!criticalPath || criticalPath.task_ids.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Нет зависимостей для расчёта.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {criticalPath.tasks.map((t) => (
-                  <span key={t.id} className="text-xs px-2 py-1 rounded border bg-background">
-                    {t.title}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <ProjectDetailGanttSection
+          tasks={ganttData?.tasks ?? []}
+          criticalPath={criticalPath}
+          onTaskClick={handleGanttTaskClick}
+        />
       ) : view === 'list' ? (
-        <div className="space-y-3">
-          <ProjectTaskListToolbar
-            taskSearch={taskSearch}
-            onTaskSearchChange={setTaskSearch}
-            taskStatusFilter={taskStatusFilter}
-            onTaskStatusFilterChange={setTaskStatusFilter}
-            taskAssigneeFilter={taskAssigneeFilter}
-            onTaskAssigneeFilterChange={setTaskAssigneeFilter}
-            members={members}
-            selectedVisibleCount={selectedVisibleCount}
-            filteredTasksCount={filteredTasks.length}
-            selectedTaskIdsCount={selectedTaskIds.length}
-            onToggleSelectAllVisible={handleToggleSelectAllVisible}
-            taskSortBy={taskSortBy}
-            onTaskSortByChange={setTaskSortBy}
-            taskSortDir={taskSortDir}
-            onTaskSortDirChange={setTaskSortDir}
-            taskRowSize={taskRowSize}
-            onTaskRowSizeChange={setTaskRowSize}
-            canManage={canManage}
-            canBulkEdit={canBulkEdit}
-            canDelete={canDelete}
-            bulkBusy={bulkBusy}
-            bulkAssignee={bulkAssignee}
-            onBulkAssigneeChange={setBulkAssignee}
-            bulkPriority={bulkPriority}
-            onBulkPriorityChange={setBulkPriority}
-            onBulkStatusUpdate={handleBulkStatusUpdate}
-            onBulkDelete={handleBulkDelete}
-            onBulkAssign={handleBulkAssign}
-            onBulkPriority={handleBulkPriority}
-          />
-
-          <TaskTable
-            tasks={filteredTasks}
-            allTasks={tasks}
-            onTaskClick={handleTaskClick}
-            onStatusChange={(taskId, status) => {
+        <ProjectDetailTaskListSection
+          toolbarProps={{
+            taskSearch,
+            onTaskSearchChange: setTaskSearch,
+            taskStatusFilter,
+            onTaskStatusFilterChange: setTaskStatusFilter,
+            taskAssigneeFilter,
+            onTaskAssigneeFilterChange: setTaskAssigneeFilter,
+            members,
+            selectedVisibleCount,
+            filteredTasksCount: filteredTasks.length,
+            selectedTaskIdsCount: selectedTaskIds.length,
+            onToggleSelectAllVisible: handleToggleSelectAllVisible,
+            taskSortBy,
+            onTaskSortByChange: setTaskSortBy,
+            taskSortDir,
+            onTaskSortDirChange: setTaskSortDir,
+            taskRowSize,
+            onTaskRowSizeChange: setTaskRowSize,
+            canManage,
+            canBulkEdit,
+            canDelete,
+            bulkBusy,
+            bulkAssignee,
+            onBulkAssigneeChange: setBulkAssignee,
+            bulkPriority,
+            onBulkPriorityChange: setBulkPriority,
+            onBulkStatusUpdate: handleBulkStatusUpdate,
+            onBulkDelete: handleBulkDelete,
+            onBulkAssign: handleBulkAssign,
+            onBulkPriority: handleBulkPriority,
+          }}
+          tableProps={{
+            tasks: filteredTasks,
+            allTasks: tasks,
+            onTaskClick: handleTaskClick,
+            onStatusChange: (taskId, status) => {
               const task = tasks.find((t) => t.id === taskId)
               if (task) handleQuickStatusChange(task, status)
-            }}
-            shiftsMap={shiftsMap}
-            rowSize={taskRowSize}
-          />
-        </div>
+            },
+            shiftsMap,
+            rowSize: taskRowSize,
+          }}
+        />
       ) : view === 'members' ? (
         <MembersPanel projectId={id!} />
       ) : (
