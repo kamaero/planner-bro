@@ -36,13 +36,10 @@ from app.services.notification_service import (
     notify_new_task,
     notify_check_in_help_requested,
 )
-from app.services.access_scope import (
-    can_access_project,
-    has_department_level_access,
-)
 from app.services.task_access_service import (
     ensure_member_for_assignee as _ensure_member_for_assignee,
     is_own_tasks_only as _is_own_tasks_only,
+    is_title_only_update as _is_title_only_update,
     is_task_assignee as _is_task_assignee,
     require_bulk_permission as _require_bulk_permission,
     require_delete_permission as _require_delete_permission,
@@ -51,6 +48,7 @@ from app.services.task_access_service import (
     require_project_member as _require_project_member,
     require_project_visibility as _require_project_visibility,
     require_task_editor as _require_task_editor,
+    require_task_update_access as _require_task_update_access,
     require_task_visibility as _require_task_visibility,
     serialize_assignee_ids as _serialize_assignee_ids,
     sync_task_assignees as _sync_task_assignees,
@@ -274,23 +272,17 @@ async def update_task(
         payload["assigned_to_id"] = assignee_ids[0] if assignee_ids else None
     deadline_change_reason = payload.pop("deadline_change_reason", None)
 
-    title_only_update = (
-        set(payload.keys()) <= {"title"}
-        and assignee_ids is None
-        and deadline_change_reason is None
+    title_only_update = _is_title_only_update(
+        payload,
+        assignee_ids=assignee_ids,
+        deadline_change_reason=deadline_change_reason,
     )
-    try:
-        await _require_task_editor(task, current_user, db)
-    except HTTPException as exc:
-        if exc.status_code != 403:
-            raise
-        can_rename_with_scope = (
-            title_only_update
-            and await has_department_level_access(db, current_user)
-            and await can_access_project(db, current_user, task.project_id)
-        )
-        if not can_rename_with_scope:
-            raise
+    await _require_task_update_access(
+        task,
+        current_user,
+        db,
+        title_only_update=title_only_update,
+    )
 
     projected_status = payload.get("status", task.status)
     _validate_deadline_reason(

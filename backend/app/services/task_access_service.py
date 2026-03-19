@@ -7,7 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskAssignee
 from app.models.user import User
-from app.services.access_scope import can_access_project, get_task_assignment_scope_user_ids
+from app.services.access_scope import (
+    can_access_project,
+    get_task_assignment_scope_user_ids,
+    has_department_level_access,
+)
 
 
 async def is_project_member(project_id: str, user: User, db: AsyncSession) -> bool:
@@ -170,3 +174,33 @@ async def require_task_editor(task: Task, user: User, db: AsyncSession) -> None:
     if await is_project_member(task.project_id, user, db):
         return
     raise HTTPException(status_code=403, detail="Edit access denied")
+
+
+def is_title_only_update(
+    payload: dict,
+    *,
+    assignee_ids: list[str] | None,
+    deadline_change_reason: str | None,
+) -> bool:
+    return set(payload.keys()) <= {"title"} and assignee_ids is None and deadline_change_reason is None
+
+
+async def require_task_update_access(
+    task: Task,
+    user: User,
+    db: AsyncSession,
+    *,
+    title_only_update: bool,
+) -> None:
+    try:
+        await require_task_editor(task, user, db)
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        can_rename_with_scope = (
+            title_only_update
+            and await has_department_level_access(db, user)
+            and await can_access_project(db, user, task.project_id)
+        )
+        if not can_rename_with_scope:
+            raise
