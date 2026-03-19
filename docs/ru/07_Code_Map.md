@@ -47,6 +47,7 @@
 - `backend/app/schemas/project.py`
 - `backend/app/api/v1/projects.py`
 - `backend/app/services/project_service.py`
+- `backend/app/services/project_rules_service.py`
 - `frontend/src/pages/ProjectDetail.tsx`
 - `frontend/src/pages/Dashboard.tsx`
 

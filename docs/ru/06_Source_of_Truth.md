@@ -95,6 +95,8 @@ Web и mobile сейчас местами повторяют контракт в
 - backend task lifecycle и проверки:
   - `backend/app/api/v1/tasks.py`
   - частично `backend/app/api/v1/projects.py`
+  - вынесенные project-side helper rules:
+    - `backend/app/services/project_rules_service.py`
 
 ### Производные представления
 
@@ -221,4 +223,5 @@ Web и mobile сейчас местами повторяют контракт в
 
 - выделить единые словари статусов и приоритетов;
 - сократить ручное дублирование в web/mobile;
+- продолжить вынос project-side бизнес-правил из `projects.py` в сервисный слой;
 - сделать документ `Проверки и верификация`, чтобы source of truth был не только у правил, но и у способа проверки.
