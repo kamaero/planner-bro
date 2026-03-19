@@ -97,7 +97,7 @@
 - [x] Вынести диалог редактирования проекта из `frontend/src/pages/ProjectDetail.tsx` в `frontend/src/components/ProjectEditDialog/ProjectEditDialog.tsx`.
 - [x] Вынести task-list state и bulk-handlers из `frontend/src/pages/ProjectDetail.tsx` в `frontend/src/hooks/useProjectTaskListState.ts`.
 - [ ] Продолжить разрезание `frontend/src/pages/ProjectDetail.tsx` на секции и hooks.
-- [ ] Разрезать `frontend/src/App.tsx` на layout / search / sidebar / telemetry.
+- [x] Разрезать `frontend/src/App.tsx` на layout / search / sidebar / telemetry (`components/App/*`, `useClientErrorTelemetry`).
 - [x] Разрезать `frontend/src/pages/Team.tsx` на секции и hooks (`components/Team/*`, `useTeamReportSettings`, `useTeamUsersAdminState`).
 - [x] Разрезать `frontend/src/pages/Dashboard.tsx` на секции и hooks (`DashboardProjectsSection`, `DashboardOpsSignalsSection`, `DashboardTasksSection`, `DashboardDialogs`, `useDashboardMetrics`).
 - [ ] Убрать дублирование словарей статусов и приоритетов.
@@ -115,7 +115,7 @@
 1. Довести backend checks до полностью бесшовного запуска без ручной подготовки окружения.
 2. Зафиксировать текущий локальный вынос task access-логики из `tasks.py` в отдельный сервис и обновить связанную документацию.
 3. Продолжить разрезание `projects.py` после вынесения `project_rules_service.py` и `project_access_service.py`.
-4. Продолжить следующую итерацию рефакторинга `frontend/src/App.tsx`.
+4. Продолжить следующую итерацию рефакторинга `frontend/src/pages/ProjectDetail.tsx`.
 5. Добавить следующий пакет контрактных smoke-тестов на роли и visibility.
 
 ## Риски и блокеры
@@ -154,3 +154,4 @@
 - [x] Вынесены блоки `Срочные задачи` + `Мои задачи` из `frontend/src/pages/Dashboard.tsx` в `frontend/src/components/Dashboard/DashboardTasksSection.tsx`.
 - [x] Вынесены служебные модалки `System log` и `Назначить отделы проекту` в `frontend/src/components/Dashboard/DashboardDialogs.tsx`.
 - [x] Вынесены derived-метрики `Dashboard` в `frontend/src/hooks/useDashboardMetrics.ts`.
+- [x] Сделана первая безопасная итерация разгрузки `frontend/src/App.tsx` через вынос `CommandPaletteDialog`, `AppSidebar` и `useClientErrorTelemetry`.

@@ -95,7 +95,17 @@
 - `frontend/src/api/events.ts`
 - `frontend/src/hooks/useNotifications.ts`
 - `frontend/src/hooks/useWebSocket.ts`
+- `frontend/src/hooks/useClientErrorTelemetry.ts`
 - `frontend/src/components/NotificationBell/`
+
+### Если нужно менять shell приложения (sidebar, global search, command palette)
+
+Смотрите сюда:
+
+- `frontend/src/App.tsx`
+- `frontend/src/components/App/AppSidebar.tsx`
+- `frontend/src/components/App/CommandPaletteDialog.tsx`
+- `frontend/src/hooks/useClientErrorTelemetry.ts`
 
 ### Если нужно менять чат
 
@@ -211,6 +221,6 @@
 Следующий логичный шаг:
 
 - развивать карту вокруг `tasks.py` и `ProjectDetail.tsx` по мере их разрезания;
-- зафиксировать такую же модульную карту для `Dashboard.tsx` по мере текущей итерации распила;
+- зафиксировать более детальную модульную карту для `App.tsx` (auth bootstrap / route shell / layout state);
 - после фиксации текущего локального шага отдельно разложить `tasks.py` на access / dependency / rules / orchestration зоны;
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.
