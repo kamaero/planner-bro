@@ -105,6 +105,15 @@ SKIP_FRONTEND=1 ./scripts/deploy-prod.sh
 
 ## Дополнительная документация
 
+- Портал памяти проекта и навигация по docs (RU): [docs/ru/00_Портал_PlannerBro.md](./docs/ru/00_Портал_PlannerBro.md)
+- План реализации и рабочий TODO (RU): [docs/ru/01_План_реализации_и_TODO.md](./docs/ru/01_План_реализации_и_TODO.md)
+- Текущее состояние проекта (RU): [docs/ru/02_Текущее_состояние_проекта.md](./docs/ru/02_Текущее_состояние_проекта.md)
+- Архитектурная память проекта (RU): [docs/ru/03_Архитектурная_память_проекта.md](./docs/ru/03_Архитектурная_память_проекта.md)
+- Workflow документации и синхронизации (RU): [docs/ru/04_Workflow_документации_и_синхронизации.md](./docs/ru/04_Workflow_документации_и_синхронизации.md)
+- Workflow работы на нескольких Mac (RU): [docs/ru/05_Multi-Mac_workflow.md](./docs/ru/05_Multi-Mac_workflow.md)
+- Source of Truth по доменным правилам (RU): [docs/ru/06_Source_of_Truth.md](./docs/ru/06_Source_of_Truth.md)
+- Code Map для человека и LLM (RU): [docs/ru/07_Code_Map.md](./docs/ru/07_Code_Map.md)
+- Проверки и верификация (RU): [docs/ru/08_Проверки_и_верификация.md](./docs/ru/08_Проверки_и_верификация.md)
 - Портал документации (RU): [docs/ru/00_Портал_PlannerBro.md](./docs/ru/00_Портал_PlannerBro.md)
 - Функционал системы (RU): [docs/ru/12_Функционал_системы.md](./docs/ru/12_Функционал_системы.md)
 - Справка пользователя (RU): [docs/ru/13_Справка_пользователя.md](./docs/ru/13_Справка_пользователя.md)

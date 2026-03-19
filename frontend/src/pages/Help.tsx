@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BookOpen, FolderKanban, ShieldCheck, Upload, Users, Workflow } from 'lucide-react'
+import { BookOpen, FolderKanban, ShieldCheck, Smartphone, Upload, Users, Workflow } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 type HelpSection = {
@@ -95,6 +95,18 @@ const HELP_SECTIONS: HelpSection[] = [
       'Если человека ещё нет в системе, имя может попасть во временные назначения для дальнейшей привязки.',
     ],
   },
+  {
+    id: 'mobile',
+    title: 'Мобильное приложение',
+    icon: Smartphone,
+    summary: 'Когда удобнее работать с телефона и чего ждать от мобильного контура PlannerBro.',
+    bullets: [
+      'Мобильное приложение подходит для быстрого входа, просмотра задач, статусов и уведомлений вне рабочего места.',
+      'Авторизация использует тот же backend и те же access/refresh token-механизмы, что и веб-версия.',
+      'Мобильный Gantt и обзорные экраны упрощены по сравнению с вебом: идея в скорости, а не в попытке запихнуть весь офис в экран телефона.',
+      'Если в мобильном приложении что-то выглядит не так, как в вебе, это чаще всего осознанное упрощение, а не баг-переодевание.',
+    ],
+  },
 ]
 
 const QUICK_LINKS = [
@@ -105,6 +117,7 @@ const QUICK_LINKS = [
   { label: 'Политика назначений', href: '#assignment-policy' },
   { label: 'Сигналы контроля', href: '#signals' },
   { label: 'Импорт файлов', href: '#import' },
+  { label: 'Мобильное приложение', href: '#mobile' },
 ]
 
 export function Help() {
@@ -222,6 +235,21 @@ export function Help() {
             <p>2. Проверьте, как указаны исполнители: email или `Фамилия И.О.`.</p>
             <p>3. Импортируйте файл в проект и проверьте черновики.</p>
             <p>4. Если нужно, используйте временные назначения для людей, которых ещё нет в системе.</p>
+          </div>
+        </article>
+
+        <article className="rounded-2xl border bg-card p-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Smartphone className="h-5 w-5" />
+            </div>
+            <h2 className="text-lg font-semibold">Сценарий мобильного пользователя</h2>
+          </div>
+          <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+            <p>1. Откройте приложение, чтобы быстро проверить свои задачи и уведомления вне рабочего места.</p>
+            <p>2. Используйте мобильный контур для коротких обновлений статуса, а не для тяжёлого проектного моделирования.</p>
+            <p>3. Если нужен полный разбор зависимостей, массовых операций или больших таблиц, удобнее вернуться в веб.</p>
+            <p>4. Мобильная версия полезна как рабочий пульт, а не как попытка засунуть весь дэшборд в карман.</p>
           </div>
         </article>
       </section>
