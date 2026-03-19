@@ -1,30 +1,25 @@
 import uuid
-import hashlib
 import io
 from datetime import date
-from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.core.config import settings
 from app.models.user import User
 from app.models.department import Department
 from app.models.project import (
     Project,
     ProjectMember,
-    ProjectFile,
     ProjectDepartment,
     default_completion_checklist,
 )
-from app.models.task import Task, TaskEvent, TaskComment
+from app.models.task import Task, TaskAssignee, TaskEvent, TaskComment
 from app.models.ai import AIIngestionJob, AITaskDraft
 from app.models.deadline_change import DeadlineChange
-from app.models.vault import VaultFile
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
     AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut, MSProjectImportResult,
@@ -53,6 +48,14 @@ from app.services.notification_service import (
 )
 from app.services.system_activity_service import log_system_activity
 from app.services.ms_project_import_service import parse_ms_project_content, inspect_import_file
+from app.services.project_access_service import (
+    get_member,
+    maybe_archive_processed_file,
+    require_assignment_scope_user,
+    require_project_access,
+    sync_project_departments,
+    validate_department_ids,
+)
 from app.services.project_rules_service import (
     apply_control_ski,
     collect_assignee_hints,
@@ -67,161 +70,13 @@ from app.services.project_rules_service import (
     sync_task_assignees_for_project,
 )
 from app.services.temp_assignee_service import upsert_temp_assignees
-from app.services.vault_crypto import encrypt_file
 from app.services.project_file_storage import (
-    store_project_file_encrypted,
     read_project_file_bytes,
     delete_project_file_blob,
 )
 from app.tasks.ai_ingestion import process_file_for_ai
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-
-
-def _vault_key() -> str:
-    key = settings.VAULT_ENCRYPTION_KEY
-    if key:
-        return key
-    return hashlib.sha256(settings.SECRET_KEY.encode()).hexdigest()
-
-
-async def _require_project_access(
-    project_id: str, user: User, db: AsyncSession, require_manager: bool = False
-) -> Project:
-    result = await db.execute(
-        select(Project)
-        .where(Project.id == project_id)
-        .options(selectinload(Project.owner), selectinload(Project.departments))
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    if not await can_access_project(db, user, project_id):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    if require_manager and user.role != "admin":
-        member_result = await db.execute(
-            select(ProjectMember).where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == user.id
-            )
-        )
-        member = member_result.scalar_one_or_none()
-        if not member or member.role not in ("owner", "manager"):
-            raise HTTPException(status_code=403, detail="Manager access required")
-
-    return project
-
-
-async def _validate_department_ids(db: AsyncSession, department_ids: list[str]) -> list[str]:
-    normalized = sorted({dep_id for dep_id in department_ids if dep_id})
-    if not normalized:
-        return []
-    existing = (
-        await db.execute(select(Department.id).where(Department.id.in_(normalized)))
-    ).scalars().all()
-    if len(existing) != len(normalized):
-        raise HTTPException(status_code=400, detail="One or more departments do not exist")
-    return normalized
-
-
-async def _sync_project_departments(db: AsyncSession, project_id: str, department_ids: list[str]) -> None:
-    await db.execute(delete(ProjectDepartment).where(ProjectDepartment.project_id == project_id))
-    for dep_id in department_ids:
-        db.add(ProjectDepartment(project_id=project_id, department_id=dep_id))
-
-
-async def _get_member(project_id: str, user_id: str, db: AsyncSession) -> ProjectMember | None:
-    result = await db.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == user_id,
-        )
-    )
-    return result.scalar_one_or_none()
-
-
-async def _require_assignment_scope_user(
-    db: AsyncSession,
-    actor: User,
-    target_user_id: str,
-) -> None:
-    allowed_user_ids = await get_task_assignment_scope_user_ids(db, actor)
-    if target_user_id not in allowed_user_ids:
-        raise HTTPException(status_code=403, detail="No permission to assign this user")
-
-
-async def _maybe_archive_processed_file(
-    project_id: str,
-    project_file_id: str,
-    actor_id: str,
-    db: AsyncSession,
-) -> None:
-    pending_count = (
-        await db.execute(
-            select(func.count())
-            .select_from(AITaskDraft)
-            .where(
-                AITaskDraft.project_id == project_id,
-                AITaskDraft.project_file_id == project_file_id,
-                AITaskDraft.status == "pending",
-            )
-        )
-    ).scalar_one()
-    if pending_count:
-        return
-
-    project_file = (
-        await db.execute(
-            select(ProjectFile).where(
-                ProjectFile.id == project_file_id,
-                ProjectFile.project_id == project_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if not project_file:
-        return
-
-    try:
-        plaintext = read_project_file_bytes(project_file)
-    except FileNotFoundError:
-        return
-
-    if plaintext:
-        archive_description = f"Обработанный файл проекта {project_id} (source_file_id={project_file_id})"
-        existing_archive = (
-            await db.execute(
-                select(VaultFile.id).where(
-                    VaultFile.folder == "Processed",
-                    VaultFile.name == project_file.filename,
-                    VaultFile.description == archive_description,
-                )
-            )
-        ).scalar_one_or_none()
-        if existing_archive:
-            return
-
-        vault_id = str(uuid.uuid4())
-        ciphertext, nonce = encrypt_file(_vault_key(), vault_id, plaintext)
-        vault_dir = Path(settings.VAULT_FILES_DIR)
-        vault_dir.mkdir(parents=True, exist_ok=True)
-        vault_storage_path = vault_dir / vault_id
-        vault_storage_path.write_bytes(ciphertext)
-        db.add(
-            VaultFile(
-                id=vault_id,
-                name=project_file.filename,
-                description=archive_description,
-                content_type=project_file.content_type,
-                size=len(plaintext),
-                encrypted_size=len(ciphertext),
-                storage_path=str(vault_storage_path),
-                nonce=nonce,
-                folder="Processed",
-                uploaded_by_id=actor_id,
-            )
-        )
 
 
 @router.get("/", response_model=list[ProjectOut])
@@ -283,7 +138,7 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
 ):
     payload = data.model_dump()
-    department_ids = await _validate_department_ids(db, payload.pop("department_ids", []))
+    department_ids = await validate_department_ids(db, payload.pop("department_ids", []))
     incoming_checklist = normalize_checklist(payload.get("completion_checklist"))
     payload["completion_checklist"] = incoming_checklist or default_completion_checklist()
     apply_control_ski(payload)
@@ -293,7 +148,7 @@ async def create_project(
     project = Project(**payload, owner_id=current_user.id)
     db.add(project)
     await db.flush()
-    await _sync_project_departments(db, project.id, department_ids)
+    await sync_project_departments(db, project.id, department_ids)
 
     # Add owner as member
     member = ProjectMember(project_id=project.id, user_id=current_user.id, role="owner")
@@ -503,7 +358,7 @@ async def get_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _require_project_access(project_id, current_user, db)
+    return await require_project_access(project_id, current_user, db)
 
 
 @router.put("/{project_id}", response_model=ProjectOut)
@@ -513,8 +368,8 @@ async def update_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _require_project_access(project_id, current_user, db, require_manager=False)
-    requester_member = await _get_member(project_id, current_user.id, db)
+    project = await require_project_access(project_id, current_user, db, require_manager=False)
+    requester_member = await get_member(project_id, current_user.id, db)
     payload = data.model_dump(exclude_none=True)
     owner_id = payload.pop("owner_id", None)
     incoming_department_ids = payload.pop("department_ids", None)
@@ -568,8 +423,8 @@ async def update_project(
     for field, value in payload.items():
         setattr(project, field, value)
     if incoming_department_ids is not None:
-        normalized_department_ids = await _validate_department_ids(db, incoming_department_ids)
-        await _sync_project_departments(db, project_id, normalized_department_ids)
+        normalized_department_ids = await validate_department_ids(db, incoming_department_ids)
+        await sync_project_departments(db, project_id, normalized_department_ids)
 
     # Record deadline change if end_date actually changed
     if new_end_date is not None and new_end_date != old_end_date and deadline_change_reason:
@@ -585,7 +440,7 @@ async def update_project(
     if owner_id and owner_id != project.owner_id:
         if current_user.role != "admin" and (not requester_member or requester_member.role != "owner"):
             raise HTTPException(status_code=403, detail="Only owner or admin can transfer ownership")
-        await _require_assignment_scope_user(db, current_user, owner_id)
+        await require_assignment_scope_user(db, current_user, owner_id)
         owner_result = await db.execute(select(User).where(User.id == owner_id))
         new_owner = owner_result.scalar_one_or_none()
         if not new_owner:
@@ -628,7 +483,7 @@ async def delete_project(
     db: AsyncSession = Depends(get_db),
 ):
     require_delete_permission(current_user)
-    project = await _require_project_access(project_id, current_user, db, require_manager=True)
+    project = await require_project_access(project_id, current_user, db, require_manager=True)
     await db.delete(project)
     await db.commit()
 
@@ -639,7 +494,7 @@ async def get_gantt(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     return await get_gantt_data(db, project_id)
 
 
@@ -649,7 +504,7 @@ async def list_members(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     result = await db.execute(
         select(ProjectMember)
         .where(ProjectMember.project_id == project_id)
@@ -664,7 +519,7 @@ async def list_project_files(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     result = await db.execute(
         select(ProjectFile)
         .where(ProjectFile.project_id == project_id)
@@ -680,7 +535,7 @@ async def upload_project_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     if not upload.filename:
         raise HTTPException(status_code=400, detail="Filename required")
 
@@ -750,7 +605,7 @@ async def import_tasks_from_ms_project(
     db: AsyncSession = Depends(get_db),
 ):
     require_import_permission(current_user)
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     if not upload.filename:
         raise HTTPException(status_code=400, detail="Filename required")
 
@@ -943,7 +798,7 @@ async def download_project_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     result = await db.execute(
         select(ProjectFile).where(
             ProjectFile.id == file_id,
@@ -977,7 +832,7 @@ async def get_project_file_import_precheck(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     result = await db.execute(
         select(ProjectFile).where(
             ProjectFile.id == file_id,
@@ -1005,7 +860,7 @@ async def delete_project_file(
     db: AsyncSession = Depends(get_db),
 ):
     require_delete_permission(current_user)
-    await _require_project_access(project_id, current_user, db, require_manager=True)
+    await require_project_access(project_id, current_user, db, require_manager=True)
     result = await db.execute(
         select(ProjectFile).where(
             ProjectFile.id == file_id,
@@ -1040,7 +895,7 @@ async def list_ai_jobs(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     result = await db.execute(
         select(AIIngestionJob)
         .where(AIIngestionJob.project_id == project_id)
@@ -1059,7 +914,7 @@ async def start_ai_processing_for_file(
     db: AsyncSession = Depends(get_db),
 ):
     require_import_permission(current_user)
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
 
     file_record = (
         await db.execute(
@@ -1112,7 +967,7 @@ async def list_ai_drafts(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     stmt = (
         select(AITaskDraft)
         .where(AITaskDraft.project_id == project_id)
@@ -1318,7 +1173,7 @@ async def approve_ai_draft(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     user_candidates = (
         await db.execute(select(User).where(User.is_active == True))
     ).scalars().all()
@@ -1338,7 +1193,7 @@ async def approve_ai_draft(
         raise HTTPException(status_code=400, detail="AI draft is already processed")
 
     await _approve_single_ai_draft(project_id, draft, current_user, db, user_candidates=user_candidates)
-    await _maybe_archive_processed_file(project_id, draft.project_file_id, current_user.id, db)
+    await maybe_archive_processed_file(project_id, draft.project_file_id, current_user.id, db)
     await db.commit()
     await db.refresh(draft)
     return draft
@@ -1351,7 +1206,7 @@ async def approve_ai_drafts_bulk(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     user_candidates = (
         await db.execute(select(User).where(User.is_active == True))
     ).scalars().all()
@@ -1379,7 +1234,7 @@ async def approve_ai_drafts_bulk(
         )
         approved.append(draft)
     for file_id in {d.project_file_id for d in approved}:
-        await _maybe_archive_processed_file(project_id, file_id, current_user.id, db)
+        await maybe_archive_processed_file(project_id, file_id, current_user.id, db)
     await db.commit()
     return approved
 
@@ -1391,7 +1246,7 @@ async def reject_ai_drafts_bulk(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     result = await db.execute(
         select(AITaskDraft)
         .where(
@@ -1411,7 +1266,7 @@ async def reject_ai_drafts_bulk(
         draft.approved_by_id = current_user.id
         rejected.append(draft)
     for file_id in {d.project_file_id for d in rejected}:
-        await _maybe_archive_processed_file(project_id, file_id, current_user.id, db)
+        await maybe_archive_processed_file(project_id, file_id, current_user.id, db)
     await db.commit()
     return rejected
 
@@ -1423,7 +1278,7 @@ async def reject_ai_draft(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     draft = (
         await db.execute(
             select(AITaskDraft)
@@ -1440,7 +1295,7 @@ async def reject_ai_draft(
         raise HTTPException(status_code=400, detail="AI draft is already processed")
     draft.status = "rejected"
     draft.approved_by_id = current_user.id
-    await _maybe_archive_processed_file(project_id, draft.project_file_id, current_user.id, db)
+    await maybe_archive_processed_file(project_id, draft.project_file_id, current_user.id, db)
     await db.commit()
     await db.refresh(draft)
     return draft
@@ -1453,14 +1308,14 @@ async def add_member(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _require_project_access(project_id, current_user, db, require_manager=True)
-    requester_member = await _get_member(project_id, current_user.id, db)
+    project = await require_project_access(project_id, current_user, db, require_manager=True)
+    requester_member = await get_member(project_id, current_user.id, db)
     if data.role == "owner":
         raise HTTPException(status_code=400, detail="Use project owner transfer instead")
     if data.role == "manager" and current_user.role != "admin":
         if not requester_member or requester_member.role != "owner":
             raise HTTPException(status_code=403, detail="Only owner or admin can assign manager role")
-    await _require_assignment_scope_user(db, current_user, data.user_id)
+    await require_assignment_scope_user(db, current_user, data.user_id)
     existing = await db.execute(
         select(ProjectMember).where(
             ProjectMember.project_id == project_id,
@@ -1490,9 +1345,9 @@ async def update_member_role(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _require_project_access(project_id, current_user, db, require_manager=True)
-    requester_member = await _get_member(project_id, current_user.id, db)
-    member = await _get_member(project_id, user_id, db)
+    project = await require_project_access(project_id, current_user, db, require_manager=True)
+    requester_member = await get_member(project_id, current_user.id, db)
+    member = await get_member(project_id, user_id, db)
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
     if member.role == "owner":
@@ -1522,7 +1377,7 @@ async def remove_member(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db, require_manager=True)
+    await require_project_access(project_id, current_user, db, require_manager=True)
     result = await db.execute(
         select(ProjectMember).where(
             ProjectMember.project_id == project_id,
@@ -1547,7 +1402,7 @@ async def list_project_deadline_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     result = await db.execute(
         select(DeadlineChange)
         .where(DeadlineChange.entity_type == "project", DeadlineChange.entity_id == project_id)
