@@ -61,6 +61,8 @@
 - `frontend/src/components/ProjectTaskListToolbar/ProjectTaskListToolbar.tsx`
 - `frontend/src/components/ProjectTaskCreateDialog/ProjectTaskCreateDialog.tsx`
 - `frontend/src/components/ProjectEditDialog/ProjectEditDialog.tsx`
+- `frontend/src/components/ProjectDetail/ProjectDetailHeader.tsx`
+- `frontend/src/components/ProjectDetail/ProjectDetailSummaryCard.tsx`
 - `frontend/src/hooks/useProjectTaskListState.ts`
 - `frontend/src/pages/Dashboard.tsx`
 - `frontend/src/components/Dashboard/DashboardProjectsSection.tsx`

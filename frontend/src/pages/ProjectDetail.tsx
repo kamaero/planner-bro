@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   useProject,
   useGantt,
@@ -24,24 +24,20 @@ import { ProjectEditDialog, type ProjectEditFormState } from '@/components/Proje
 import { ProjectFilesSection } from '@/components/ProjectFilesSection/ProjectFilesSection'
 import { ProjectTaskCreateDialog, type ProjectTaskFormState } from '@/components/ProjectTaskCreateDialog/ProjectTaskCreateDialog'
 import { ProjectTaskListToolbar } from '@/components/ProjectTaskListToolbar/ProjectTaskListToolbar'
+import { ProjectDetailHeader } from '@/components/ProjectDetail/ProjectDetailHeader'
+import { ProjectDetailSummaryCard } from '@/components/ProjectDetail/ProjectDetailSummaryCard'
 import { TaskTable } from '@/components/TaskTable/TaskTable'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
 import {
-  PROJECT_STATUS_OPTIONS,
-  TASK_PRIORITY_BADGE_COLORS,
   TASK_PRIORITY_ORDER,
-  TASK_STATUS_LABELS,
   TASK_STATUS_ORDER,
 } from '@/lib/domainMeta'
 import { humanizeApiError } from '@/lib/errorMessages'
 import { buildTaskHierarchy } from '@/lib/taskOrdering'
-import { formatUserDisplayName } from '@/lib/userName'
 import type { Task, GanttTask } from '@/types'
 import { useAuthStore } from '@/store/authStore'
-import { ArrowLeft, BarChart2, List, Users, Paperclip, Download, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 
 const DEFAULT_DOD_CHECKLIST = [
   { id: 'scope_approved', label: 'Результаты проекта согласованы', done: false },
@@ -406,176 +402,66 @@ export function ProjectDetail() {
 
   return (
     <div className="p-6">
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex items-center gap-2 flex-1">
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: project.color }} />
-          <h1 className="text-2xl font-bold">{project.name}</h1>
-          <Badge variant="secondary">{project.status}</Badge>
-          <Badge variant="outline">
-            {project.planning_mode === 'strict' ? 'strict' : 'flexible'}
-          </Badge>
-          <Badge variant="outline" className={TASK_PRIORITY_BADGE_COLORS[project.control_ski ? 'critical' : project.priority]}>
-            {project.control_ski ? 'critical · СКИ' : project.priority}
-          </Badge>
-          {(project.launch_basis_text || launchBasisFile) && (
-            <Badge variant="outline">Основание запуска</Badge>
-          )}
-        </div>
+      <ProjectDetailHeader
+        project={project}
+        view={view}
+        onViewChange={setView}
+        hasLaunchBasis={Boolean(project.launch_basis_text || launchBasisFile)}
+        actions={
+          <>
+            <ProjectEditDialog
+              open={editOpen}
+              onOpenChange={setEditOpen}
+              canRenameProject={canRenameProject}
+              canManage={canManage}
+              canTransferOwnership={canTransferOwnership}
+              editForm={editForm}
+              setEditForm={setEditForm}
+              onSubmit={handleUpdateProject}
+              users={users}
+              project={project}
+              files={files}
+              projectProgress={projectProgress}
+              progressStats={progressStats}
+              isPending={updateProject.isPending}
+            />
 
-        <div className="flex gap-1">
-          <Button
-            variant={view === 'gantt' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setView('gantt')}
-          >
-            <BarChart2 className="w-4 h-4 mr-1" />
-            Gantt
-          </Button>
-          <Button
-            variant={view === 'list' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setView('list')}
-          >
-            <List className="w-4 h-4 mr-1" />
-            List
-          </Button>
-          <Button
-            variant={view === 'members' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setView('members')}
-          >
-            <Users className="w-4 h-4 mr-1" />
-            Members
-          </Button>
-          <Button
-            variant={view === 'files' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setView('files')}
-          >
-            <Paperclip className="w-4 h-4 mr-1" />
-            Files
-          </Button>
-        </div>
-
-        <ProjectEditDialog
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          canRenameProject={canRenameProject}
-          canManage={canManage}
-          canTransferOwnership={canTransferOwnership}
-          editForm={editForm}
-          setEditForm={setEditForm}
-          onSubmit={handleUpdateProject}
-          users={users}
-          project={project}
-          files={files}
-          projectProgress={projectProgress}
-          progressStats={progressStats}
-          isPending={updateProject.isPending}
-        />
-
-        {canManage && canDelete && (
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleDeleteProject}
-            disabled={deleteProject.isPending}
-          >
-            <Trash2 className="w-4 h-4 mr-1" />
-            {deleteProject.isPending ? 'Удаление...' : 'Удалить проект'}
-          </Button>
-        )}
-
-        <ProjectTaskCreateDialog
-          open={taskDialogOpen}
-          onOpenChange={setTaskDialogOpen}
-          onSubmit={handleCreateTask}
-          taskForm={taskForm}
-          setTaskForm={setTaskForm}
-          projectAssigneeOptions={projectAssigneeOptions}
-          taskHierarchyOptions={taskHierarchyOptions}
-          isPending={createTask.isPending}
-        />
-      </div>
-
-      <div className="rounded-lg border bg-card p-4 mb-6">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="text-sm font-semibold">Прогресс проекта: {projectProgress}%</div>
-            <div className="text-sm text-muted-foreground">Выполнено 100%: {progressStats.completedCount}</div>
-            <div className="text-sm text-muted-foreground">Без движения (0%): {progressStats.zeroProgressCount}</div>
-            <div className="text-sm text-muted-foreground">Всего задач: {progressStats.totalCount}</div>
-            {project.end_date && (
-              <div className="text-sm text-muted-foreground flex items-center gap-1">
-                Дедлайн: {new Date(project.end_date).toLocaleDateString('ru-RU')}
-                {projectDeadlineHistory.length > 0 && (
-                  <span className="text-xs text-amber-600 font-medium ml-1">
-                    (переносился {projectDeadlineHistory.length}×)
-                  </span>
-                )}
-              </div>
+            {canManage && canDelete && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteProject}
+                disabled={deleteProject.isPending}
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                {deleteProject.isPending ? 'Удаление...' : 'Удалить проект'}
+              </Button>
             )}
-            {(project.launch_basis_text || launchBasisFile) && (
-              <div className="text-sm text-muted-foreground">
-                {project.launch_basis_text ? project.launch_basis_text : ''}
-              </div>
-            )}
-          </div>
-          {launchBasisFile && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleDownload(launchBasisFile)}
-            >
-              <Download className="w-4 h-4 mr-1" />
-              Скачать основание
-            </Button>
-          )}
-        </div>
-        <div className="mt-3 h-2 w-full bg-muted rounded-full overflow-hidden">
-          <div className="h-full bg-primary" style={{ width: `${projectProgress}%` }} />
-        </div>
 
-        {projectDeadlineHistory.length > 0 && (
-          <div className="mt-3 rounded border bg-muted/30">
-            <button
-              type="button"
-              className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => setShowProjectDeadlineHistory(!showProjectDeadlineHistory)}
-            >
-              <span>История переносов дедлайна проекта ({projectDeadlineHistory.length})</span>
-              {showProjectDeadlineHistory ? (
-                <ChevronUp className="w-3.5 h-3.5" />
-              ) : (
-                <ChevronDown className="w-3.5 h-3.5" />
-              )}
-            </button>
-            {showProjectDeadlineHistory && (
-              <div className="px-3 pb-2 space-y-1.5 border-t">
-                {projectDeadlineHistory.map((change) => (
-                  <div key={change.id} className="pt-2 text-xs">
-                    <div className="flex items-center justify-between text-muted-foreground">
-                      <span>
-                        {new Date(change.created_at).toLocaleDateString('ru-RU')}
-                        {change.changed_by && ` · ${formatUserDisplayName(change.changed_by)}`}
-                      </span>
-                      <span>
-                        {new Date(change.old_date).toLocaleDateString('ru-RU')} →{' '}
-                        {new Date(change.new_date).toLocaleDateString('ru-RU')}
-                      </span>
-                    </div>
-                    <p className="text-foreground mt-0.5 italic">"{change.reason}"</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+            <ProjectTaskCreateDialog
+              open={taskDialogOpen}
+              onOpenChange={setTaskDialogOpen}
+              onSubmit={handleCreateTask}
+              taskForm={taskForm}
+              setTaskForm={setTaskForm}
+              projectAssigneeOptions={projectAssigneeOptions}
+              taskHierarchyOptions={taskHierarchyOptions}
+              isPending={createTask.isPending}
+            />
+          </>
+        }
+      />
+
+      <ProjectDetailSummaryCard
+        project={project}
+        projectProgress={projectProgress}
+        progressStats={progressStats}
+        projectDeadlineHistory={projectDeadlineHistory}
+        showProjectDeadlineHistory={showProjectDeadlineHistory}
+        onToggleProjectDeadlineHistory={() => setShowProjectDeadlineHistory(!showProjectDeadlineHistory)}
+        launchBasisFile={launchBasisFile}
+        onDownloadLaunchBasis={handleDownload}
+      />
 
       {/* Description */}
       {project.description && (
