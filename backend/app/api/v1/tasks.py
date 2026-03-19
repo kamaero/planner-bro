@@ -55,6 +55,10 @@ from app.services.task_access_service import (
     serialize_assignee_ids as _serialize_assignee_ids,
     sync_task_assignees as _sync_task_assignees,
 )
+from app.services.task_activity_service import (
+    apply_bulk_events_and_notifications as _apply_bulk_events_and_notifications,
+    apply_update_events_and_assignee_notifications as _apply_update_events_and_assignee_notifications,
+)
 from app.services.task_lifecycle_service import (
     get_project_settings as _get_project_settings,
     mark_escalation_response as _mark_escalation_response,
@@ -408,27 +412,16 @@ async def update_task(
         await _ensure_member_for_assignee(task.project_id, task.assigned_to_id, current_user, db)
     await _sync_task_assignees(task, assignee_ids, task.project_id, current_user, db)
 
-    # Notify new assignee
-    new_assignee_ids = set(await _serialize_assignee_ids(task, db))
-    old_assignee_ids = {old_assignee} if old_assignee else set()
-    for uid in sorted(new_assignee_ids - old_assignee_ids):
-        await notify_task_assigned(db, task, uid, actor_id=current_user.id)
-    if new_assignee_ids != old_assignee_ids:
-        await _log_task_event(
-            db,
-            task.id,
-            current_user.id,
-            "assignee_changed",
-            f"{old_assignee or ''}->{','.join(sorted(new_assignee_ids))}",
-        )
-    if task.status != old_status:
-        await _log_task_event(
-            db,
-            task.id,
-            current_user.id,
-            "status_changed",
-            f"{old_status}->{task.status}",
-        )
+    await _apply_update_events_and_assignee_notifications(
+        db,
+        task=task,
+        actor_id=current_user.id,
+        old_status=old_status,
+        old_assignee=old_assignee,
+        serialize_assignee_ids=_serialize_assignee_ids,
+        notify_task_assigned=notify_task_assigned,
+        log_task_event=_log_task_event,
+    )
     await _mark_escalation_response(task, current_user.id, db, _log_task_event)
 
     await notify_task_updated(db, task, current_user.id)
@@ -638,34 +631,19 @@ async def bulk_update_tasks(
         await db.flush()
         result.updated += 1
 
-        if task.status != old_status:
-            await _log_task_event(
-                db,
-                task.id,
-                current_user.id,
-                "status_changed",
-                f"{old_status}->{task.status}",
-            )
-        if task.assigned_to_id != old_assignee:
-            await _log_task_event(
-                db,
-                task.id,
-                current_user.id,
-                "assignee_changed",
-                f"{old_assignee or ''}->{task.assigned_to_id or ''}",
-            )
-            for uid in await _serialize_assignee_ids(task, db):
-                await notify_task_assigned(db, task, uid, actor_id=current_user.id)
-
-        await _log_task_event(
+        await _apply_bulk_events_and_notifications(
             db,
-            task.id,
-            current_user.id,
-            "task_bulk_updated",
-            ",".join(sorted(payload.keys())),
+            task=task,
+            actor_id=current_user.id,
+            old_status=old_status,
+            old_assignee=old_assignee,
+            changed_payload_keys=list(payload.keys()),
+            serialize_assignee_ids=_serialize_assignee_ids,
+            notify_task_assigned=notify_task_assigned,
+            notify_task_updated=notify_task_updated,
+            log_task_event=_log_task_event,
         )
         await _mark_escalation_response(task, current_user.id, db, _log_task_event)
-        await notify_task_updated(db, task, current_user.id)
 
     await db.commit()
     return result
