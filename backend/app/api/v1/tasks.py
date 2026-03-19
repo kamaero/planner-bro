@@ -59,6 +59,10 @@ from app.services.task_activity_service import (
     apply_bulk_events_and_notifications as _apply_bulk_events_and_notifications,
     apply_update_events_and_assignee_notifications as _apply_update_events_and_assignee_notifications,
 )
+from app.services.task_deadline_service import (
+    record_deadline_change_and_date_events as _record_deadline_change_and_date_events,
+    validate_deadline_reason as _validate_deadline_reason,
+)
 from app.services.task_lifecycle_service import (
     get_project_settings as _get_project_settings,
     mark_escalation_response as _mark_escalation_response,
@@ -288,14 +292,13 @@ async def update_task(
         if not can_rename_with_scope:
             raise
 
-    # Validate deadline change requires a reason
-    end_date_provided = "end_date" in payload
-    new_end_date = payload.get("end_date")
     projected_status = payload.get("status", task.status)
-    requires_reason = projected_status != "planning"
-    if end_date_provided and old_end_date is not None and new_end_date != old_end_date and requires_reason:
-        if not deadline_change_reason:
-            raise HTTPException(status_code=422, detail="Укажите причину изменения дедлайна")
+    _validate_deadline_reason(
+        old_end_date=old_end_date,
+        new_end_date=payload.get("end_date"),
+        projected_status=projected_status,
+        deadline_change_reason=deadline_change_reason,
+    )
 
     if any(
         key in payload
@@ -363,37 +366,16 @@ async def update_task(
     elif old_status == "done" and task.status != "done":
         task.next_check_in_due_at = _plan_next_check_in(task, _now_utc())
 
-    # Record deadline change if end_date actually changed
-    if (
-        end_date_provided
-        and old_end_date is not None
-        and new_end_date != old_end_date
-        and deadline_change_reason
-        and requires_reason
-    ):
-        db.add(DeadlineChange(
-            entity_type="task",
-            entity_id=task.id,
-            changed_by_id=current_user.id,
-            old_date=old_end_date,
-            new_date=new_end_date,
-            reason=deadline_change_reason,
-        ))
-
-    # Log date_changed events to task_events
-    start_date_provided = "start_date" in payload
-    new_start_date = payload.get("start_date")
-    if start_date_provided and new_start_date != old_start_date:
-        await _log_task_event(
-            db, task.id, current_user.id, "date_changed",
-            f"start:{old_start_date}->{task.start_date}",
-        )
-    if end_date_provided and new_end_date != old_end_date:
-        await _log_task_event(
-            db, task.id, current_user.id, "date_changed",
-            f"end:{old_end_date}->{task.end_date}",
-            reason=deadline_change_reason,
-        )
+    await _record_deadline_change_and_date_events(
+        db,
+        task=task,
+        actor_id=current_user.id,
+        old_start_date=old_start_date,
+        old_end_date=old_end_date,
+        projected_status=projected_status,
+        deadline_change_reason=deadline_change_reason,
+        log_task_event=_log_task_event,
+    )
 
     if (
         predecessor_task_ids is not None
