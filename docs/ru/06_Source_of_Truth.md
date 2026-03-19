@@ -193,6 +193,7 @@ Web и mobile сейчас местами повторяют контракт в
 - backend import / ingestion pipeline:
   - `backend/app/services/ms_project_import_service.py`
   - `backend/app/services/ai_ingestion_service.py`
+  - `backend/app/services/project_ai_draft_service.py`
   - `backend/app/tasks/ai_ingestion.py`
   - участки orchestration в `backend/app/api/v1/projects.py`
 

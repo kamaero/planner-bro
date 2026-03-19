@@ -59,6 +59,7 @@
 
 - `backend/app/services/ms_project_import_service.py`
 - `backend/app/services/ai_ingestion_service.py`
+- `backend/app/services/project_ai_draft_service.py`
 - `backend/app/tasks/ai_ingestion.py`
 - orchestration в `backend/app/api/v1/projects.py`
 - web UX в `frontend/src/pages/ProjectDetail.tsx`
