@@ -116,7 +116,7 @@
 2. Зафиксировать текущий локальный вынос task access-логики из `tasks.py` в отдельный сервис и обновить связанную документацию.
 3. Продолжить разрезание `projects.py` после вынесения `project_rules_service.py` и `project_access_service.py`.
 4. Продолжить следующую итерацию рефакторинга `frontend/src/pages/ProjectDetail.tsx`.
-5. Расширить контрактные smoke-тесты на mobile/web drift-кейсы по словарям статусов.
+5. Добавить drift-guards для mobile/web словарей и runtime-обработчиков событий.
 
 ## Риски и блокеры
 
@@ -142,6 +142,7 @@
 - [x] Локально начата следующая итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_access_service.py` и smoke-тест `backend/tests/test_task_access_service_smoke.py`.
 - [x] Локально начата следующая итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_dependency_service.py` для dependency/autoplan-логики.
 - [x] Добавлен `backend/tests/test_domain_contracts_smoke.py` с контрактными smoke-проверками статусов/приоритетов, ролей+visibility, permissions и sync realtime-events backend<->frontend.
+- [x] Добавлен `backend/tests/test_mobile_domain_drift_smoke.py` с drift-проверками mobile-словарей статусов/приоритетов относительно backend канона.
 - [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.
 - [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectFilesSection`.
 - [x] Сделана вторая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskListToolbar`.
