@@ -14,6 +14,7 @@ import {
   useProjectDeadlineHistory,
 } from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
+import { useProjectTaskListState } from '@/hooks/useProjectTaskListState'
 import { useUsers } from '@/hooks/useUsers'
 import { api } from '@/api/client'
 import { GanttChart } from '@/components/GanttChart/GanttChart'
@@ -36,7 +37,7 @@ import {
   TASK_STATUS_ORDER,
 } from '@/lib/domainMeta'
 import { humanizeApiError } from '@/lib/errorMessages'
-import { buildTaskHierarchy, parseTaskOrderFromTitle } from '@/lib/taskOrdering'
+import { buildTaskHierarchy } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
 import type { Task, GanttTask } from '@/types'
 import { useAuthStore } from '@/store/authStore'
@@ -108,19 +109,9 @@ export function ProjectDetail() {
     owner_id: '',
     completion_checklist: DEFAULT_DOD_CHECKLIST,
   })
-  const [taskSearch, setTaskSearch] = useState('')
-  const [taskStatusFilter, setTaskStatusFilter] = useState('all')
-  const [taskAssigneeFilter, setTaskAssigneeFilter] = useState('all')
-  const [taskSortBy, setTaskSortBy] = useState<'order' | 'status' | 'priority'>('order')
-  const [taskSortDir, setTaskSortDir] = useState<'asc' | 'desc'>('asc')
-  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
-  const [bulkBusy, setBulkBusy] = useState(false)
-  const [bulkAssignee, setBulkAssignee] = useState('keep')
-  const [bulkPriority, setBulkPriority] = useState('keep')
   const [showProjectDeadlineModal, setShowProjectDeadlineModal] = useState(false)
   const [pendingProjectFormData, setPendingProjectFormData] = useState<Record<string, unknown> | null>(null)
   const [showProjectDeadlineHistory, setShowProjectDeadlineHistory] = useState(false)
-  const [taskRowSize, setTaskRowSize] = useState<'compact' | 'normal' | 'comfortable'>('normal')
 
   const { data: projectDeadlineHistory = [] } = useProjectDeadlineHistory(id)
   const shiftsMap = useMemo(() => ({} as Record<string, number>), [])
@@ -156,85 +147,6 @@ export function ProjectDetail() {
     for (const member of members) uniqueUsers.set(member.user.id, member.user)
     return Array.from(uniqueUsers.values())
   }, [canAssignAcrossOrg, members, users])
-  const filteredTasks = useMemo(() => {
-    const filtered = tasks.filter((task) => {
-      const searchOk =
-        !taskSearch.trim() ||
-        task.title.toLowerCase().includes(taskSearch.toLowerCase()) ||
-        (task.description ?? '').toLowerCase().includes(taskSearch.toLowerCase())
-
-      const statusOk = taskStatusFilter === 'all' || task.status === taskStatusFilter
-
-      const assigneeOk =
-        taskAssigneeFilter === 'all' ||
-        (taskAssigneeFilter === 'unassigned'
-          ? !(task.assignee_ids && task.assignee_ids.length > 0) && !task.assigned_to_id
-          : task.assigned_to_id === taskAssigneeFilter || (task.assignee_ids ?? []).includes(taskAssigneeFilter))
-
-      return searchOk && statusOk && assigneeOk
-    })
-    const withIndex = filtered.map((task, idx) => ({ task, idx }))
-    withIndex.sort((a, b) => {
-      if (taskSortBy === 'status') {
-        const diff = (TASK_STATUS_ORDER[a.task.status] ?? 999) - (TASK_STATUS_ORDER[b.task.status] ?? 999)
-        if (diff !== 0) return taskSortDir === 'asc' ? diff : -diff
-      }
-      if (taskSortBy === 'priority') {
-        const diff = (TASK_PRIORITY_ORDER[a.task.priority] ?? 999) - (TASK_PRIORITY_ORDER[b.task.priority] ?? 999)
-        if (diff !== 0) return taskSortDir === 'asc' ? diff : -diff
-      }
-      if (taskSortBy !== 'order') {
-        const byTitle = a.task.title.localeCompare(b.task.title, 'ru')
-        if (byTitle !== 0) return taskSortDir === 'asc' ? byTitle : -byTitle
-      }
-      const ao = parseTaskOrderFromTitle(a.task.title)
-      const bo = parseTaskOrderFromTitle(b.task.title)
-      if (ao && bo) {
-        const maxLen = Math.max(ao.length, bo.length)
-        for (let i = 0; i < maxLen; i += 1) {
-          const av = ao[i] ?? 0
-          const bv = bo[i] ?? 0
-          if (av !== bv) return av - bv
-        }
-        return a.idx - b.idx
-      }
-      if (ao && !bo) return -1
-      if (!ao && bo) return 1
-      return a.idx - b.idx
-    })
-    const sorted = withIndex.map((entry) => entry.task)
-    const visibleIds = new Set(sorted.map((task) => task.id))
-    const children = new Map<string, Task[]>()
-    const roots: Task[] = []
-
-    for (const task of sorted) {
-      const parentId = task.parent_task_id
-      if (parentId && visibleIds.has(parentId)) {
-        const arr = children.get(parentId) ?? []
-        arr.push(task)
-        children.set(parentId, arr)
-      } else {
-        roots.push(task)
-      }
-    }
-
-    const ordered: Task[] = []
-    const visited = new Set<string>()
-    const appendTree = (node: Task) => {
-      if (visited.has(node.id)) return
-      visited.add(node.id)
-      ordered.push(node)
-      const kids = children.get(node.id) ?? []
-      for (const child of kids) appendTree(child)
-    }
-    for (const root of roots) appendTree(root)
-    for (const task of sorted) appendTree(task)
-
-    return ordered
-  }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter, taskSortBy, taskSortDir])
-
-  const selectedVisibleCount = filteredTasks.filter((t) => selectedTaskIds.includes(t.id)).length
-
   useEffect(() => {
     if (project && editOpen) {
       setEditForm({
@@ -284,11 +196,6 @@ export function ProjectDetail() {
   }, [files, project?.launch_basis_file_id])
 
   useEffect(() => {
-    const ids = new Set(tasks.map((t) => t.id))
-    setSelectedTaskIds((prev) => prev.filter((id) => ids.has(id)))
-  }, [tasks])
-
-  useEffect(() => {
     const params = new URLSearchParams(location.search)
     const taskId = params.get('task')
     if (!taskId || tasks.length === 0) return
@@ -315,112 +222,6 @@ export function ProjectDetail() {
   const handleTaskClick = (task: Task) => {
     setSelectedTask(task)
     setDrawerOpen(true)
-  }
-
-  const handleToggleTaskSelection = (taskId: string) => {
-    setSelectedTaskIds((prev) =>
-      prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]
-    )
-  }
-
-  const handleToggleSelectAllVisible = () => {
-    const visibleIds = filteredTasks.map((t) => t.id)
-    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedTaskIds.includes(id))
-    if (allVisibleSelected) {
-      setSelectedTaskIds((prev) => prev.filter((id) => !visibleIds.includes(id)))
-      return
-    }
-    setSelectedTaskIds((prev) => Array.from(new Set([...prev, ...visibleIds])))
-  }
-
-  const handleBulkStatusUpdate = async (status: string) => {
-    if (!canManage || !canBulkEdit || selectedTaskIds.length === 0) return
-    setBulkBusy(true)
-    try {
-      await bulkUpdateTasks.mutateAsync({
-        projectId: id!,
-        data: {
-          task_ids: selectedTaskIds,
-          status,
-        },
-      })
-      setSelectedTaskIds([])
-    } catch (error: any) {
-      window.alert(humanizeApiError(error, 'Не удалось выполнить массовое обновление статуса'))
-    } finally {
-      setBulkBusy(false)
-    }
-  }
-
-  const handleBulkAssign = async () => {
-    if (!canManage || !canBulkEdit || selectedTaskIds.length === 0 || bulkAssignee === 'keep') return
-    setBulkBusy(true)
-    try {
-      await bulkUpdateTasks.mutateAsync({
-        projectId: id!,
-        data: {
-          task_ids: selectedTaskIds,
-          assigned_to_id: bulkAssignee === 'unassigned' ? null : bulkAssignee,
-        },
-      })
-      setSelectedTaskIds([])
-      setBulkAssignee('keep')
-    } catch (error: any) {
-      window.alert(humanizeApiError(error, 'Не удалось выполнить массовое назначение'))
-    } finally {
-      setBulkBusy(false)
-    }
-  }
-
-  const handleBulkPriority = async () => {
-    if (!canManage || !canBulkEdit || selectedTaskIds.length === 0 || bulkPriority === 'keep') return
-    setBulkBusy(true)
-    try {
-      if (bulkPriority === 'ski') {
-        await bulkUpdateTasks.mutateAsync({
-          projectId: id!,
-          data: {
-            task_ids: selectedTaskIds,
-            control_ski: true,
-          },
-        })
-      } else {
-        await bulkUpdateTasks.mutateAsync({
-          projectId: id!,
-          data: {
-            task_ids: selectedTaskIds,
-            priority: bulkPriority,
-            control_ski: false,
-          },
-        })
-      }
-      setSelectedTaskIds([])
-      setBulkPriority('keep')
-    } catch (error: any) {
-      window.alert(humanizeApiError(error, 'Не удалось выполнить массовое обновление приоритета'))
-    } finally {
-      setBulkBusy(false)
-    }
-  }
-
-  const handleBulkDelete = async () => {
-    if (!canManage || !canBulkEdit || !canDelete || selectedTaskIds.length === 0) return
-    if (!window.confirm(`Удалить выбранные задачи (${selectedTaskIds.length})?`)) return
-    setBulkBusy(true)
-    try {
-      await bulkUpdateTasks.mutateAsync({
-        projectId: id!,
-        data: {
-          task_ids: selectedTaskIds,
-          delete: true,
-        },
-      })
-      setSelectedTaskIds([])
-    } catch (error: any) {
-      window.alert(humanizeApiError(error, 'Не удалось удалить выбранные задачи'))
-    } finally {
-      setBulkBusy(false)
-    }
   }
 
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -546,19 +347,45 @@ export function ProjectDetail() {
     }
   }
 
-  const handleQuickStatusChange = async (task: Task, status: string) => {
-    const progress = status === 'done' ? 100 : task.progress_percent ?? 0
-    try {
-      await updateTaskStatus.mutateAsync({
-        taskId: task.id,
-        status,
-        progress_percent: progress,
-        next_step: task.next_step ?? null,
-      })
-    } catch (error: any) {
-      window.alert(humanizeApiError(error, 'Не удалось обновить статус задачи'))
-    }
-  }
+  const {
+    taskSearch,
+    setTaskSearch,
+    taskStatusFilter,
+    setTaskStatusFilter,
+    taskAssigneeFilter,
+    setTaskAssigneeFilter,
+    taskSortBy,
+    setTaskSortBy,
+    taskSortDir,
+    setTaskSortDir,
+    selectedTaskIds,
+    selectedVisibleCount,
+    bulkBusy,
+    bulkAssignee,
+    setBulkAssignee,
+    bulkPriority,
+    setBulkPriority,
+    taskRowSize,
+    setTaskRowSize,
+    filteredTasks,
+    handleToggleTaskSelection,
+    handleToggleSelectAllVisible,
+    handleBulkStatusUpdate,
+    handleBulkAssign,
+    handleBulkPriority,
+    handleBulkDelete,
+    handleQuickStatusChange,
+  } = useProjectTaskListState({
+    projectId: id!,
+    tasks,
+    canManage,
+    canBulkEdit,
+    canDelete,
+    bulkUpdateTasks,
+    updateTaskStatus,
+    taskStatusOrder: TASK_STATUS_ORDER,
+    taskPriorityOrder: TASK_PRIORITY_ORDER,
+  })
 
   const handleDownload = async (file: { id: string; filename: string; content_type?: string | null }) => {
     const res = await api.downloadProjectFile(id!, file.id)

@@ -94,6 +94,7 @@
 - [x] Вынести toolbar списка задач из `frontend/src/pages/ProjectDetail.tsx` в `frontend/src/components/ProjectTaskListToolbar/ProjectTaskListToolbar.tsx`.
 - [x] Вынести диалог создания задачи из `frontend/src/pages/ProjectDetail.tsx` в `frontend/src/components/ProjectTaskCreateDialog/ProjectTaskCreateDialog.tsx`.
 - [x] Вынести диалог редактирования проекта из `frontend/src/pages/ProjectDetail.tsx` в `frontend/src/components/ProjectEditDialog/ProjectEditDialog.tsx`.
+- [x] Вынести task-list state и bulk-handlers из `frontend/src/pages/ProjectDetail.tsx` в `frontend/src/hooks/useProjectTaskListState.ts`.
 - [ ] Продолжить разрезание `frontend/src/pages/ProjectDetail.tsx` на секции и hooks.
 - [ ] Разрезать `frontend/src/App.tsx` на layout / search / sidebar / telemetry.
 - [ ] Затем разобрать `Team.tsx` и `Dashboard.tsx`.
@@ -140,3 +141,4 @@
 - [x] Сделана вторая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskListToolbar`.
 - [x] Сделана третья безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskCreateDialog`.
 - [x] Сделана четвёртая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectEditDialog`.
+- [x] Сделана пятая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `useProjectTaskListState`.

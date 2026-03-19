@@ -55,6 +55,7 @@
 - `frontend/src/components/ProjectTaskListToolbar/ProjectTaskListToolbar.tsx`
 - `frontend/src/components/ProjectTaskCreateDialog/ProjectTaskCreateDialog.tsx`
 - `frontend/src/components/ProjectEditDialog/ProjectEditDialog.tsx`
+- `frontend/src/hooks/useProjectTaskListState.ts`
 - `frontend/src/pages/Dashboard.tsx`
 
 ### Если нужно менять импорт и AI ingestion
