@@ -24,7 +24,12 @@ from app.schemas.task import (
     TaskDependencyOut,
 )
 from app.schemas.deadline_change import DeadlineChangeOut
-from app.services.task_service import get_tasks_for_project, get_task_by_id
+from app.services.task_service import (
+    get_task_by_id,
+    get_task_with_assignees,
+    get_tasks_for_project,
+    list_escalations_for_assignee,
+)
 from app.services.notification_service import (
     notify_task_assigned,
     notify_task_updated,
@@ -192,12 +197,10 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
 
-    result = await db.execute(
-        select(Task)
-        .where(Task.id == task.id)
-        .options(selectinload(Task.assignee), selectinload(Task.assignee_links).selectinload(TaskAssignee.user))
-    )
-    return result.scalar_one()
+    fresh_task = await get_task_with_assignees(db, task.id)
+    if not fresh_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return fresh_task
 
 
 @router.get("/tasks/my", response_model=list[TaskOut])
@@ -432,12 +435,10 @@ async def update_task(
     await db.commit()
     await db.refresh(task)
 
-    result = await db.execute(
-        select(Task)
-        .where(Task.id == task.id)
-        .options(selectinload(Task.assignee), selectinload(Task.assignee_links).selectinload(TaskAssignee.user))
-    )
-    return result.scalar_one()
+    fresh_task = await get_task_with_assignees(db, task.id)
+    if not fresh_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return fresh_task
 
 
 @router.get("/tasks/{task_id}/dependencies", response_model=list[TaskDependencyOut])
@@ -718,12 +719,10 @@ async def update_task_status(
     await db.commit()
     await db.refresh(task)
 
-    result = await db.execute(
-        select(Task)
-        .where(Task.id == task.id)
-        .options(selectinload(Task.assignee), selectinload(Task.assignee_links).selectinload(TaskAssignee.user))
-    )
-    return result.scalar_one()
+    fresh_task = await get_task_with_assignees(db, task.id)
+    if not fresh_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return fresh_task
 
 
 @router.post("/tasks/{task_id}/check-in", response_model=TaskOut)
@@ -779,18 +778,7 @@ async def escalation_inbox(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Task)
-        .where(
-            Task.is_escalation == True,  # noqa: E712
-            Task.assigned_to_id == current_user.id,
-            Task.status != "done",
-        )
-        .options(selectinload(Task.assignee), selectinload(Task.assignee_links).selectinload(TaskAssignee.user))
-        .order_by(Task.created_at.desc())
-    )
-    tasks = result.scalars().all()
-    return tasks
+    return await list_escalations_for_assignee(db, current_user.id)
 
 
 @router.get("/projects/{project_id}/critical-path")

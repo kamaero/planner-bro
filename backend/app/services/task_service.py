@@ -49,3 +49,32 @@ async def get_task_by_id(db: AsyncSession, task_id: str) -> Task | None:
         )
     )
     return result.scalar_one_or_none()
+
+
+async def get_task_with_assignees(db: AsyncSession, task_id: str) -> Task | None:
+    result = await db.execute(
+        select(Task)
+        .where(Task.id == task_id)
+        .options(
+            selectinload(Task.assignee),
+            selectinload(Task.assignee_links).selectinload(TaskAssignee.user),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_escalations_for_assignee(db: AsyncSession, assignee_id: str) -> list[Task]:
+    result = await db.execute(
+        select(Task)
+        .where(
+            Task.is_escalation == True,  # noqa: E712
+            Task.assigned_to_id == assignee_id,
+            Task.status != "done",
+        )
+        .options(
+            selectinload(Task.assignee),
+            selectinload(Task.assignee_links).selectinload(TaskAssignee.user),
+        )
+        .order_by(Task.created_at.desc())
+    )
+    return result.scalars().all()

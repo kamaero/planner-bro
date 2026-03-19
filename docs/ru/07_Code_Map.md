@@ -43,6 +43,7 @@
 - `backend/app/services/task_lifecycle_service.py`
 - `backend/app/services/task_mutation_service.py`
 - `backend/app/services/task_bulk_service.py`
+- `backend/app/services/task_service.py` (query helpers: task refresh / escalation inbox)
 - `frontend/src/types/index.ts`
 - `frontend/src/pages/ProjectDetail.tsx`
 - `frontend/src/pages/Analytics.tsx`
