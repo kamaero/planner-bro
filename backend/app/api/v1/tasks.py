@@ -1,7 +1,7 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
@@ -32,12 +32,14 @@ from app.services.notification_service import (
     notify_new_task,
     notify_check_in_help_requested,
 )
-from app.services.check_in_policy import compute_next_check_in_due_at
 from app.services.access_scope import (
     can_access_project,
     has_department_level_access,
 )
 from app.services.task_access_service import (
+    ensure_member_for_assignee as _ensure_member_for_assignee,
+    is_own_tasks_only as _is_own_tasks_only,
+    is_task_assignee as _is_task_assignee,
     require_bulk_permission as _require_bulk_permission,
     require_delete_permission as _require_delete_permission,
     require_project_exists as _require_project_exists,
@@ -48,6 +50,16 @@ from app.services.task_access_service import (
     require_task_visibility as _require_task_visibility,
     serialize_assignee_ids as _serialize_assignee_ids,
     sync_task_assignees as _sync_task_assignees,
+)
+from app.services.task_lifecycle_service import (
+    get_project_settings as _get_project_settings,
+    mark_escalation_response as _mark_escalation_response,
+    normalize_priority_for_control_ski as _normalize_priority_for_control_ski,
+    now_utc as _now_utc,
+    plan_next_check_in as _plan_next_check_in,
+    prepare_escalation_fields as _prepare_escalation_fields,
+    rollup_parent_schedule as _rollup_parent_schedule,
+    validate_parent_task as _validate_parent_task,
 )
 from app.services.task_dependency_service import (
     apply_outgoing_fs_autoplan as _apply_outgoing_fs_autoplan,
@@ -78,117 +90,6 @@ async def _log_task_event(
 ):
     db.add(TaskEvent(task_id=task_id, actor_id=actor_id, event_type=event_type, payload=payload, reason=reason))
     await db.flush()
-
-
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-async def _rollup_parent_schedule(db: AsyncSession, parent_task_id: str | None) -> None:
-    cursor = parent_task_id
-    visited: set[str] = set()
-    while cursor and cursor not in visited:
-        visited.add(cursor)
-        parent = await get_task_by_id(db, cursor)
-        if not parent:
-            break
-
-        min_start, max_end = (
-            await db.execute(
-                select(
-                    func.min(Task.start_date),
-                    func.max(Task.end_date),
-                ).where(Task.parent_task_id == parent.id)
-            )
-        ).one()
-
-        if parent.start_date != min_start:
-            parent.start_date = min_start
-        if parent.end_date != max_end:
-            parent.end_date = max_end
-
-        cursor = parent.parent_task_id
-
-
-def _normalize_priority_for_control_ski(priority: str, control_ski: bool) -> str:
-    if control_ski:
-        return "critical"
-    if priority == "critical":
-        return "medium"
-    return priority
-
-
-def _prepare_escalation_fields(payload: dict, task_created_at: datetime | None = None) -> None:
-    is_escalation = bool(payload.get("is_escalation"))
-    if not is_escalation:
-        payload["escalation_due_at"] = None
-        payload["escalation_first_response_at"] = None
-        payload["escalation_overdue_at"] = None
-        payload["escalation_sla_hours"] = int(payload.get("escalation_sla_hours") or 24)
-        return
-
-    sla_hours = int(payload.get("escalation_sla_hours") or 24)
-    if sla_hours < 1:
-        sla_hours = 1
-    payload["escalation_sla_hours"] = sla_hours
-    if not payload.get("escalation_due_at"):
-        base_dt = task_created_at or _now_utc()
-        payload["escalation_due_at"] = base_dt + timedelta(hours=sla_hours)
-
-
-async def _mark_escalation_response(task: Task, actor_id: str, db: AsyncSession) -> None:
-    if (
-        task.is_escalation
-        and task.assigned_to_id
-        and task.assigned_to_id == actor_id
-        and task.escalation_first_response_at is None
-    ):
-        task.escalation_first_response_at = _now_utc()
-        await _log_task_event(db, task.id, actor_id, "escalation_first_response")
-
-
-def _plan_next_check_in(task: Task, base_dt: datetime) -> datetime | None:
-    if task.status == "done":
-        return None
-    return compute_next_check_in_due_at(task, from_dt=base_dt)
-
-
-async def _validate_parent_task(
-    db: AsyncSession,
-    *,
-    project_id: str,
-    task_id: str,
-    parent_task_id: str | None,
-) -> Task | None:
-    if not parent_task_id:
-        return None
-    if parent_task_id == task_id:
-        raise HTTPException(status_code=400, detail="Task cannot be its own parent")
-    parent = await get_task_by_id(db, parent_task_id)
-    if not parent:
-        raise HTTPException(status_code=404, detail="Parent task not found")
-    if parent.project_id != project_id:
-        raise HTTPException(status_code=400, detail="Parent must be in the same project")
-
-    visited: set[str] = set()
-    cursor: str | None = parent_task_id
-    while cursor:
-        if cursor == task_id:
-            raise HTTPException(status_code=400, detail="Parent-child cycle is not allowed")
-        if cursor in visited:
-            break
-        visited.add(cursor)
-        cursor = (
-            await db.execute(select(Task.parent_task_id).where(Task.id == cursor))
-        ).scalar_one_or_none()
-    return parent
-
-
-async def _get_project_settings(project_id: str, db: AsyncSession) -> Project:
-    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
 
 
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskOut])
@@ -515,7 +416,7 @@ async def update_task(
             "status_changed",
             f"{old_status}->{task.status}",
         )
-    await _mark_escalation_response(task, current_user.id, db)
+    await _mark_escalation_response(task, current_user.id, db, _log_task_event)
 
     await notify_task_updated(db, task, current_user.id)
     await db.commit()
@@ -774,7 +675,7 @@ async def bulk_update_tasks(
             "task_bulk_updated",
             ",".join(sorted(payload.keys())),
         )
-        await _mark_escalation_response(task, current_user.id, db)
+        await _mark_escalation_response(task, current_user.id, db, _log_task_event)
         await notify_task_updated(db, task, current_user.id)
 
     await db.commit()
@@ -931,7 +832,7 @@ async def check_in_task(
         "check_in_recorded",
         f"help={'1' if data.need_manager_help else '0'}",
     )
-    await _mark_escalation_response(task, current_user.id, db)
+    await _mark_escalation_response(task, current_user.id, db, _log_task_event)
     await db.commit()
 
     if data.need_manager_help:
@@ -1016,7 +917,7 @@ async def add_task_comment(
     comment = TaskComment(task_id=task_id, author_id=current_user.id, body=data.body)
     db.add(comment)
     await db.flush()
-    await _mark_escalation_response(task, current_user.id, db)
+    await _mark_escalation_response(task, current_user.id, db, _log_task_event)
     await _log_task_event(db, task_id, current_user.id, "comment_added")
     await db.commit()
     result = await db.execute(

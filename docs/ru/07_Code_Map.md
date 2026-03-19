@@ -40,6 +40,7 @@
 - `backend/app/services/task_access_service.py`
 - `backend/app/services/task_dependency_service.py`
 - `backend/app/services/task_rules_service.py`
+- `backend/app/services/task_lifecycle_service.py`
 - `frontend/src/types/index.ts`
 - `frontend/src/pages/ProjectDetail.tsx`
 - `frontend/src/pages/Analytics.tsx`
