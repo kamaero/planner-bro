@@ -86,6 +86,7 @@
 - [ ] Разрезать `backend/app/api/v1/projects.py` на use-case модули.
 - [ ] Разрезать `backend/app/api/v1/tasks.py` на use-case модули.
 - [ ] Унести бизнес-правила из роутов в services / use-cases.
+- [ ] Зафиксировать и закоммитить вынос task access / assignee orchestration из `backend/app/api/v1/tasks.py` в `backend/app/services/task_access_service.py`.
 - [ ] Добавить карту backend-модулей.
 
 ### B. Frontend
@@ -111,9 +112,9 @@
 Это список, который нужно брать в работу следующим, без философии и танцев с бубном:
 
 1. Довести backend checks до полностью бесшовного запуска без ручной подготовки окружения.
-2. Продолжить разрезание `projects.py` после вынесения `project_rules_service.py` и `project_access_service.py`.
-3. Подготовить первую итерацию рефакторинга `frontend/src/pages/ProjectDetail.tsx`.
-4. Вынести следующую самостоятельную секцию из `frontend/src/pages/ProjectDetail.tsx` без изменения поведения списка задач.
+2. Зафиксировать текущий локальный вынос task access-логики из `tasks.py` в отдельный сервис и обновить связанную документацию.
+3. Продолжить разрезание `projects.py` после вынесения `project_rules_service.py` и `project_access_service.py`.
+4. Подготовить первую итерацию следующего рефакторинга `frontend/src/pages/ProjectDetail.tsx`.
 5. Добавить следующий пакет контрактных smoke-тестов на роли и visibility.
 
 ## Риски и блокеры
@@ -136,6 +137,7 @@
 - [x] Сделана первая безопасная итерация разгрузки `backend/app/api/v1/projects.py` через новый `project_rules_service.py`.
 - [x] Вынесен AI draft approval use-case из `backend/app/api/v1/projects.py` в `backend/app/services/project_ai_draft_service.py`.
 - [x] Сделана первая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_rules_service.py`.
+- [x] Локально начата следующая итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_access_service.py` и smoke-тест `backend/tests/test_task_access_service_smoke.py`.
 - [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.
 - [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectFilesSection`.
 - [x] Сделана вторая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskListToolbar`.

@@ -34,9 +34,19 @@ from app.services.notification_service import (
 )
 from app.services.check_in_policy import compute_next_check_in_due_at
 from app.services.access_scope import (
-    can_access_project,
-    get_task_assignment_scope_user_ids,
     has_department_level_access,
+)
+from app.services.task_access_service import (
+    require_bulk_permission,
+    require_delete_permission,
+    require_project_exists,
+    require_project_manager,
+    require_project_member,
+    require_project_visibility,
+    require_task_editor,
+    require_task_visibility,
+    serialize_assignee_ids,
+    sync_task_assignees,
 )
 from app.services.task_rules_service import (
     ensure_predecessors_done,
@@ -55,169 +65,6 @@ DEPENDENCY_TYPE_ALIASES = {
     "ff": "finish_to_finish",
     "finish_to_finish": "finish_to_finish",
 }
-
-
-async def _require_project_member(project_id: str, user: User, db: AsyncSession):
-    if not await _is_project_member(project_id, user, db):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-
-async def _require_project_visibility(project_id: str, user: User, db: AsyncSession) -> None:
-    if not await can_access_project(db, user, project_id):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-
-def _is_task_assignee(task: Task, user_id: str) -> bool:
-    if task.assigned_to_id == user_id:
-        return True
-    if task.assignee_links:
-        return any(link.user_id == user_id for link in task.assignee_links)
-    return False
-
-
-def _is_own_tasks_only(user: User) -> bool:
-    return (
-        user.role != "admin"
-        and user.visibility_scope == "own_tasks_only"
-        and bool(getattr(user, "own_tasks_visibility_enabled", True))
-    )
-
-
-def _require_task_visibility(task: Task, user: User) -> None:
-    if not _is_own_tasks_only(user):
-        return
-    if not _is_task_assignee(task, user.id):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-
-async def _require_project_manager(project_id: str, user: User, db: AsyncSession) -> None:
-    if user.role == "admin":
-        return
-    member = (
-        await db.execute(
-            select(ProjectMember).where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == user.id,
-            )
-        )
-    ).scalar_one_or_none()
-    if not member or member.role not in ("owner", "manager"):
-        raise HTTPException(status_code=403, detail="Manager access required")
-
-
-def _require_bulk_permission(user: User) -> None:
-    if user.role == "admin":
-        return
-    if not user.can_bulk_edit:
-        raise HTTPException(status_code=403, detail="No permission for bulk operations")
-
-
-def _require_delete_permission(user: User) -> None:
-    if user.role == "admin":
-        return
-    if not user.can_delete:
-        raise HTTPException(status_code=403, detail="No permission to delete tasks")
-
-
-async def _is_project_member(project_id: str, user: User, db: AsyncSession) -> bool:
-    if user.role == "admin":
-        return True
-    result = await db.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == user.id
-        )
-    )
-    return result.scalar_one_or_none() is not None
-
-
-async def _require_project_exists(project_id: str, db: AsyncSession) -> None:
-    exists = (await db.execute(select(Project.id).where(Project.id == project_id))).scalar_one_or_none()
-    if not exists:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-
-async def _ensure_member_for_assignee(
-    project_id: str,
-    assignee_id: str,
-    actor: User,
-    db: AsyncSession,
-) -> None:
-    user = (await db.execute(select(User).where(User.id == assignee_id))).scalar_one_or_none()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=404, detail="Assignee not found")
-    assignable_ids = await get_task_assignment_scope_user_ids(db, actor)
-    if assignee_id not in assignable_ids:
-        raise HTTPException(status_code=403, detail="No permission to assign this user")
-    member = (
-        await db.execute(
-            select(ProjectMember).where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == assignee_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if not member:
-        db.add(ProjectMember(project_id=project_id, user_id=assignee_id, role="member"))
-        await db.flush()
-
-
-async def _sync_task_assignees(
-    task: Task,
-    assignee_ids: list[str] | None,
-    project_id: str,
-    actor: User,
-    db: AsyncSession,
-) -> None:
-    if assignee_ids is None:
-        return
-    normalized = [uid.strip() for uid in assignee_ids if uid and uid.strip()]
-    unique_ids = list(dict.fromkeys(normalized))
-    for uid in unique_ids:
-        await _ensure_member_for_assignee(project_id, uid, actor, db)
-
-    existing_rows = (
-        await db.execute(select(TaskAssignee).where(TaskAssignee.task_id == task.id))
-    ).scalars().all()
-    existing_by_user = {row.user_id: row for row in existing_rows}
-    desired_ids = set(unique_ids)
-
-    for row in existing_rows:
-        if row.user_id not in desired_ids:
-            await db.delete(row)
-
-    for uid in unique_ids:
-        if uid not in existing_by_user:
-            db.add(TaskAssignee(task_id=task.id, user_id=uid))
-
-    task.assigned_to_id = unique_ids[0] if unique_ids else None
-
-
-async def _serialize_assignee_ids(task: Task, db: AsyncSession) -> list[str]:
-    # Avoid lazy-loading relationships in async request handlers (MissingGreenlet).
-    rows = (
-        await db.execute(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id))
-    ).scalars().all()
-    if rows:
-        return rows
-    return [task.assigned_to_id] if task.assigned_to_id else []
-
-
-async def _require_task_editor(task: Task, user: User, db: AsyncSession) -> None:
-    if user.role == "admin":
-        return
-    if _is_own_tasks_only(user):
-        if _is_task_assignee(task, user.id):
-            return
-        raise HTTPException(status_code=403, detail="Edit access denied")
-    assignee_ids = {task.assigned_to_id} if task.assigned_to_id else set()
-    if task.assignee_links:
-        assignee_ids |= {link.user_id for link in task.assignee_links}
-    if user.id in assignee_ids:
-        return
-    if await _is_project_member(task.project_id, user, db):
-        return
-    raise HTTPException(status_code=403, detail="Edit access denied")
 
 
 async def _log_task_event(

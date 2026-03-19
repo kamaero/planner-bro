@@ -18,6 +18,7 @@
 Смотрите сюда:
 
 - `backend/app/services/access_scope.py`
+- `backend/app/services/task_access_service.py`
 - `backend/app/models/user.py`
 - `backend/app/schemas/user.py`
 - `backend/app/api/v1/users.py`
@@ -33,6 +34,7 @@
 - `backend/app/models/task.py`
 - `backend/app/schemas/task.py`
 - `backend/app/api/v1/tasks.py`
+- `backend/app/services/task_access_service.py`
 - `backend/app/services/task_rules_service.py`
 - `frontend/src/types/index.ts`
 - `frontend/src/pages/ProjectDetail.tsx`
@@ -199,4 +201,5 @@
 Следующий логичный шаг:
 
 - развивать карту вокруг `tasks.py` и `ProjectDetail.tsx` по мере их разрезания;
+- после фиксации текущего локального шага отдельно разложить `tasks.py` на access / rules / orchestration зоны;
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.
