@@ -168,6 +168,7 @@ Web и mobile сейчас местами повторяют контракт в
 - project-facing orchestration helpers:
   - `backend/app/services/project_access_service.py`
   - `backend/app/services/task_access_service.py`
+  - `backend/app/services/task_dependency_service.py`
 
 ### Где это проявляется в UI
 

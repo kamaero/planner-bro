@@ -34,19 +34,30 @@ from app.services.notification_service import (
 )
 from app.services.check_in_policy import compute_next_check_in_due_at
 from app.services.access_scope import (
+    can_access_project,
     has_department_level_access,
 )
 from app.services.task_access_service import (
-    require_bulk_permission,
-    require_delete_permission,
-    require_project_exists,
-    require_project_manager,
-    require_project_member,
-    require_project_visibility,
-    require_task_editor,
-    require_task_visibility,
-    serialize_assignee_ids,
-    sync_task_assignees,
+    require_bulk_permission as _require_bulk_permission,
+    require_delete_permission as _require_delete_permission,
+    require_project_exists as _require_project_exists,
+    require_project_manager as _require_project_manager,
+    require_project_member as _require_project_member,
+    require_project_visibility as _require_project_visibility,
+    require_task_editor as _require_task_editor,
+    require_task_visibility as _require_task_visibility,
+    serialize_assignee_ids as _serialize_assignee_ids,
+    sync_task_assignees as _sync_task_assignees,
+)
+from app.services.task_dependency_service import (
+    apply_outgoing_fs_autoplan as _apply_outgoing_fs_autoplan,
+    dependency_short_label as _dependency_short_label,
+    enforce_dependency_dates_or_autoplan as _enforce_dependency_dates_or_autoplan,
+    has_dependency_path as _has_dependency_path,
+    normalize_dependency_type as _normalize_dependency_type,
+    project_critical_path,
+    sync_task_predecessors as _sync_task_predecessors,
+    validate_incoming_dependency_rules as _validate_incoming_dependency_rules,
 )
 from app.services.task_rules_service import (
     ensure_predecessors_done,
@@ -55,16 +66,6 @@ from app.services.task_rules_service import (
 )
 
 router = APIRouter(tags=["tasks"])
-
-
-DEPENDENCY_TYPE_ALIASES = {
-    "fs": "finish_to_start",
-    "finish_to_start": "finish_to_start",
-    "ss": "start_to_start",
-    "start_to_start": "start_to_start",
-    "ff": "finish_to_finish",
-    "finish_to_finish": "finish_to_finish",
-}
 
 
 async def _log_task_event(
@@ -81,25 +82,6 @@ async def _log_task_event(
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _normalize_dependency_type(raw: str | None) -> str:
-    value = (raw or "finish_to_start").strip().lower()
-    normalized = DEPENDENCY_TYPE_ALIASES.get(value)
-    if not normalized:
-        raise HTTPException(
-            status_code=422,
-            detail="dependency_type must be one of: finish_to_start(fs), start_to_start(ss), finish_to_finish(ff)",
-        )
-    return normalized
-
-
-def _dependency_short_label(dep_type: str) -> str:
-    if dep_type == "start_to_start":
-        return "SS"
-    if dep_type == "finish_to_finish":
-        return "FF"
-    return "FS"
 
 
 async def _rollup_parent_schedule(db: AsyncSession, parent_task_id: str | None) -> None:
@@ -126,96 +108,6 @@ async def _rollup_parent_schedule(db: AsyncSession, parent_task_id: str | None) 
             parent.end_date = max_end
 
         cursor = parent.parent_task_id
-
-
-async def _enforce_dependency_dates_or_autoplan(
-    predecessor: Task,
-    successor: Task,
-    dependency_type: str,
-    lag_days: int,
-    *,
-    auto_shift_fs: bool,
-) -> None:
-    dep_type = _normalize_dependency_type(dependency_type)
-    lag = max(0, int(lag_days or 0))
-
-    if dep_type == "finish_to_start":
-        if predecessor.end_date is None:
-            return
-        required_start = predecessor.end_date + timedelta(days=lag)
-        if successor.start_date is None:
-            successor.start_date = required_start
-        if successor.start_date >= required_start:
-            return
-        if not auto_shift_fs:
-            raise HTTPException(
-                status_code=422,
-                detail="FS-зависимость нарушена: дата начала последующей задачи раньше завершения предшественника",
-            )
-
-        shift_days = (required_start - successor.start_date).days
-        successor.start_date = required_start
-        if successor.end_date is None:
-            successor.end_date = required_start
-        else:
-            successor.end_date = successor.end_date + timedelta(days=shift_days)
-        return
-
-    if dep_type == "start_to_start":
-        if predecessor.start_date is None or successor.start_date is None:
-            return
-        required_start = predecessor.start_date + timedelta(days=lag)
-        if successor.start_date < required_start:
-            raise HTTPException(
-                status_code=422,
-                detail="SS-зависимость нарушена: дата начала задачи раньше допустимой",
-            )
-        return
-
-    if predecessor.end_date is None or successor.end_date is None:
-        return
-    required_end = predecessor.end_date + timedelta(days=lag)
-    if successor.end_date < required_end:
-        raise HTTPException(
-            status_code=422,
-            detail="FF-зависимость нарушена: дедлайн задачи раньше допустимого",
-        )
-
-
-async def _apply_outgoing_fs_autoplan(db: AsyncSession, predecessor_id: str) -> None:
-    queue: list[str] = [predecessor_id]
-    visited: set[str] = set()
-    while queue:
-        current_id = queue.pop(0)
-        if current_id in visited:
-            continue
-        visited.add(current_id)
-        predecessor = await get_task_by_id(db, current_id)
-        if not predecessor:
-            continue
-
-        links = (
-            await db.execute(
-                select(TaskDependency).where(
-                    TaskDependency.predecessor_task_id == current_id,
-                )
-            )
-        ).scalars().all()
-        for link in links:
-            successor = await get_task_by_id(db, link.successor_task_id)
-            if not successor:
-                continue
-            before_start = successor.start_date
-            before_end = successor.end_date
-            await _enforce_dependency_dates_or_autoplan(
-                predecessor,
-                successor,
-                link.dependency_type,
-                link.lag_days,
-                auto_shift_fs=link.dependency_type == "finish_to_start",
-            )
-            if successor.start_date != before_start or successor.end_date != before_end:
-                queue.append(successor.id)
 
 
 def _normalize_priority_for_control_ski(priority: str, control_ski: bool) -> str:
@@ -261,25 +153,6 @@ def _plan_next_check_in(task: Task, base_dt: datetime) -> datetime | None:
     return compute_next_check_in_due_at(task, from_dt=base_dt)
 
 
-async def _has_dependency_path(
-    db: AsyncSession, start_task_id: str, target_task_id: str
-) -> bool:
-    visited: set[str] = set()
-    queue: list[str] = [start_task_id]
-    while queue:
-        current = queue.pop(0)
-        if current == target_task_id:
-            return True
-        if current in visited:
-            continue
-        visited.add(current)
-        next_rows = await db.execute(
-            select(TaskDependency.successor_task_id).where(TaskDependency.predecessor_task_id == current)
-        )
-        queue.extend([row[0] for row in next_rows.all() if row[0] not in visited])
-    return False
-
-
 async def _validate_parent_task(
     db: AsyncSession,
     *,
@@ -316,90 +189,6 @@ async def _get_project_settings(project_id: str, db: AsyncSession) -> Project:
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
-
-
-async def _sync_task_predecessors(
-    db: AsyncSession,
-    *,
-    task: Task,
-    predecessor_task_ids: list[str] | None,
-    actor_id: str,
-) -> None:
-    if predecessor_task_ids is None:
-        return
-    normalized = [pid.strip() for pid in predecessor_task_ids if pid and pid.strip()]
-    unique_ids = list(dict.fromkeys(normalized))
-    for predecessor_id in unique_ids:
-        if predecessor_id == task.id:
-            raise HTTPException(status_code=400, detail="Task cannot depend on itself")
-        predecessor = await get_task_by_id(db, predecessor_id)
-        if not predecessor:
-            raise HTTPException(status_code=404, detail=f"Predecessor task not found: {predecessor_id}")
-        if predecessor.project_id != task.project_id:
-            raise HTTPException(status_code=400, detail="Dependencies must be inside one project")
-        if await _has_dependency_path(db, task.id, predecessor_id):
-            raise HTTPException(status_code=400, detail="Dependency cycle is not allowed")
-
-    existing_rows = (
-        await db.execute(select(TaskDependency).where(TaskDependency.successor_task_id == task.id))
-    ).scalars().all()
-    existing_ids = {row.predecessor_task_id for row in existing_rows}
-    desired_ids = set(unique_ids)
-
-    for row in existing_rows:
-        if row.predecessor_task_id not in desired_ids:
-            await db.delete(row)
-            await _log_task_event(
-                db,
-                task.id,
-                actor_id,
-                "dependency_removed",
-                f"{row.predecessor_task_id}->{task.id}",
-            )
-
-    for predecessor_id in unique_ids:
-        if predecessor_id in existing_ids:
-            continue
-        db.add(
-            TaskDependency(
-                predecessor_task_id=predecessor_id,
-                successor_task_id=task.id,
-                created_by_id=actor_id,
-                dependency_type="finish_to_start",
-                lag_days=0,
-            )
-        )
-        await _log_task_event(
-            db,
-            task.id,
-            actor_id,
-            "dependency_added",
-            f"{predecessor_id}->{task.id}",
-        )
-
-
-async def _validate_incoming_dependency_rules(
-    db: AsyncSession,
-    *,
-    task: Task,
-    auto_shift_fs: bool,
-) -> None:
-    incoming = (
-        await db.execute(
-            select(TaskDependency).where(TaskDependency.successor_task_id == task.id)
-        )
-    ).scalars().all()
-    for dep in incoming:
-        predecessor = await get_task_by_id(db, dep.predecessor_task_id)
-        if not predecessor:
-            continue
-        await _enforce_dependency_dates_or_autoplan(
-            predecessor,
-            task,
-            dep.dependency_type,
-            dep.lag_days,
-            auto_shift_fs=auto_shift_fs,
-        )
 
 
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskOut])
@@ -468,6 +257,7 @@ async def create_task(
         task=task,
         predecessor_task_ids=predecessor_task_ids,
         actor_id=current_user.id,
+        log_task_event=_log_task_event,
     )
     await _validate_incoming_dependency_rules(db, task=task, auto_shift_fs=True)
     await ensure_predecessors_done(task, task.status, db)
@@ -639,6 +429,7 @@ async def update_task(
         task=task,
         predecessor_task_ids=predecessor_task_ids,
         actor_id=current_user.id,
+        log_task_event=_log_task_event,
     )
     if (
         predecessor_task_ids is not None
@@ -805,7 +596,7 @@ async def add_task_dependency(
         dep.dependency_type = dep_type
         dep.lag_days = lag_days
 
-    await _enforce_dependency_dates_or_autoplan(
+    await enforce_dependency_dates_or_autoplan(
         predecessor,
         successor,
         dep_type,
@@ -1188,49 +979,7 @@ async def critical_path(
 ):
     await _require_project_exists(project_id, db)
     await _require_project_visibility(project_id, current_user, db)
-    tasks = (await db.execute(select(Task).where(Task.project_id == project_id))).scalars().all()
-    by_id = {t.id: t for t in tasks}
-    children: dict[str, list[str]] = {}
-    roots: list[str] = []
-    for t in tasks:
-        if t.parent_task_id and t.parent_task_id in by_id:
-            children.setdefault(t.parent_task_id, []).append(t.id)
-        else:
-            roots.append(t.id)
-
-    def score(task_id: str) -> tuple[int, list[str]]:
-        childs = children.get(task_id, [])
-        if not childs:
-            return 1, [task_id]
-        best = (0, [])
-        for c in childs:
-            s = score(c)
-            if s[0] > best[0]:
-                best = s
-        return best[0] + 1, [task_id] + best[1]
-
-    best_path: list[str] = []
-    best_len = 0
-    for r in roots:
-        l, p = score(r)
-        if l > best_len:
-            best_len = l
-            best_path = p
-
-    return {
-        "project_id": project_id,
-        "length": best_len,
-        "task_ids": best_path,
-        "tasks": [
-            {
-                "id": tid,
-                "title": by_id[tid].title,
-                "status": by_id[tid].status,
-                "end_date": by_id[tid].end_date.isoformat() if by_id[tid].end_date else None,
-            }
-            for tid in best_path
-        ],
-    }
+    return await project_critical_path(db, project_id)
 
 
 @router.get("/tasks/{task_id}/comments", response_model=list[TaskCommentOut])

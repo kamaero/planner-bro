@@ -138,6 +138,7 @@
 - [x] Вынесен AI draft approval use-case из `backend/app/api/v1/projects.py` в `backend/app/services/project_ai_draft_service.py`.
 - [x] Сделана первая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_rules_service.py`.
 - [x] Локально начата следующая итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_access_service.py` и smoke-тест `backend/tests/test_task_access_service_smoke.py`.
+- [x] Локально начата следующая итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_dependency_service.py` для dependency/autoplan-логики.
 - [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.
 - [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectFilesSection`.
 - [x] Сделана вторая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskListToolbar`.
