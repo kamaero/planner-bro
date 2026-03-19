@@ -51,6 +51,7 @@
 - `backend/app/services/project_service.py`
 - `backend/app/services/project_rules_service.py`
 - `frontend/src/pages/ProjectDetail.tsx`
+- `frontend/src/components/ProjectFilesSection/ProjectFilesSection.tsx`
 - `frontend/src/pages/Dashboard.tsx`
 
 ### Если нужно менять импорт и AI ingestion
@@ -63,6 +64,7 @@
 - `backend/app/tasks/ai_ingestion.py`
 - orchestration в `backend/app/api/v1/projects.py`
 - web UX в `frontend/src/pages/ProjectDetail.tsx`
+- files/AI секция в `frontend/src/components/ProjectFilesSection/ProjectFilesSection.tsx`
 - помощь пользователю в `frontend/src/pages/Help.tsx`
 
 ### Если нужно менять уведомления и realtime

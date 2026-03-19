@@ -90,7 +90,8 @@
 
 ### B. Frontend
 
-- [ ] Разрезать `frontend/src/pages/ProjectDetail.tsx` на секции и hooks.
+- [x] Вынести files/AI секцию из `frontend/src/pages/ProjectDetail.tsx` в `frontend/src/components/ProjectFilesSection/ProjectFilesSection.tsx`.
+- [ ] Продолжить разрезание `frontend/src/pages/ProjectDetail.tsx` на секции и hooks.
 - [ ] Разрезать `frontend/src/App.tsx` на layout / search / sidebar / telemetry.
 - [ ] Затем разобрать `Team.tsx` и `Dashboard.tsx`.
 - [ ] Убрать дублирование словарей статусов и приоритетов.
@@ -108,7 +109,7 @@
 1. Довести backend checks до полностью бесшовного запуска без ручной подготовки окружения.
 2. Продолжить разрезание `projects.py` после вынесения `project_rules_service.py` и `project_access_service.py`.
 3. Подготовить первую итерацию рефакторинга `frontend/src/pages/ProjectDetail.tsx`.
-4. Начать аналогичную разгрузку `backend/app/api/v1/tasks.py` после первого вынесения `task_rules_service.py`.
+4. Вынести следующую самостоятельную секцию из `frontend/src/pages/ProjectDetail.tsx` без изменения поведения списка задач.
 5. Добавить следующий пакет контрактных smoke-тестов на роли и visibility.
 
 ## Риски и блокеры
@@ -132,3 +133,4 @@
 - [x] Вынесен AI draft approval use-case из `backend/app/api/v1/projects.py` в `backend/app/services/project_ai_draft_service.py`.
 - [x] Сделана первая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_rules_service.py`.
 - [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.
+- [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectFilesSection`.
