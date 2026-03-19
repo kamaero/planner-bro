@@ -12,8 +12,8 @@ fi
 echo "[INFO] Creating backend check virtualenv at $VENV_DIR"
 python3.12 -m venv "$VENV_DIR"
 
-echo "[INFO] Installing backend requirements"
-"$VENV_DIR/bin/pip" install -r "$ROOT_DIR/backend/requirements.txt"
+echo "[INFO] Installing lightweight backend check requirements"
+"$VENV_DIR/bin/pip" install -r "$ROOT_DIR/backend/requirements-check.txt"
 
 echo "[PASS] Backend check environment is ready"
 echo "[INFO] You can now run: ./scripts/check-local.sh"

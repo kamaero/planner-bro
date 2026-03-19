@@ -38,6 +38,11 @@ from app.services.access_scope import (
     get_task_assignment_scope_user_ids,
     has_department_level_access,
 )
+from app.services.task_rules_service import (
+    ensure_predecessors_done,
+    validate_child_dates_within_parent,
+    validate_strict_past_dates,
+)
 
 router = APIRouter(tags=["tasks"])
 
@@ -403,32 +408,6 @@ async def _mark_escalation_response(task: Task, actor_id: str, db: AsyncSession)
         await _log_task_event(db, task.id, actor_id, "escalation_first_response")
 
 
-async def _ensure_predecessors_done(task: Task, target_status: str, db: AsyncSession) -> None:
-    if target_status in ("planning", "tz", "todo", "done"):
-        return
-    deps = (
-        await db.execute(
-            select(TaskDependency.predecessor_task_id).where(
-                TaskDependency.successor_task_id == task.id,
-                TaskDependency.dependency_type == "finish_to_start",
-            )
-        )
-    ).all()
-    predecessor_ids = [row[0] for row in deps]
-    if not predecessor_ids:
-        return
-    not_done = (
-        await db.execute(
-            select(Task.title).where(Task.id.in_(predecessor_ids), Task.status != "done")
-        )
-    ).scalars().all()
-    if not_done:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Нельзя начать задачу до завершения зависимостей: {', '.join(not_done[:3])}",
-        )
-
-
 def _plan_next_check_in(task: Task, base_dt: datetime) -> datetime | None:
     if task.status == "done":
         return None
@@ -490,44 +469,6 @@ async def _get_project_settings(project_id: str, db: AsyncSession) -> Project:
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
-
-
-def _is_strict(project: Project) -> bool:
-    return getattr(project, "planning_mode", "flexible") == "strict"
-
-
-def _validate_strict_past_dates(
-    project: Project,
-    *,
-    start_date: date | None,
-    end_date: date | None,
-) -> None:
-    if not _is_strict(project):
-        return
-    today = date.today()
-    if getattr(project, "strict_no_past_start_date", False) and start_date and start_date < today:
-        raise HTTPException(status_code=422, detail="В строгом режиме дата начала не может быть в прошлом")
-    if getattr(project, "strict_no_past_end_date", False) and end_date and end_date < today:
-        raise HTTPException(status_code=422, detail="В строгом режиме дедлайн не может быть в прошлом")
-
-
-def _validate_child_dates_within_parent(
-    project: Project,
-    *,
-    parent: Task | None,
-    start_date: date | None,
-    end_date: date | None,
-) -> None:
-    if not _is_strict(project):
-        return
-    if not getattr(project, "strict_child_within_parent_dates", True):
-        return
-    if not parent:
-        return
-    if start_date and parent.start_date and start_date < parent.start_date:
-        raise HTTPException(status_code=422, detail="Дата начала дочерней задачи раньше даты начала родительской")
-    if end_date and parent.end_date and end_date > parent.end_date:
-        raise HTTPException(status_code=422, detail="Дедлайн дочерней задачи позже дедлайна родительской")
 
 
 async def _sync_task_predecessors(
@@ -668,8 +609,8 @@ async def create_task(
         task_id=task.id,
         parent_task_id=task.parent_task_id,
     )
-    _validate_strict_past_dates(project, start_date=task.start_date, end_date=task.end_date)
-    _validate_child_dates_within_parent(
+    validate_strict_past_dates(project, start_date=task.start_date, end_date=task.end_date)
+    validate_child_dates_within_parent(
         project,
         parent=parent_task,
         start_date=task.start_date,
@@ -682,7 +623,7 @@ async def create_task(
         actor_id=current_user.id,
     )
     await _validate_incoming_dependency_rules(db, task=task, auto_shift_fs=True)
-    await _ensure_predecessors_done(task, task.status, db)
+    await ensure_predecessors_done(task, task.status, db)
     await _rollup_parent_schedule(db, task.parent_task_id)
     await _apply_outgoing_fs_autoplan(db, task.id)
     await _log_task_event(
@@ -834,13 +775,13 @@ async def update_task(
     effective_start_date = task.start_date
     effective_end_date = task.end_date
     if "start_date" in payload or "end_date" in payload:
-        _validate_strict_past_dates(
+        validate_strict_past_dates(
             project,
             start_date=effective_start_date,
             end_date=effective_end_date,
         )
     if "parent_task_id" in payload or "start_date" in payload or "end_date" in payload:
-        _validate_child_dates_within_parent(
+        validate_child_dates_within_parent(
             project,
             parent=parent_task,
             start_date=effective_start_date,
@@ -859,7 +800,7 @@ async def update_task(
     ):
         await _validate_incoming_dependency_rules(db, task=task, auto_shift_fs=True)
     if ("status" in payload and task.status != old_status) or predecessor_task_ids is not None:
-        await _ensure_predecessors_done(task, task.status, db)
+        await ensure_predecessors_done(task, task.status, db)
 
     if task.status == "done":
         task.next_check_in_due_at = None
@@ -1144,7 +1085,7 @@ async def bulk_update_tasks(
         changed = False
 
         if "status" in payload:
-            await _ensure_predecessors_done(task, payload["status"], db)
+            await ensure_predecessors_done(task, payload["status"], db)
 
         for field, value in payload.items():
             if getattr(task, field) != value:
@@ -1235,7 +1176,7 @@ async def update_task_status(
     valid_statuses = {"planning", "tz", "todo", "in_progress", "testing", "review", "done"}
     if data.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
-    await _ensure_predecessors_done(task, data.status, db)
+    await ensure_predecessors_done(task, data.status, db)
 
     now = _now_utc()
     task.status = data.status

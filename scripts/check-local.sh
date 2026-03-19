@@ -30,6 +30,7 @@ check_backend_deps() {
 try:
     import fastapi  # noqa: F401
     import sqlalchemy  # noqa: F401
+    import asyncpg  # noqa: F401
 except Exception as exc:
     raise SystemExit(str(exc))
 PY
@@ -56,12 +57,17 @@ run_backend_checks() {
 
   info "Checking backend Python dependencies"
   if ! (cd "$BACKEND_DIR" && check_backend_deps >/dev/null 2>&1); then
-    fail "Backend dependencies are not installed for $BACKEND_PYTHON_BIN. Recommended setup: ./scripts/setup-backend-check-env.sh"
+    fail "Backend check dependencies are not installed for $BACKEND_PYTHON_BIN. Recommended setup: ./scripts/setup-backend-check-env.sh"
   fi
   pass "backend dependencies available"
 
   info "Running backend unittest smoke suite"
-  (cd "$BACKEND_DIR" && "$BACKEND_PYTHON_BIN" -m unittest discover -s tests -q)
+  (
+    cd "$BACKEND_DIR" && \
+    DEBUG=true \
+    SECRET_KEY=local-check-secret \
+    "$BACKEND_PYTHON_BIN" -m unittest discover -s tests -p '*_smoke.py' -q
+  )
   pass "backend unittest smoke suite"
 }
 

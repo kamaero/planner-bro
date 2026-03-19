@@ -95,6 +95,8 @@ Web и mobile сейчас местами повторяют контракт в
 - backend task lifecycle и проверки:
   - `backend/app/api/v1/tasks.py`
   - частично `backend/app/api/v1/projects.py`
+  - вынесенные task-side helper rules:
+    - `backend/app/services/task_rules_service.py`
   - вынесенные project-side helper rules:
     - `backend/app/services/project_rules_service.py`
 
@@ -125,6 +127,8 @@ Web и mobile сейчас местами повторяют контракт в
 - backend:
   - `backend/app/api/v1/projects.py`
   - `backend/app/api/v1/tasks.py`
+  - `backend/app/services/project_rules_service.py`
+  - `backend/app/services/task_rules_service.py`
 
 ### Производные представления
 

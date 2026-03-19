@@ -33,6 +33,7 @@
 - `backend/app/models/task.py`
 - `backend/app/schemas/task.py`
 - `backend/app/api/v1/tasks.py`
+- `backend/app/services/task_rules_service.py`
 - `frontend/src/types/index.ts`
 - `frontend/src/pages/ProjectDetail.tsx`
 - `frontend/src/pages/Analytics.tsx`
@@ -190,5 +191,5 @@
 
 Следующий логичный шаг:
 
-- сделать отдельную карту `Проверки и верификация`;
-- затем начать рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.
+- развивать карту вокруг `tasks.py` и `ProjectDetail.tsx` по мере их разрезания;
+- затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.

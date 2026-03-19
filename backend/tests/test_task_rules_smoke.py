@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 from fastapi import HTTPException
 
-from app.api.v1.tasks import (
-    _ensure_predecessors_done,
-    _validate_child_dates_within_parent,
-    _validate_strict_past_dates,
+from app.services.task_rules_service import (
+    ensure_predecessors_done,
+    validate_child_dates_within_parent,
+    validate_strict_past_dates,
 )
 
 
@@ -52,7 +52,7 @@ class TaskRulesSmokeTest(unittest.TestCase):
             strict_no_past_end_date=False,
         )
         with self.assertRaises(HTTPException) as ctx:
-            _validate_strict_past_dates(
+            validate_strict_past_dates(
                 project,
                 start_date=date.today() - timedelta(days=1),
                 end_date=None,
@@ -67,7 +67,7 @@ class TaskRulesSmokeTest(unittest.TestCase):
             end_date=date(2026, 3, 20),
         )
         with self.assertRaises(HTTPException) as ctx:
-            _validate_child_dates_within_parent(
+            validate_child_dates_within_parent(
                 project,
                 parent=parent,
                 start_date=date(2026, 3, 11),
@@ -86,7 +86,7 @@ class TaskRulesSmokeTest(unittest.TestCase):
                 ]
             )
             with self.assertRaises(HTTPException) as ctx:
-                await _ensure_predecessors_done(task, "in_progress", db)
+                await ensure_predecessors_done(task, "in_progress", db)
             return ctx.exception
 
         exc = asyncio.run(_run())
@@ -96,4 +96,3 @@ class TaskRulesSmokeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
