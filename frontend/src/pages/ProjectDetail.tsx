@@ -20,6 +20,7 @@ import { GanttChart } from '@/components/GanttChart/GanttChart'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
 import { MembersPanel } from '@/components/MembersPanel/MembersPanel'
 import { ProjectFilesSection } from '@/components/ProjectFilesSection/ProjectFilesSection'
+import { ProjectTaskListToolbar } from '@/components/ProjectTaskListToolbar/ProjectTaskListToolbar'
 import { TaskTable } from '@/components/TaskTable/TaskTable'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
 import { AssigneePicker } from '@/components/AssigneePicker/AssigneePicker'
@@ -1257,182 +1258,37 @@ export function ProjectDetail() {
         </div>
       ) : view === 'list' ? (
         <div className="space-y-3">
-          <div className="sticky top-3 z-20 rounded-lg border bg-card/95 p-3 space-y-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/85">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <Input
-                placeholder="Поиск по задачам..."
-                value={taskSearch}
-                onChange={(e) => setTaskSearch(e.target.value)}
-              />
-              <select
-                value={taskStatusFilter}
-                onChange={(e) => setTaskStatusFilter(e.target.value)}
-                className="border rounded px-2 py-2 text-sm bg-background"
-              >
-                <option value="all">Все статусы</option>
-                <option value="planning">Планирование</option>
-                <option value="tz">ТЗ</option>
-                <option value="todo">К выполнению</option>
-                <option value="in_progress">В работе</option>
-                <option value="testing">Тестирование</option>
-                <option value="review">На проверке</option>
-                <option value="done">Выполнено</option>
-              </select>
-              <select
-                value={taskAssigneeFilter}
-                onChange={(e) => setTaskAssigneeFilter(e.target.value)}
-                className="border rounded px-2 py-2 text-sm bg-background"
-              >
-                <option value="all">Все исполнители</option>
-                <option value="unassigned">Без исполнителя</option>
-                {members.map((m) => (
-                  <option key={m.user.id} value={m.user.id}>
-                    {formatUserDisplayName(m.user)}
-                  </option>
-                ))}
-              </select>
-              <Button variant="outline" onClick={handleToggleSelectAllVisible}>
-                {selectedVisibleCount === filteredTasks.length && filteredTasks.length > 0
-                  ? 'Снять выделение'
-                  : 'Выделить видимые'}
-              </Button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-muted-foreground">
-                Выбрано: {selectedTaskIds.length} / Видимых: {filteredTasks.length}
-              </span>
-              <select
-                value={taskSortBy}
-                onChange={(e) => setTaskSortBy(e.target.value as 'order' | 'status' | 'priority')}
-                className="border rounded px-2 py-1 text-sm bg-background"
-              >
-                <option value="order">Сортировка: по порядку</option>
-                <option value="status">Сортировка: по статусу</option>
-                <option value="priority">Сортировка: по приоритету</option>
-              </select>
-              <select
-                value={taskSortDir}
-                onChange={(e) => setTaskSortDir(e.target.value as 'asc' | 'desc')}
-                className="border rounded px-2 py-1 text-sm bg-background"
-              >
-                <option value="asc">По возрастанию</option>
-                <option value="desc">По убыванию</option>
-              </select>
-              <select
-                value={taskRowSize}
-                onChange={(e) => setTaskRowSize(e.target.value as 'compact' | 'normal' | 'comfortable')}
-                className="border rounded px-2 py-1 text-sm bg-background"
-              >
-                <option value="compact">Плотность: компактно</option>
-                <option value="normal">Плотность: обычная</option>
-                <option value="comfortable">Плотность: свободно</option>
-              </select>
-              {canManage && canBulkEdit && (
-                <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('tz')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    В ТЗ
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('planning')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    В планирование
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('in_progress')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    В работу
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('review')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    На проверку
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('testing')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    В тестирование
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('done')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    Завершить
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={handleBulkDelete}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy || !canDelete}
-                  >
-                    Удалить выбранные
-                  </Button>
-                  <select
-                    value={bulkAssignee}
-                    onChange={(e) => setBulkAssignee(e.target.value)}
-                    className="border rounded px-2 py-1 text-sm bg-background"
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    <option value="keep">Исполнитель: без изменений</option>
-                    <option value="unassigned">Исполнитель: снять назначение</option>
-                    {members.map((m) => (
-                      <option key={m.user.id} value={m.user.id}>
-                        Исполнитель: {formatUserDisplayName(m.user)}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleBulkAssign}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy || bulkAssignee === 'keep'}
-                  >
-                    Применить исполнителя
-                  </Button>
-                  <select
-                    value={bulkPriority}
-                    onChange={(e) => setBulkPriority(e.target.value)}
-                    className="border rounded px-2 py-1 text-sm bg-background"
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    <option value="keep">Приоритет: без изменений</option>
-                    <option value="low">Низкий</option>
-                    <option value="medium">Средний</option>
-                    <option value="high">Высокий</option>
-                    <option value="critical">Критический</option>
-                    <option value="ski">Контроль СКИ (critical)</option>
-                  </select>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleBulkPriority}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy || bulkPriority === 'keep'}
-                  >
-                    Применить приоритет
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
+          <ProjectTaskListToolbar
+            taskSearch={taskSearch}
+            onTaskSearchChange={setTaskSearch}
+            taskStatusFilter={taskStatusFilter}
+            onTaskStatusFilterChange={setTaskStatusFilter}
+            taskAssigneeFilter={taskAssigneeFilter}
+            onTaskAssigneeFilterChange={setTaskAssigneeFilter}
+            members={members}
+            selectedVisibleCount={selectedVisibleCount}
+            filteredTasksCount={filteredTasks.length}
+            selectedTaskIdsCount={selectedTaskIds.length}
+            onToggleSelectAllVisible={handleToggleSelectAllVisible}
+            taskSortBy={taskSortBy}
+            onTaskSortByChange={setTaskSortBy}
+            taskSortDir={taskSortDir}
+            onTaskSortDirChange={setTaskSortDir}
+            taskRowSize={taskRowSize}
+            onTaskRowSizeChange={setTaskRowSize}
+            canManage={canManage}
+            canBulkEdit={canBulkEdit}
+            canDelete={canDelete}
+            bulkBusy={bulkBusy}
+            bulkAssignee={bulkAssignee}
+            onBulkAssigneeChange={setBulkAssignee}
+            bulkPriority={bulkPriority}
+            onBulkPriorityChange={setBulkPriority}
+            onBulkStatusUpdate={handleBulkStatusUpdate}
+            onBulkDelete={handleBulkDelete}
+            onBulkAssign={handleBulkAssign}
+            onBulkPriority={handleBulkPriority}
+          />
 
           <TaskTable
             tasks={filteredTasks}

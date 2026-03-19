@@ -52,6 +52,7 @@
 - `backend/app/services/project_rules_service.py`
 - `frontend/src/pages/ProjectDetail.tsx`
 - `frontend/src/components/ProjectFilesSection/ProjectFilesSection.tsx`
+- `frontend/src/components/ProjectTaskListToolbar/ProjectTaskListToolbar.tsx`
 - `frontend/src/pages/Dashboard.tsx`
 
 ### Если нужно менять импорт и AI ingestion

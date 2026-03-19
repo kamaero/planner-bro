@@ -91,6 +91,7 @@
 ### B. Frontend
 
 - [x] Вынести files/AI секцию из `frontend/src/pages/ProjectDetail.tsx` в `frontend/src/components/ProjectFilesSection/ProjectFilesSection.tsx`.
+- [x] Вынести toolbar списка задач из `frontend/src/pages/ProjectDetail.tsx` в `frontend/src/components/ProjectTaskListToolbar/ProjectTaskListToolbar.tsx`.
 - [ ] Продолжить разрезание `frontend/src/pages/ProjectDetail.tsx` на секции и hooks.
 - [ ] Разрезать `frontend/src/App.tsx` на layout / search / sidebar / telemetry.
 - [ ] Затем разобрать `Team.tsx` и `Dashboard.tsx`.
@@ -134,3 +135,4 @@
 - [x] Сделана первая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_rules_service.py`.
 - [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.
 - [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectFilesSection`.
+- [x] Сделана вторая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskListToolbar`.
