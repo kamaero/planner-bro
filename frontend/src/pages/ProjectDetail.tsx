@@ -15,6 +15,8 @@ import {
 } from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
 import { useProjectDetailActions } from '@/hooks/useProjectDetailActions'
+import { useProjectDetailDerived } from '@/hooks/useProjectDetailDerived'
+import { useProjectDetailTaskSelection } from '@/hooks/useProjectDetailTaskSelection'
 import { useProjectTaskListState } from '@/hooks/useProjectTaskListState'
 import { useUsers } from '@/hooks/useUsers'
 import { api } from '@/api/client'
@@ -30,8 +32,6 @@ import {
   TASK_PRIORITY_ORDER,
   TASK_STATUS_ORDER,
 } from '@/lib/domainMeta'
-import { buildTaskHierarchy } from '@/lib/taskOrdering'
-import type { Task, GanttTask } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { Trash2 } from 'lucide-react'
 
@@ -61,8 +61,6 @@ export function ProjectDetail() {
   const currentUser = useAuthStore((s) => s.user)
 
   const [view, setView] = useState<ProjectDetailView>('list')
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [taskForm, setTaskForm] = useState<ProjectTaskFormState>({
@@ -105,38 +103,26 @@ export function ProjectDetail() {
 
   const { data: projectDeadlineHistory = [] } = useProjectDeadlineHistory(id)
   const shiftsMap = useMemo(() => ({} as Record<string, number>), [])
-
-  const memberRole = members.find((m) => m.user.id === currentUser?.id)?.role
-  const canManage = currentUser?.role === 'admin' || memberRole === 'owner' || memberRole === 'manager'
-  const canRenameProject =
-    canManage ||
-    currentUser?.role === 'manager' ||
-    !!currentUser?.can_manage_team ||
-    currentUser?.visibility_scope === 'department_scope'
-  const canTransferOwnership = currentUser?.role === 'admin' || memberRole === 'owner'
-  const canDelete = currentUser?.role === 'admin' || !!currentUser?.can_delete
-  const canImport = currentUser?.role === 'admin' || !!currentUser?.can_import
-  const canBulkEdit = currentUser?.role === 'admin' || !!currentUser?.can_bulk_edit
-  const canAssignAcrossOrg = useMemo(() => {
-    const position = (currentUser?.position_title ?? '').toLowerCase()
-    const isGlobalPosition =
-      position.includes('гип') ||
-      position.includes('главный инженер проектов') ||
-      position.includes('зам') ||
-      position.includes('заместитель')
-    return (
-      currentUser?.role === 'admin' ||
-      currentUser?.role === 'manager' ||
-      !!currentUser?.can_manage_team ||
-      isGlobalPosition
-    )
-  }, [currentUser?.can_manage_team, currentUser?.position_title, currentUser?.role])
-  const projectAssigneeOptions = useMemo(() => {
-    if (canAssignAcrossOrg || members.length === 0) return users
-    const uniqueUsers = new Map<string, (typeof users)[number]>()
-    for (const member of members) uniqueUsers.set(member.user.id, member.user)
-    return Array.from(uniqueUsers.values())
-  }, [canAssignAcrossOrg, members, users])
+  const {
+    canManage,
+    canRenameProject,
+    canTransferOwnership,
+    canDelete,
+    canImport,
+    canBulkEdit,
+    projectAssigneeOptions,
+    projectProgress,
+    progressStats,
+    taskHierarchyOptions,
+    launchBasisFile,
+  } = useProjectDetailDerived({
+    project,
+    tasks,
+    members,
+    users,
+    files,
+    currentUser,
+  })
   useEffect(() => {
     if (project && editOpen) {
       setEditForm({
@@ -162,57 +148,16 @@ export function ProjectDetail() {
     }
   }, [project, editOpen])
 
-  const projectProgress = useMemo(() => {
-    if (!tasks.length) return 0
-    const sum = tasks.reduce((acc, t) => acc + (t.progress_percent ?? 0), 0)
-    return Math.round(sum / tasks.length)
-  }, [tasks])
-  const progressStats = useMemo(() => {
-    let completedCount = 0
-    let zeroProgressCount = 0
-    for (const task of tasks) {
-      const progress = task.progress_percent ?? 0
-      if (task.status === 'done' || progress >= 100) completedCount += 1
-      if (progress === 0) zeroProgressCount += 1
-    }
-    return { completedCount, zeroProgressCount, totalCount: tasks.length }
-  }, [tasks])
-  const taskHierarchyOptions = useMemo(() => buildTaskHierarchy(tasks), [tasks])
-
-  const launchBasisFile = useMemo(() => {
-    const fileId = project?.launch_basis_file_id
-    if (!fileId) return null
-    return files.find((f) => f.id === fileId) ?? null
-  }, [files, project?.launch_basis_file_id])
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    const taskId = params.get('task')
-    if (!taskId || tasks.length === 0) return
-    const task = tasks.find((t) => t.id === taskId)
-    if (!task) return
-    setSelectedTask(task)
-    setDrawerOpen(true)
-  }, [location.search, tasks])
-
-  useEffect(() => {
-    if (!selectedTask) return
-    const updated = tasks.find((t) => t.id === selectedTask.id)
-    if (updated) setSelectedTask(updated)
-  }, [tasks, selectedTask])
-
-  const handleGanttTaskClick = (ganttTask: GanttTask) => {
-    const task = tasks.find((t) => t.id === ganttTask.id)
-    if (task) {
-      setSelectedTask(task)
-      setDrawerOpen(true)
-    }
-  }
-
-  const handleTaskClick = (task: Task) => {
-    setSelectedTask(task)
-    setDrawerOpen(true)
-  }
+  const {
+    selectedTask,
+    drawerOpen,
+    setDrawerOpen,
+    handleGanttTaskClick,
+    handleTaskClick,
+  } = useProjectDetailTaskSelection({
+    locationSearch: location.search,
+    tasks,
+  })
 
   const {
     showProjectDeadlineModal,

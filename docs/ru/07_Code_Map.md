@@ -68,6 +68,8 @@
 - `frontend/src/components/ProjectDetail/ProjectDetailContent.tsx`
 - `frontend/src/hooks/useProjectTaskListState.ts`
 - `frontend/src/hooks/useProjectDetailActions.ts`
+- `frontend/src/hooks/useProjectDetailDerived.ts`
+- `frontend/src/hooks/useProjectDetailTaskSelection.ts`
 - `frontend/src/types/index.ts` (`CriticalPathResponse`)
 - `frontend/src/pages/Dashboard.tsx`
 - `frontend/src/components/Dashboard/DashboardProjectsSection.tsx`
