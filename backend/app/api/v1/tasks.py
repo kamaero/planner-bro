@@ -61,6 +61,11 @@ from app.services.task_deadline_service import (
     record_deadline_change_and_date_events as _record_deadline_change_and_date_events,
     validate_deadline_reason as _validate_deadline_reason,
 )
+from app.services.task_update_service import (
+    apply_escalation_projection_for_update as _apply_escalation_projection_for_update,
+    should_revalidate_dependencies as _should_revalidate_dependencies,
+    split_update_payload as _split_update_payload,
+)
 from app.services.task_lifecycle_service import (
     get_project_settings as _get_project_settings,
     mark_escalation_response as _mark_escalation_response,
@@ -265,12 +270,9 @@ async def update_task(
     old_end_date = task.end_date
     old_parent_task_id = task.parent_task_id
     # Keep explicitly passed nulls (e.g. clearing dates/assignee) but ignore fields not sent by client.
-    payload = data.model_dump(exclude_unset=True)
-    assignee_ids = payload.pop("assignee_ids", None)
-    predecessor_task_ids = payload.pop("predecessor_task_ids", None)
-    if assignee_ids is not None:
-        payload["assigned_to_id"] = assignee_ids[0] if assignee_ids else None
-    deadline_change_reason = payload.pop("deadline_change_reason", None)
+    payload, assignee_ids, predecessor_task_ids, deadline_change_reason = _split_update_payload(
+        data.model_dump(exclude_unset=True)
+    )
 
     title_only_update = _is_title_only_update(
         payload,
@@ -292,25 +294,11 @@ async def update_task(
         deadline_change_reason=deadline_change_reason,
     )
 
-    if any(
-        key in payload
-        for key in (
-            "is_escalation",
-            "escalation_sla_hours",
-            "escalation_due_at",
-        )
-    ):
-        projected = {
-            "is_escalation": payload.get("is_escalation", task.is_escalation),
-            "escalation_sla_hours": payload.get("escalation_sla_hours", task.escalation_sla_hours),
-            "escalation_due_at": payload.get("escalation_due_at", task.escalation_due_at),
-            "escalation_first_response_at": payload.get(
-                "escalation_first_response_at", task.escalation_first_response_at
-            ),
-            "escalation_overdue_at": payload.get("escalation_overdue_at", task.escalation_overdue_at),
-        }
-        _prepare_escalation_fields(projected, task.created_at)
-        payload.update(projected)
+    _apply_escalation_projection_for_update(
+        task,
+        payload,
+        prepare_escalation_fields=_prepare_escalation_fields,
+    )
 
     for field, value in payload.items():
         setattr(task, field, value)
@@ -344,11 +332,7 @@ async def update_task(
         actor_id=current_user.id,
         log_task_event=_log_task_event,
     )
-    if (
-        predecessor_task_ids is not None
-        or "start_date" in payload
-        or "end_date" in payload
-    ):
+    if _should_revalidate_dependencies(predecessor_task_ids, payload):
         await _validate_incoming_dependency_rules(db, task=task, auto_shift_fs=True)
     if ("status" in payload and task.status != old_status) or predecessor_task_ids is not None:
         await ensure_predecessors_done(task, task.status, db)
@@ -369,11 +353,7 @@ async def update_task(
         log_task_event=_log_task_event,
     )
 
-    if (
-        predecessor_task_ids is not None
-        or "start_date" in payload
-        or "end_date" in payload
-    ):
+    if _should_revalidate_dependencies(predecessor_task_ids, payload):
         await _apply_outgoing_fs_autoplan(db, task.id)
 
     await _rollup_parent_schedule(db, old_parent_task_id)
