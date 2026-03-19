@@ -13,42 +13,14 @@ import {
 } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Download, AlertTriangle } from 'lucide-react'
+import {
+  TASK_PRIORITY_CHART_COLORS,
+  TASK_PRIORITY_LABELS,
+  TASK_STATUS_CHART_COLORS,
+  TASK_STATUS_LABELS,
+} from '@/lib/domainMeta'
 import type { Task, Project } from '@/types'
 import { formatUserDisplayName } from '@/lib/userName'
-
-const STATUS_LABELS: Record<string, string> = {
-  planning: 'Планирование',
-  tz: 'ТЗ',
-  todo: 'К выполнению',
-  in_progress: 'В работе',
-  testing: 'Тестирование',
-  review: 'На проверке',
-  done: 'Выполнено',
-}
-
-const PRIORITY_LABELS: Record<string, string> = {
-  low: 'Низкий',
-  medium: 'Средний',
-  high: 'Высокий',
-  critical: 'Критический',
-}
-
-const PRIORITY_COLORS: Record<string, string> = {
-  low: '#3b82f6',
-  medium: '#eab308',
-  high: '#f97316',
-  critical: '#ef4444',
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  planning: '#0ea5e9',
-  tz: '#06b6d4',
-  todo: '#94a3b8',
-  in_progress: '#6366f1',
-  testing: '#8b5cf6',
-  review: '#f59e0b',
-  done: '#22c55e',
-}
 
 function MetricCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
   return (
@@ -67,8 +39,8 @@ function exportCSV(tasks: Task[], projects: Project[]) {
     ...tasks.map((t) => [
       projectMap[t.project_id] ?? t.project_id,
       t.title,
-      STATUS_LABELS[t.status] ?? t.status,
-      PRIORITY_LABELS[t.priority] ?? t.priority,
+      TASK_STATUS_LABELS[t.status] ?? t.status,
+      TASK_PRIORITY_LABELS[t.priority] ?? t.priority,
       formatUserDisplayName(t.assignee) ?? '',
       t.start_date ?? '',
       t.end_date ?? '',
@@ -120,15 +92,15 @@ export function Analytics() {
   const unassigned = tasks.filter((t) => !t.assigned_to_id).length
 
   const statusCounts = ['planning', 'tz', 'todo', 'in_progress', 'testing', 'review', 'done'].map((s) => ({
-    name: STATUS_LABELS[s],
+    name: TASK_STATUS_LABELS[s],
     count: tasks.filter((t) => t.status === s).length,
-    fill: STATUS_COLORS[s],
+    fill: TASK_STATUS_CHART_COLORS[s],
   }))
 
   const priorityCounts = ['low', 'medium', 'high', 'critical'].map((p) => ({
-    name: PRIORITY_LABELS[p],
+    name: TASK_PRIORITY_LABELS[p],
     value: tasks.filter((t) => t.priority === p).length,
-    fill: PRIORITY_COLORS[p],
+    fill: TASK_PRIORITY_CHART_COLORS[p],
   }))
   const priorityChartData = priorityCounts.filter((item) => item.value > 0)
 

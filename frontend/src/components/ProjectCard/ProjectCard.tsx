@@ -2,25 +2,8 @@ import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import type { Project } from '@/types'
 import { CalendarDays, Users } from 'lucide-react'
+import { PROJECT_STATUS_BADGE_VARIANTS, PROJECT_STATUS_LABELS } from '@/lib/domainMeta'
 import { formatUserDisplayName } from '@/lib/userName'
-
-const STATUS_LABELS: Record<string, string> = {
-  planning: 'Planning',
-  tz: 'TZ',
-  active: 'Active',
-  testing: 'Testing',
-  on_hold: 'On Hold',
-  completed: 'Completed',
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  planning: 'secondary',
-  tz: 'outline',
-  active: 'default',
-  testing: 'outline',
-  on_hold: 'outline',
-  completed: 'secondary',
-}
 
 interface ProjectCardProps {
   project: Project
@@ -40,8 +23,8 @@ export function ProjectCard({ project }: ProjectCardProps) {
           />
           <h3 className="font-semibold text-card-foreground truncate">{project.name}</h3>
         </div>
-        <Badge variant={STATUS_COLORS[project.status] as 'default' | 'secondary' | 'outline'}>
-          {STATUS_LABELS[project.status]}
+        <Badge variant={PROJECT_STATUS_BADGE_VARIANTS[project.status]}>
+          {PROJECT_STATUS_LABELS[project.status]}
         </Badge>
       </div>
 

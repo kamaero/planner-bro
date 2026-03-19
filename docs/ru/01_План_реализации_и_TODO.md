@@ -127,3 +127,4 @@
 - [x] Добавлен единый локальный скрипт `scripts/check-local.sh`.
 - [x] Добавлен скрипт `scripts/setup-backend-check-env.sh`.
 - [x] Сделана первая безопасная итерация разгрузки `backend/app/api/v1/projects.py` через новый `project_rules_service.py`.
+- [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.

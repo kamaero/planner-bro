@@ -39,6 +39,13 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import {
+  PROJECT_STATUS_OPTIONS,
+  TASK_PRIORITY_BADGE_COLORS,
+  TASK_PRIORITY_ORDER,
+  TASK_STATUS_LABELS,
+  TASK_STATUS_ORDER,
+} from '@/lib/domainMeta'
 import { humanizeApiError } from '@/lib/errorMessages'
 import { buildTaskHierarchy, parseTaskOrderFromTitle } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
@@ -46,49 +53,6 @@ import type { Task, GanttTask, ProjectFile, ImportFilePrecheck, AITaskDraft } fr
 import { useAuthStore } from '@/store/authStore'
 import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-
-const PRIORITY_COLORS: Record<string, string> = {
-  low: 'bg-blue-100 text-blue-800',
-  medium: 'bg-yellow-100 text-yellow-800',
-  high: 'bg-orange-100 text-orange-800',
-  critical: 'bg-red-100 text-red-800',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  planning: 'Планирование',
-  tz: 'ТЗ',
-  todo: 'К выполнению',
-  in_progress: 'В работе',
-  testing: 'Тестирование',
-  review: 'На проверке',
-  done: 'Выполнено',
-}
-
-const TASK_STATUS_ORDER: Record<string, number> = {
-  planning: 0,
-  tz: 1,
-  todo: 2,
-  in_progress: 3,
-  testing: 4,
-  review: 5,
-  done: 6,
-}
-
-const TASK_PRIORITY_ORDER: Record<string, number> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-}
-
-const PROJECT_STATUS_OPTIONS = [
-  { value: 'planning', label: 'Планирование' },
-  { value: 'tz', label: 'ТЗ' },
-  { value: 'active', label: 'Активный' },
-  { value: 'testing', label: 'Тестирование' },
-  { value: 'on_hold', label: 'Пауза' },
-  { value: 'completed', label: 'Завершён' },
-]
 
 const DEFAULT_DOD_CHECKLIST = [
   { id: 'scope_approved', label: 'Результаты проекта согласованы', done: false },
@@ -860,7 +824,7 @@ export function ProjectDetail() {
             <span className="font-medium text-sm">{task.title}</span>
           </button>
           <span
-            className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[task.priority]}`}
+            className={`text-xs px-2 py-0.5 rounded-full font-medium ${TASK_PRIORITY_BADGE_COLORS[task.priority]}`}
           >
             {task.priority}
           </span>
@@ -879,13 +843,13 @@ export function ProjectDetail() {
             onChange={(e) => handleQuickStatusChange(task, e.target.value)}
             className="text-xs border rounded px-2 py-1 bg-background"
           >
-            <option value="planning">{STATUS_LABELS.planning}</option>
-            <option value="tz">{STATUS_LABELS.tz}</option>
-            <option value="todo">{STATUS_LABELS.todo}</option>
-            <option value="in_progress">{STATUS_LABELS.in_progress}</option>
-            <option value="testing">{STATUS_LABELS.testing}</option>
-            <option value="review">{STATUS_LABELS.review}</option>
-            <option value="done">{STATUS_LABELS.done}</option>
+            <option value="planning">{TASK_STATUS_LABELS.planning}</option>
+            <option value="tz">{TASK_STATUS_LABELS.tz}</option>
+            <option value="todo">{TASK_STATUS_LABELS.todo}</option>
+            <option value="in_progress">{TASK_STATUS_LABELS.in_progress}</option>
+            <option value="testing">{TASK_STATUS_LABELS.testing}</option>
+            <option value="review">{TASK_STATUS_LABELS.review}</option>
+            <option value="done">{TASK_STATUS_LABELS.done}</option>
           </select>
         </div>
       </div>
@@ -926,7 +890,7 @@ export function ProjectDetail() {
           <Badge variant="outline">
             {project.planning_mode === 'strict' ? 'strict' : 'flexible'}
           </Badge>
-          <Badge variant="outline" className={PRIORITY_COLORS[project.control_ski ? 'critical' : project.priority]}>
+          <Badge variant="outline" className={TASK_PRIORITY_BADGE_COLORS[project.control_ski ? 'critical' : project.priority]}>
             {project.control_ski ? 'critical · СКИ' : project.priority}
           </Badge>
           {(project.launch_basis_text || launchBasisFile) && (
