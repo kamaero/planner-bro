@@ -1,6 +1,5 @@
 import uuid
 import hashlib
-import re
 import io
 from datetime import date
 from pathlib import Path
@@ -23,7 +22,6 @@ from app.models.project import (
     default_completion_checklist,
 )
 from app.models.task import Task, TaskEvent, TaskComment
-from app.models.task import TaskAssignee
 from app.models.ai import AIIngestionJob, AITaskDraft
 from app.models.deadline_change import DeadlineChange
 from app.models.vault import VaultFile
@@ -55,6 +53,19 @@ from app.services.notification_service import (
 )
 from app.services.system_activity_service import log_system_activity
 from app.services.ms_project_import_service import parse_ms_project_content, inspect_import_file
+from app.services.project_rules_service import (
+    apply_control_ski,
+    collect_assignee_hints,
+    ensure_project_completion_allowed,
+    extract_task_number,
+    fio_short,
+    fio_short_from_parts,
+    match_assignee_ids,
+    normalize_checklist,
+    require_delete_permission,
+    require_import_permission,
+    sync_task_assignees_for_project,
+)
 from app.services.temp_assignee_service import upsert_temp_assignees
 from app.services.vault_crypto import encrypt_file
 from app.services.project_file_storage import (
@@ -65,197 +76,6 @@ from app.services.project_file_storage import (
 from app.tasks.ai_ingestion import process_file_for_ai
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-
-
-def _extract_task_number(value: str | None) -> str | None:
-    if not value:
-        return None
-    match = re.match(r"^(\d+(?:\.\d+)*)(?:[.)])?\s+", value.strip())
-    if not match:
-        return None
-    return match.group(1)
-
-
-def _fio_short(value: str | None) -> str:
-    if not value:
-        return ""
-    cleaned = re.sub(r"\s+", " ", value).strip()
-    if not cleaned:
-        return ""
-    match = re.search(r"([А-ЯЁA-Z][а-яёa-z-]+)\s+([А-ЯЁA-Z])\.?\s*([А-ЯЁA-Z])\.?", cleaned)
-    if match:
-        return f"{match.group(1).lower()} {match.group(2).lower()}.{match.group(3).lower()}."
-    parts = cleaned.split(" ")
-    if len(parts) >= 3:
-        return f"{parts[0].lower()} {parts[1][0].lower()}.{parts[2][0].lower()}."
-    return cleaned.lower()
-
-
-def _fio_short_from_parts(last_name: str | None, first_name: str | None, middle_name: str | None) -> str:
-    last = re.sub(r"\s+", " ", (last_name or "")).strip()
-    first = re.sub(r"\s+", " ", (first_name or "")).strip()
-    middle = re.sub(r"\s+", " ", (middle_name or "")).strip()
-    if not (last and first):
-        return ""
-    first_initial = first[0].lower()
-    middle_initial = middle[0].lower() if middle else ""
-    return f"{last.lower()} {first_initial}.{middle_initial + '.' if middle_initial else ''}"
-
-
-def _collect_assignee_hints(primary_hint: str | None, raw_payload: dict | None) -> list[str]:
-    hints: list[str] = []
-    if primary_hint and primary_hint.strip():
-        hints.append(primary_hint.strip())
-    payload_hints = (raw_payload or {}).get("assignee_hints")
-    if isinstance(payload_hints, list):
-        for value in payload_hints:
-            if isinstance(value, str) and value.strip():
-                hints.append(value.strip())
-    if not hints:
-        fallback = (raw_payload or {}).get("assignee_hint")
-        if isinstance(fallback, str) and fallback.strip():
-            hints.append(fallback.strip())
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for hint in hints:
-        key = hint.strip().lower()
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        deduped.append(hint)
-    return deduped
-
-
-def _match_assignee_ids(hints: list[str], users: list[User]) -> list[str]:
-    matched: list[str] = []
-    seen: set[str] = set()
-    normalized_users = [
-        (
-            u,
-            (u.email or "").strip().lower(),
-            (u.work_email or "").strip().lower(),
-            u.name.strip().lower(),
-            _fio_short(u.name),
-            _fio_short_from_parts(u.last_name, u.first_name, getattr(u, "middle_name", "")),
-        )
-        for u in users
-    ]
-    for raw_hint in hints:
-        hint = raw_hint.strip().lower()
-        if not hint:
-            continue
-        candidate_id: str | None = None
-        for user, email, work_email, _, _, _ in normalized_users:
-            if (email and email == hint) or (work_email and work_email == hint):
-                candidate_id = user.id
-                break
-        if not candidate_id:
-            for user, _, _, name, _, _ in normalized_users:
-                if name == hint:
-                    candidate_id = user.id
-                    break
-        if not candidate_id:
-            hint_short = _fio_short(hint)
-            if hint_short:
-                for user, _, _, _, user_short, user_short_from_parts in normalized_users:
-                    if (user_short and user_short == hint_short) or (
-                        user_short_from_parts and user_short_from_parts == hint_short
-                    ):
-                        candidate_id = user.id
-                        break
-        if candidate_id and candidate_id not in seen:
-            seen.add(candidate_id)
-            matched.append(candidate_id)
-    return matched
-
-
-async def _sync_task_assignees_for_project(
-    task: Task,
-    project_id: str,
-    assignee_ids: list[str],
-    db: AsyncSession,
-) -> None:
-    desired = [uid.strip() for uid in assignee_ids if uid and uid.strip()]
-    desired = list(dict.fromkeys(desired))
-
-    existing_links = (
-        await db.execute(select(TaskAssignee).where(TaskAssignee.task_id == task.id))
-    ).scalars().all()
-    existing_ids = {link.user_id for link in existing_links}
-    desired_set = set(desired)
-
-    for link in existing_links:
-        if link.user_id not in desired_set:
-            await db.delete(link)
-
-    for user_id in desired:
-        if user_id not in existing_ids:
-            db.add(TaskAssignee(task_id=task.id, user_id=user_id))
-        member_exists = (
-            await db.execute(
-                select(ProjectMember).where(
-                    ProjectMember.project_id == project_id,
-                    ProjectMember.user_id == user_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if not member_exists:
-            db.add(ProjectMember(project_id=project_id, user_id=user_id, role="member"))
-
-    task.assigned_to_id = desired[0] if desired else None
-
-
-def _normalize_checklist(items: list[dict] | None) -> list[dict]:
-    normalized: list[dict] = []
-    for item in items or []:
-        item_id = str(item.get("id", "")).strip()
-        label = str(item.get("label", "")).strip()
-        if not item_id or not label:
-            continue
-        normalized.append({"id": item_id, "label": label, "done": bool(item.get("done", False))})
-    return normalized
-
-
-def _ensure_project_completion_allowed(checklist: list[dict]) -> None:
-    if not checklist:
-        raise HTTPException(
-            status_code=400,
-            detail="Нельзя завершить проект: заполните checklist definition of done.",
-        )
-    if any(not bool(item.get("done", False)) for item in checklist):
-        raise HTTPException(
-            status_code=400,
-            detail="Нельзя завершить проект: все пункты definition of done должны быть отмечены.",
-        )
-
-
-def _apply_control_ski(payload: dict, existing_priority: str | None = None, existing_control_ski: bool = False):
-    control_ski = payload.get("control_ski", existing_control_ski)
-    priority = payload.get("priority", existing_priority or "medium")
-
-    if control_ski:
-        payload["control_ski"] = True
-        payload["priority"] = "critical"
-        return
-
-    if "control_ski" in payload:
-        payload["control_ski"] = False
-    if priority == "critical":
-        payload["priority"] = "medium"
-
-
-def _require_import_permission(user: User) -> None:
-    if user.role == "admin":
-        return
-    if not user.can_import:
-        raise HTTPException(status_code=403, detail="No permission to import tasks/files")
-
-
-def _require_delete_permission(user: User) -> None:
-    if user.role == "admin":
-        return
-    if not user.can_delete:
-        raise HTTPException(status_code=403, detail="No permission to delete")
 
 
 def _vault_key() -> str:
@@ -464,9 +284,9 @@ async def create_project(
 ):
     payload = data.model_dump()
     department_ids = await _validate_department_ids(db, payload.pop("department_ids", []))
-    incoming_checklist = _normalize_checklist(payload.get("completion_checklist"))
+    incoming_checklist = normalize_checklist(payload.get("completion_checklist"))
     payload["completion_checklist"] = incoming_checklist or default_completion_checklist()
-    _apply_control_ski(payload)
+    apply_control_ski(payload)
 
     if payload.get("launch_basis_file_id"):
         raise HTTPException(status_code=400, detail="launch_basis_file_id can be set only after upload")
@@ -721,10 +541,10 @@ async def update_project(
             raise HTTPException(status_code=403, detail="Manager access required")
 
     if checklist_payload is not None:
-        project.completion_checklist = _normalize_checklist(checklist_payload)
+        project.completion_checklist = normalize_checklist(checklist_payload)
     target_status = payload.get("status", project.status)
     if target_status == "completed":
-        _ensure_project_completion_allowed(project.completion_checklist)
+        ensure_project_completion_allowed(project.completion_checklist)
 
     # Validate deadline change requires a reason
     new_end_date = payload.get("end_date")
@@ -744,7 +564,7 @@ async def update_project(
         if not file_result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Launch basis file not found")
 
-    _apply_control_ski(payload, existing_priority=project.priority, existing_control_ski=project.control_ski)
+    apply_control_ski(payload, existing_priority=project.priority, existing_control_ski=project.control_ski)
     for field, value in payload.items():
         setattr(project, field, value)
     if incoming_department_ids is not None:
@@ -807,7 +627,7 @@ async def delete_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_delete_permission(current_user)
+    require_delete_permission(current_user)
     project = await _require_project_access(project_id, current_user, db, require_manager=True)
     await db.delete(project)
     await db.commit()
@@ -929,7 +749,7 @@ async def import_tasks_from_ms_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_import_permission(current_user)
+    require_import_permission(current_user)
     await _require_project_access(project_id, current_user, db)
     if not upload.filename:
         raise HTTPException(status_code=400, detail="Filename required")
@@ -1001,8 +821,8 @@ async def import_tasks_from_ms_project(
         short
         for u in user_candidates
         for short in (
-            _fio_short(u.name),
-            _fio_short_from_parts(u.last_name, u.first_name, getattr(u, "middle_name", "")),
+            fio_short(u.name),
+            fio_short_from_parts(u.last_name, u.first_name, getattr(u, "middle_name", "")),
         )
         if short
     }
@@ -1012,7 +832,7 @@ async def import_tasks_from_ms_project(
         if item.outline_number and not title.startswith(f"{item.outline_number} "):
             title = f"{item.outline_number} {title}"
         assignee_hints = item.assignee_hints or ([item.assignee_hint] if item.assignee_hint else [])
-        matched_assignee_ids = _match_assignee_ids(assignee_hints, user_candidates)
+        matched_assignee_ids = match_assignee_ids(assignee_hints, user_candidates)
         task = Task(
             project_id=project_id,
             title=title,
@@ -1028,7 +848,7 @@ async def import_tasks_from_ms_project(
         )
         db.add(task)
         await db.flush()
-        await _sync_task_assignees_for_project(task, project_id, matched_assignee_ids, db)
+        await sync_task_assignees_for_project(task, project_id, matched_assignee_ids, db)
         db.add(
             TaskEvent(
                 task_id=task.id,
@@ -1059,7 +879,7 @@ async def import_tasks_from_ms_project(
             if hint
             and hint.lower() not in known_emails
             and hint.lower() not in known_names
-            and _fio_short(hint) not in known_short_names
+            and fio_short(hint) not in known_short_names
         ]
         if unresolved_hints:
             await upsert_temp_assignees(
@@ -1184,7 +1004,7 @@ async def delete_project_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_delete_permission(current_user)
+    require_delete_permission(current_user)
     await _require_project_access(project_id, current_user, db, require_manager=True)
     result = await db.execute(
         select(ProjectFile).where(
@@ -1238,7 +1058,7 @@ async def start_ai_processing_for_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_import_permission(current_user)
+    require_import_permission(current_user)
     await _require_project_access(project_id, current_user, db)
 
     file_record = (
@@ -1315,13 +1135,13 @@ async def _approve_single_ai_draft(
     user_candidates: list[User] | None = None,
 ) -> Task:
     raw_payload = draft.raw_payload or {}
-    assignee_hints = _collect_assignee_hints(draft.assignee_hint, raw_payload)
+    assignee_hints = collect_assignee_hints(draft.assignee_hint, raw_payload)
     assignee_ids: list[str] = []
     if user_candidates is None:
         user_candidates = (
             await db.execute(select(User).where(User.is_active == True))
         ).scalars().all()
-    assignee_ids = _match_assignee_ids(assignee_hints, user_candidates)
+    assignee_ids = match_assignee_ids(assignee_hints, user_candidates)
     if not assignee_ids and draft.assigned_to_id:
         assignee_ids = [draft.assigned_to_id]
     known_emails = {
@@ -1335,8 +1155,8 @@ async def _approve_single_ai_draft(
         short
         for u in user_candidates
         for short in (
-            _fio_short(u.name),
-            _fio_short_from_parts(u.last_name, u.first_name, getattr(u, "middle_name", "")),
+            fio_short(u.name),
+            fio_short_from_parts(u.last_name, u.first_name, getattr(u, "middle_name", "")),
         )
         if short
     }
@@ -1346,7 +1166,7 @@ async def _approve_single_ai_draft(
         if hint
         and hint.lower() not in known_emails
         and hint.lower() not in known_names
-        and _fio_short(hint) not in known_short_names
+        and fio_short(hint) not in known_short_names
     ]
     if unresolved_hints:
         await upsert_temp_assignees(
@@ -1357,7 +1177,7 @@ async def _approve_single_ai_draft(
             created_by_id=actor.id,
         )
 
-    draft_task_no = str(raw_payload.get("task_no") or "").strip() or _extract_task_number(draft.title)
+    draft_task_no = str(raw_payload.get("task_no") or "").strip() or extract_task_number(draft.title)
     normalized_title = (draft.title or "").strip().lower()
     existing_candidates = (
         await db.execute(
@@ -1373,7 +1193,7 @@ async def _approve_single_ai_draft(
 
     matched_task: Task | None = None
     for candidate in existing_candidates:
-        candidate_no = _extract_task_number(candidate.title)
+        candidate_no = extract_task_number(candidate.title)
         if draft_task_no and candidate_no == draft_task_no:
             matched_task = candidate
             break
@@ -1400,7 +1220,7 @@ async def _approve_single_ai_draft(
             task.end_date = draft.end_date
         if task.progress_percent == 0 and draft.progress_percent:
             task.progress_percent = draft.progress_percent
-        await _sync_task_assignees_for_project(task, project_id, assignee_ids, db)
+        await sync_task_assignees_for_project(task, project_id, assignee_ids, db)
 
         if old_end_date and task.end_date and old_end_date != task.end_date:
             db.add(
@@ -1444,7 +1264,7 @@ async def _approve_single_ai_draft(
         )
         db.add(task)
         await db.flush()
-        await _sync_task_assignees_for_project(task, project_id, assignee_ids, db)
+        await sync_task_assignees_for_project(task, project_id, assignee_ids, db)
         db.add(
             TaskEvent(
                 task_id=task.id,
