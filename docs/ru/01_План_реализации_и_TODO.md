@@ -75,7 +75,7 @@
 - [x] Вынести task smoke rules в отдельный сервис, чтобы smoke-тесты не импортировали весь `tasks.py`.
 - [x] Добавить облегчённый `backend/requirements-check.txt` для smoke-верификации.
 - [ ] Привести backend-тесты к полностью бесшовному запуску одной официальной командой без ручной подготовки окружения.
-- [ ] Добавить минимальные контрактные тесты на права, статусы, зависимости и planning modes.
+- [x] Добавить минимальные контрактные тесты на права, статусы, зависимости и planning modes.
 
 ## Wave 3 — Тяжёлый техдолг и упрощение кода
 
@@ -116,7 +116,7 @@
 2. Зафиксировать текущий локальный вынос task access-логики из `tasks.py` в отдельный сервис и обновить связанную документацию.
 3. Продолжить разрезание `projects.py` после вынесения `project_rules_service.py` и `project_access_service.py`.
 4. Продолжить следующую итерацию рефакторинга `frontend/src/pages/ProjectDetail.tsx`.
-5. Добавить следующий пакет контрактных smoke-тестов на роли и visibility.
+5. Расширить контрактные smoke-тесты на mobile/web drift-кейсы по словарям статусов.
 
 ## Риски и блокеры
 
@@ -141,6 +141,7 @@
 - [x] Сделана первая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_rules_service.py`.
 - [x] Локально начата следующая итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_access_service.py` и smoke-тест `backend/tests/test_task_access_service_smoke.py`.
 - [x] Локально начата следующая итерация разгрузки `backend/app/api/v1/tasks.py` через новый `task_dependency_service.py` для dependency/autoplan-логики.
+- [x] Добавлен `backend/tests/test_domain_contracts_smoke.py` с контрактными smoke-проверками статусов/приоритетов, ролей+visibility, permissions и sync realtime-events backend<->frontend.
 - [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.
 - [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectFilesSection`.
 - [x] Сделана вторая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskListToolbar`.
