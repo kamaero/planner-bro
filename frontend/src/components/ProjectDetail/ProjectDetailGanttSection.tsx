@@ -1,21 +1,9 @@
 import { GanttChart } from '@/components/GanttChart/GanttChart'
-import type { GanttTask } from '@/types'
-
-type CriticalPathItem = {
-  id: string
-  title: string
-  status: string
-  end_date?: string | null
-}
-
-type CriticalPathData = {
-  task_ids: string[]
-  tasks: CriticalPathItem[]
-}
+import type { CriticalPathResponse, GanttTask } from '@/types'
 
 type ProjectDetailGanttSectionProps = {
   tasks: GanttTask[]
-  criticalPath?: CriticalPathData
+  criticalPath?: CriticalPathResponse
   onTaskClick: (task: GanttTask) => void
 }
 

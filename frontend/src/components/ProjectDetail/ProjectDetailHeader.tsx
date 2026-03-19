@@ -2,11 +2,10 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import type { ProjectDetailView } from '@/components/ProjectDetail/ProjectDetailContent'
 import { TASK_PRIORITY_BADGE_COLORS } from '@/lib/domainMeta'
 import type { Project } from '@/types'
 import { ArrowLeft, BarChart2, List, Users, Paperclip } from 'lucide-react'
-
-export type ProjectDetailView = 'gantt' | 'list' | 'members' | 'files'
 
 type ProjectDetailHeaderProps = {
   project: Project

@@ -16,6 +16,7 @@ import type {
   DeadlineStats,
   TaskDependency,
   DepartmentProjectsResponse,
+  CriticalPathResponse,
 } from '@/types'
 
 export function useProjects() {
@@ -49,12 +50,7 @@ export function useGantt(projectId: string) {
 }
 
 export function useCriticalPath(projectId: string) {
-  return useQuery<{
-    project_id: string
-    length: number
-    task_ids: string[]
-    tasks: Array<{ id: string; title: string; status: string; end_date?: string | null }>
-  }>({
+  return useQuery<CriticalPathResponse>({
     queryKey: ['critical-path', projectId],
     queryFn: () => api.getCriticalPath(projectId),
     enabled: !!projectId,

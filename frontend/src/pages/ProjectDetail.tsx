@@ -14,25 +14,22 @@ import {
   useProjectDeadlineHistory,
 } from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
+import { useProjectDetailActions } from '@/hooks/useProjectDetailActions'
 import { useProjectTaskListState } from '@/hooks/useProjectTaskListState'
 import { useUsers } from '@/hooks/useUsers'
 import { api } from '@/api/client'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
-import { MembersPanel } from '@/components/MembersPanel/MembersPanel'
 import { ProjectEditDialog, type ProjectEditFormState } from '@/components/ProjectEditDialog/ProjectEditDialog'
-import { ProjectFilesSection } from '@/components/ProjectFilesSection/ProjectFilesSection'
 import { ProjectTaskCreateDialog, type ProjectTaskFormState } from '@/components/ProjectTaskCreateDialog/ProjectTaskCreateDialog'
+import { ProjectDetailContent, type ProjectDetailView } from '@/components/ProjectDetail/ProjectDetailContent'
 import { ProjectDetailHeader } from '@/components/ProjectDetail/ProjectDetailHeader'
-import { ProjectDetailGanttSection } from '@/components/ProjectDetail/ProjectDetailGanttSection'
 import { ProjectDetailSummaryCard } from '@/components/ProjectDetail/ProjectDetailSummaryCard'
-import { ProjectDetailTaskListSection } from '@/components/ProjectDetail/ProjectDetailTaskListSection'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
 import { Button } from '@/components/ui/button'
 import {
   TASK_PRIORITY_ORDER,
   TASK_STATUS_ORDER,
 } from '@/lib/domainMeta'
-import { humanizeApiError } from '@/lib/errorMessages'
 import { buildTaskHierarchy } from '@/lib/taskOrdering'
 import type { Task, GanttTask } from '@/types'
 import { useAuthStore } from '@/store/authStore'
@@ -63,7 +60,7 @@ export function ProjectDetail() {
   const bulkUpdateTasks = useBulkUpdateTasks()
   const currentUser = useAuthStore((s) => s.user)
 
-  const [view, setView] = useState<'gantt' | 'list' | 'members' | 'files'>('list')
+  const [view, setView] = useState<ProjectDetailView>('list')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
@@ -104,8 +101,6 @@ export function ProjectDetail() {
     owner_id: '',
     completion_checklist: DEFAULT_DOD_CHECKLIST,
   })
-  const [showProjectDeadlineModal, setShowProjectDeadlineModal] = useState(false)
-  const [pendingProjectFormData, setPendingProjectFormData] = useState<Record<string, unknown> | null>(null)
   const [showProjectDeadlineHistory, setShowProjectDeadlineHistory] = useState(false)
 
   const { data: projectDeadlineHistory = [] } = useProjectDeadlineHistory(id)
@@ -219,128 +214,29 @@ export function ProjectDetail() {
     setDrawerOpen(true)
   }
 
-  const handleCreateTask = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      await createTask.mutateAsync({
-        projectId: id!,
-        data: {
-          ...taskForm,
-          priority: taskForm.control_ski ? 'critical' : taskForm.priority,
-          estimated_hours: taskForm.estimated_hours ? parseInt(taskForm.estimated_hours) : undefined,
-          progress_percent: taskForm.progress_percent ? parseInt(taskForm.progress_percent) : 0,
-          next_step: taskForm.next_step || undefined,
-          start_date: taskForm.start_date || undefined,
-          end_date: taskForm.end_date || undefined,
-          assigned_to_id: taskForm.assigned_to_id || undefined,
-          assignee_ids: taskForm.assignee_ids.length > 0 ? taskForm.assignee_ids : undefined,
-          parent_task_id: taskForm.parent_task_id || undefined,
-          predecessor_task_ids:
-            taskForm.predecessor_task_ids.length > 0 ? taskForm.predecessor_task_ids : undefined,
-          is_escalation: taskForm.is_escalation,
-          escalation_for: taskForm.escalation_for || undefined,
-          escalation_sla_hours: taskForm.escalation_sla_hours
-            ? parseInt(taskForm.escalation_sla_hours)
-            : undefined,
-          repeat_every_days: taskForm.repeat_every_days ? parseInt(taskForm.repeat_every_days) : undefined,
-        },
-      })
-      setTaskDialogOpen(false)
-      setTaskForm({
-        title: '',
-        description: '',
-        priority: 'medium',
-        control_ski: false,
-        progress_percent: '0',
-        next_step: '',
-        start_date: '',
-        end_date: '',
-        estimated_hours: '',
-        assigned_to_id: '',
-        assignee_ids: [],
-        parent_task_id: '',
-        predecessor_task_ids: [],
-        is_escalation: false,
-        escalation_for: '',
-        escalation_sla_hours: '24',
-        repeat_every_days: '',
-      })
-    } catch (error: any) {
-      window.alert(humanizeApiError(error, 'Не удалось создать задачу'))
-    }
-  }
-
-  const handleUpdateProject = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const formData: Record<string, unknown> = canManage
-      ? {
-          name: editForm.name,
-          description: editForm.description,
-          status: editForm.status,
-          priority: editForm.control_ski ? 'critical' : editForm.priority,
-          control_ski: editForm.control_ski,
-          planning_mode: editForm.planning_mode,
-          strict_no_past_start_date: editForm.strict_no_past_start_date,
-          strict_no_past_end_date: editForm.strict_no_past_end_date,
-          strict_child_within_parent_dates: editForm.strict_child_within_parent_dates,
-          launch_basis_text: editForm.launch_basis_text.trim() || null,
-          launch_basis_file_id: editForm.launch_basis_file_id || null,
-          start_date: editForm.start_date || null,
-          end_date: editForm.end_date || null,
-          owner_id: canTransferOwnership ? editForm.owner_id || null : project?.owner_id ?? editForm.owner_id,
-          completion_checklist: editForm.completion_checklist,
-        }
-      : {
-          name: editForm.name,
-        }
-
-    const endDateChanged = editForm.end_date !== (project?.end_date ?? '') && editForm.end_date
-    if (canManage && endDateChanged) {
-      setPendingProjectFormData(formData)
-      setShowProjectDeadlineModal(true)
-      return
-    }
-
-    setEditOpen(false)
-    try {
-      await updateProject.mutateAsync({ projectId: id!, data: formData })
-    } catch (error: any) {
-      setEditOpen(true)
-      window.alert(humanizeApiError(error, 'Не удалось сохранить проект'))
-    }
-  }
-
-  const handleProjectDeadlineConfirm = async (reason: string) => {
-    if (!pendingProjectFormData) return
-    setShowProjectDeadlineModal(false)
-    setEditOpen(false)
-    try {
-      await updateProject.mutateAsync({
-        projectId: id!,
-        data: { ...pendingProjectFormData, deadline_change_reason: reason },
-      })
-      setPendingProjectFormData(null)
-    } catch (error: any) {
-      setEditOpen(true)
-      window.alert(humanizeApiError(error, 'Не удалось сохранить проект'))
-    }
-  }
-
-  const handleProjectDeadlineCancel = () => {
-    setShowProjectDeadlineModal(false)
-    setPendingProjectFormData(null)
-  }
-
-  const handleDeleteProject = async () => {
-    if (!id || !canManage || !canDelete) return
-    if (!window.confirm('Удалить проект? Это действие нельзя отменить.')) return
-    try {
-      await deleteProject.mutateAsync(id)
-      navigate('/')
-    } catch (error: any) {
-      window.alert(humanizeApiError(error, 'Не удалось удалить проект'))
-    }
-  }
+  const {
+    showProjectDeadlineModal,
+    pendingProjectFormData,
+    handleCreateTask,
+    handleUpdateProject,
+    handleProjectDeadlineConfirm,
+    handleProjectDeadlineCancel,
+    handleDeleteProject,
+  } = useProjectDetailActions({
+    projectId: id!,
+    canManage,
+    canDelete,
+    canTransferOwnership,
+    currentProjectOwnerId: project?.owner_id,
+    editForm,
+    setEditOpen,
+    setTaskDialogOpen,
+    setTaskForm,
+    navigateToRoot: () => navigate('/'),
+    createTask: createTask.mutateAsync,
+    updateProject: updateProject.mutateAsync,
+    deleteProject: deleteProject.mutateAsync,
+  })
 
   const {
     taskSearch,
@@ -415,7 +311,7 @@ export function ProjectDetail() {
               canTransferOwnership={canTransferOwnership}
               editForm={editForm}
               setEditForm={setEditForm}
-              onSubmit={handleUpdateProject}
+              onSubmit={(event) => handleUpdateProject(event, project.end_date)}
               users={users}
               project={project}
               files={files}
@@ -439,7 +335,7 @@ export function ProjectDetail() {
             <ProjectTaskCreateDialog
               open={taskDialogOpen}
               onOpenChange={setTaskDialogOpen}
-              onSubmit={handleCreateTask}
+              onSubmit={(event) => handleCreateTask(event, taskForm)}
               taskForm={taskForm}
               setTaskForm={setTaskForm}
               projectAssigneeOptions={projectAssigneeOptions}
@@ -466,16 +362,18 @@ export function ProjectDetail() {
         <p className="text-muted-foreground text-sm mb-6">{project.description}</p>
       )}
 
-      {/* Content */}
-      {view === 'gantt' ? (
-        <ProjectDetailGanttSection
-          tasks={ganttData?.tasks ?? []}
-          criticalPath={criticalPath}
-          onTaskClick={handleGanttTaskClick}
-        />
-      ) : view === 'list' ? (
-        <ProjectDetailTaskListSection
-          toolbarProps={{
+      <ProjectDetailContent
+        projectId={id!}
+        view={view}
+        canImport={canImport}
+        canManage={canManage}
+        ganttSectionProps={{
+          tasks: ganttData?.tasks ?? [],
+          criticalPath,
+          onTaskClick: handleGanttTaskClick,
+        }}
+        taskListSectionProps={{
+          toolbarProps: {
             taskSearch,
             onTaskSearchChange: setTaskSearch,
             taskStatusFilter,
@@ -505,8 +403,8 @@ export function ProjectDetail() {
             onBulkDelete: handleBulkDelete,
             onBulkAssign: handleBulkAssign,
             onBulkPriority: handleBulkPriority,
-          }}
-          tableProps={{
+          },
+          tableProps: {
             tasks: filteredTasks,
             allTasks: tasks,
             onTaskClick: handleTaskClick,
@@ -516,13 +414,9 @@ export function ProjectDetail() {
             },
             shiftsMap,
             rowSize: taskRowSize,
-          }}
-        />
-      ) : view === 'members' ? (
-        <MembersPanel projectId={id!} />
-      ) : (
-        <ProjectFilesSection projectId={id!} canImport={canImport} canManage={canManage} />
-      )}
+          },
+        }}
+      />
 
       <TaskDrawer
         task={selectedTask}

@@ -152,6 +152,20 @@ export interface GanttData {
   tasks: GanttTask[]
 }
 
+export interface CriticalPathTask {
+  id: string
+  title: string
+  status: string
+  end_date?: string | null
+}
+
+export interface CriticalPathResponse {
+  project_id: string
+  length: number
+  task_ids: string[]
+  tasks: CriticalPathTask[]
+}
+
 export interface Notification {
   id: string
   user_id: string
