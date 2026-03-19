@@ -60,6 +60,12 @@ from app.services.task_lifecycle_service import (
     rollup_parent_schedule as _rollup_parent_schedule,
     validate_parent_task as _validate_parent_task,
 )
+from app.services.task_bulk_service import (
+    apply_bulk_fields as _apply_bulk_fields,
+    normalize_bulk_task_ids as _normalize_bulk_task_ids,
+    parse_bulk_payload as _parse_bulk_payload,
+    validate_bulk_priority as _validate_bulk_priority,
+)
 from app.services.task_mutation_service import (
     apply_status_update as _apply_status_update,
     apply_task_check_in as _apply_task_check_in,
@@ -565,32 +571,15 @@ async def bulk_update_tasks(
     await _require_project_exists(project_id, db)
     await _require_project_manager(project_id, current_user, db)
 
-    raw_ids = [task_id.strip() for task_id in data.task_ids if task_id.strip()]
-    task_ids = list(dict.fromkeys(raw_ids))
-    if not task_ids:
-        raise HTTPException(status_code=400, detail="task_ids must contain at least one id")
+    task_ids = _normalize_bulk_task_ids(data.task_ids)
 
-    payload = data.model_dump(exclude_unset=True)
-    payload.pop("task_ids", None)
-    delete_requested = bool(payload.pop("delete", False))
-    if delete_requested and payload:
-        raise HTTPException(status_code=400, detail="delete cannot be combined with update fields")
-    if not delete_requested and not payload:
-        raise HTTPException(status_code=400, detail="No changes specified")
+    payload, delete_requested, assignee_ids = _parse_bulk_payload(data.model_dump(exclude_unset=True))
     if delete_requested:
         _require_delete_permission(current_user)
 
     if "status" in payload:
         _validate_task_status(payload["status"])
-    if "priority" in payload:
-        valid_priorities = {"low", "medium", "high", "critical"}
-        if payload["priority"] not in valid_priorities:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid priority. Must be one of: {valid_priorities}"
-            )
-    assignee_ids = payload.pop("assignee_ids", None)
-    if assignee_ids is not None:
-        payload["assigned_to_id"] = assignee_ids[0] if assignee_ids else None
+    _validate_bulk_priority(payload)
 
     if "assigned_to_id" in payload and payload["assigned_to_id"]:
         await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], current_user, db)
@@ -628,10 +617,7 @@ async def bulk_update_tasks(
         if "status" in payload:
             await ensure_predecessors_done(task, payload["status"], db)
 
-        for field, value in payload.items():
-            if getattr(task, field) != value:
-                setattr(task, field, value)
-                changed = True
+        changed = _apply_bulk_fields(task, payload) or changed
         if assignee_ids is not None:
             await _sync_task_assignees(task, assignee_ids, project_id, current_user, db)
             changed = True
