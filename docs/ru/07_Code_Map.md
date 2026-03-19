@@ -25,6 +25,9 @@
 - `backend/app/api/v1/projects.py`
 - `backend/app/api/v1/tasks.py`
 - `frontend/src/pages/Team.tsx`
+- `frontend/src/components/Team/TeamUsersManagementSection.tsx`
+- `frontend/src/components/Team/TeamUserInviteSection.tsx`
+- `frontend/src/hooks/useTeamUsersAdminState.ts`
 - `frontend/src/pages/ProjectDetail.tsx`
 
 ### Если нужно менять статусы задач и правила переходов
@@ -60,6 +63,12 @@
 - `frontend/src/components/ProjectEditDialog/ProjectEditDialog.tsx`
 - `frontend/src/hooks/useProjectTaskListState.ts`
 - `frontend/src/pages/Dashboard.tsx`
+- `frontend/src/components/Dashboard/DashboardProjectsSection.tsx`
+- `frontend/src/components/Dashboard/DashboardOpsSignalsSection.tsx`
+- `frontend/src/components/Dashboard/DashboardTasksSection.tsx`
+- `frontend/src/components/Dashboard/DashboardDialogs.tsx`
+- `frontend/src/hooks/useDashboardMetrics.ts`
+- `frontend/src/hooks/useTeamReportSettings.ts`
 
 ### Если нужно менять импорт и AI ingestion
 
@@ -202,5 +211,6 @@
 Следующий логичный шаг:
 
 - развивать карту вокруг `tasks.py` и `ProjectDetail.tsx` по мере их разрезания;
+- зафиксировать такую же модульную карту для `Dashboard.tsx` по мере текущей итерации распила;
 - после фиксации текущего локального шага отдельно разложить `tasks.py` на access / dependency / rules / orchestration зоны;
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.

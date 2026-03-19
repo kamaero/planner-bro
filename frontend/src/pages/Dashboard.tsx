@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useCreateProject, useCreateTask, useDepartmentDashboard, useProjects, useAllTasks, useEscalations, useUpdateProject } from '@/hooks/useProjects'
 import { api } from '@/api/client'
-import { Plus, Building2, Users2 } from 'lucide-react'
+import { Plus, Users2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,6 +12,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useAuthStore } from '@/store/authStore'
 import type { Department, Project, Task, User, SystemActivityLog } from '@/types'
 import { formatUserDisplayName } from '@/lib/userName'
+import { DashboardProjectsSection } from '@/components/Dashboard/DashboardProjectsSection'
+import { DashboardOpsSignalsSection } from '@/components/Dashboard/DashboardOpsSignalsSection'
+import { DashboardMyTasksCard, DashboardUrgentTasksCard } from '@/components/Dashboard/DashboardTasksSection'
+import { DashboardAssignDepartmentsDialog, DashboardSystemLogDialog } from '@/components/Dashboard/DashboardDialogs'
+import { useDashboardMetrics } from '@/hooks/useDashboardMetrics'
 
 function cn(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(' ')
@@ -133,15 +138,6 @@ function myTaskUrgencyClass(days: number | null): string {
   return 'hover:bg-accent'
 }
 
-function hexToRgba(hex: string, alpha: number): string {
-  const normalized = hex.replace('#', '').trim()
-  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return `rgba(99,102,241,${alpha})`
-  const r = Number.parseInt(normalized.slice(0, 2), 16)
-  const g = Number.parseInt(normalized.slice(2, 4), 16)
-  const b = Number.parseInt(normalized.slice(4, 6), 16)
-  return `rgba(${r},${g},${b},${alpha})`
-}
-
 function isDigestQueueLog(item: SystemActivityLog): boolean {
   return item.source === 'analytics_email' && item.message.toLowerCase().includes('email digest queue tick')
 }
@@ -253,140 +249,30 @@ export function Dashboard() {
     return () => window.clearInterval(intervalId)
   }, [])
 
-  const myProjectIds = useMemo(() => {
-    if (!currentUser?.id) return new Set<string>()
-    const ids = new Set<string>()
-    for (const p of projects) {
-      if (p.owner_id === currentUser.id) ids.add(p.id)
-    }
-    for (const t of tasks) {
-      const assignedIds = t.assignee_ids ?? []
-      if (t.project_id && (t.created_by_id === currentUser.id || t.assigned_to_id === currentUser.id || assignedIds.includes(currentUser.id))) {
-        ids.add(t.project_id)
-      }
-    }
-    return ids
-  }, [projects, tasks, currentUser?.id])
-
-  const myTasks = useMemo(() => {
-    if (!currentUser?.id) return [] as Task[]
-    return tasks
-      .filter((t) => {
-        const assignedIds = t.assignee_ids ?? []
-        return t.created_by_id === currentUser.id || t.assigned_to_id === currentUser.id || assignedIds.includes(currentUser.id)
-      })
-      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-      .slice(0, 8)
-  }, [tasks, currentUser?.id])
-
-  const myUrgentTasks = useMemo(() => {
-    if (!currentUser?.id) return [] as Task[]
-    return tasks
-      .filter((t) => {
-        if (t.status === 'done') return false
-        const assignedIds = t.assignee_ids ?? []
-        return t.created_by_id === currentUser.id || t.assigned_to_id === currentUser.id || assignedIds.includes(currentUser.id)
-      })
-      .sort((a, b) => {
-        const ad = daysUntil(a.end_date)
-        const bd = daysUntil(b.end_date)
-        const scoreA = ad === null ? 10_000 : ad
-        const scoreB = bd === null ? 10_000 : bd
-        if (scoreA !== scoreB) return scoreA - scoreB
-        return b.updated_at.localeCompare(a.updated_at)
-      })
-      .slice(0, 10)
-  }, [tasks, currentUser?.id])
-
-  const projectsForSelectedTab = useMemo(() => {
-    const source =
-      selectedDepartmentTab === 'all'
-        ? projects
-        : departmentTabs.find((dep) => dep.department_id === selectedDepartmentTab)?.projects ?? []
-    const mineFiltered = onlyMine ? source.filter((project) => myProjectIds.has(project.id)) : source
-    const q = projectSearch.trim().toLowerCase()
-    if (!q) return mineFiltered
-    return mineFiltered.filter((project) => {
-      const hay = `${project.name} ${project.description ?? ''}`.toLowerCase()
-      return hay.includes(q)
-    })
-  }, [projects, departmentTabs, selectedDepartmentTab, projectSearch, onlyMine, myProjectIds])
-
-  const weekSignals = useMemo(() => {
-    const created = tasks.filter((t) => t.created_at >= sevenDaysAgo).length
-    const updated = tasks.filter((t) => t.updated_at >= sevenDaysAgo).length
-    const completed = tasks.filter((t) => t.status === 'done' && t.updated_at >= sevenDaysAgo).length
-    const stale = tasks.filter((t) => t.status !== 'done' && t.updated_at < sevenDaysAgo).length
-    return { created, updated, completed, stale }
-  }, [tasks, sevenDaysAgo])
-
-  const statusStats = useMemo(() => {
-    const counts: Record<string, number> = { planning: 0, tz: 0, todo: 0, in_progress: 0, testing: 0, review: 0, done: 0 }
-    tasks.forEach((task) => {
-      counts[task.status] = (counts[task.status] ?? 0) + 1
-    })
-    return counts
-  }, [tasks])
-
-  const projectMap = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects])
-
-  const recentTasks = useMemo(
-    () => [...tasks].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 8),
-    [tasks]
-  )
-
-  const skiControlTasks = useMemo(
-    () =>
-      tasks
-        .filter((t) => t.control_ski && t.status !== 'done')
-        .sort((a, b) => {
-          const ad = daysUntil(a.end_date)
-          const bd = daysUntil(b.end_date)
-          if (ad === null && bd === null) return 0
-          if (ad === null) return 1
-          if (bd === null) return -1
-          return ad - bd
-        })
-        .slice(0, 6),
-    [tasks]
-  )
-
-  const upcomingDeadlines = useMemo(
-    () =>
-      tasks
-        .filter((t) => {
-          if (!t.end_date || t.status === 'done') return false
-          const days = daysUntil(t.end_date)
-          return days !== null && days >= 0 && days <= 20
-        })
-        .sort((a, b) => {
-          const ad = daysUntil(a.end_date) ?? Number.MAX_SAFE_INTEGER
-          const bd = daysUntil(b.end_date) ?? Number.MAX_SAFE_INTEGER
-          return ad - bd
-        })
-        .slice(0, 8),
-    [tasks]
-  )
-
-  const departmentNameById = useMemo(
-    () => Object.fromEntries(departments.map((d) => [d.id, d.name])),
-    [departments]
-  )
-
-  const projectProgressById = useMemo(() => {
-    const grouped = new Map<string, { sum: number; count: number }>()
-    tasks.forEach((task) => {
-      const current = grouped.get(task.project_id) ?? { sum: 0, count: 0 }
-      current.sum += task.progress_percent ?? 0
-      current.count += 1
-      grouped.set(task.project_id, current)
-    })
-    const result: Record<string, number> = {}
-    grouped.forEach((value, key) => {
-      result[key] = value.count > 0 ? Math.round(value.sum / value.count) : 0
-    })
-    return result
-  }, [tasks])
+  const {
+    myTasks,
+    myUrgentTasks,
+    projectsForSelectedTab,
+    weekSignals,
+    statusStats,
+    projectMap,
+    recentTasks,
+    skiControlTasks,
+    upcomingDeadlines,
+    departmentNameById,
+    projectProgressById,
+  } = useDashboardMetrics({
+    tasks,
+    projects,
+    departments,
+    departmentTabs,
+    selectedDepartmentTab,
+    projectSearch,
+    onlyMine,
+    currentUserId: currentUser?.id,
+    sevenDaysAgo,
+    daysUntil,
+  })
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -623,265 +509,49 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <SectionCard
-          title="ИТ проекты по отделам"
-          className="xl:col-span-5"
-          action={
-            <Input value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} placeholder="Поиск проекта" className="h-8 w-48 text-xs" />
-          }
-        >
-          <div className="-mx-4 sticky top-0 z-10 mb-3 border-b bg-card/95 px-4 pb-3 pt-1 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setOnlyMine((v) => !v)}
-                className={cn(
-                  'rounded-md border px-3 py-1.5 text-xs font-medium transition-all animate-pulse',
-                  onlyMine
-                    ? 'border-blue-600 bg-blue-600/15 text-blue-700 shadow-[0_0_12px_rgba(37,99,235,0.45)]'
-                    : 'border-blue-400/80 bg-blue-500/10 text-blue-700 shadow-[0_0_10px_rgba(59,130,246,0.3)]'
-                )}
-              >
-                Мои проекты и задачи
-              </button>
-              <select
-                value={projectListDensity}
-                onChange={(e) => setProjectListDensity(e.target.value as 'compact' | 'normal')}
-                className="rounded-md border bg-background px-2 py-1.5 text-xs text-muted-foreground"
-              >
-                <option value="compact">Плотность: компактно</option>
-                <option value="normal">Плотность: обычная</option>
-              </select>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setSelectedDepartmentTab('all')}
-                className={cn('rounded-md border px-2 py-1 text-xs', selectedDepartmentTab === 'all' ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}
-              >
-                Все отделы
-              </button>
-              {departmentTabs.map((dep) => (
-                <button
-                  key={dep.department_id}
-                  type="button"
-                  onClick={() => setSelectedDepartmentTab(dep.department_id)}
-                  className={cn('rounded-md border px-2 py-1 text-xs', selectedDepartmentTab === dep.department_id ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}
-                >
-                  {dep.department_name} ({dep.projects.length})
-                </button>
-              ))}
-            </div>
-          </div>
+        <DashboardProjectsSection
+          projectSearch={projectSearch}
+          onProjectSearchChange={setProjectSearch}
+          onlyMine={onlyMine}
+          onToggleOnlyMine={() => setOnlyMine((v) => !v)}
+          projectListDensity={projectListDensity}
+          onProjectListDensityChange={setProjectListDensity}
+          selectedDepartmentTab={selectedDepartmentTab}
+          onSelectDepartmentTab={setSelectedDepartmentTab}
+          departmentTabs={departmentTabs}
+          projectsForSelectedTab={projectsForSelectedTab}
+          projectProgressById={projectProgressById}
+          canManageDepartmentLinks={canManageDepartmentLinks}
+          onOpenAssignDialog={openAssignDialog}
+          myTasks={myTasks}
+          departmentNameById={departmentNameById}
+          projectStatusLabel={PROJECT_STATUS_LABEL}
+          taskStatusLabel={TASK_STATUS_LABEL}
+          formatDate={formatDate}
+          daysUntil={daysUntil}
+        />
 
-          <div className="max-h-[590px] space-y-1.5 overflow-auto pr-1">
-            {projectsForSelectedTab.length === 0 && <p className="text-sm text-muted-foreground">Проектов не найдено.</p>}
-            {projectsForSelectedTab.map((project) => (
-              <div
-                key={project.id}
-                className={cn(
-                  'rounded-lg border transition-all',
-                  projectListDensity === 'compact' ? 'p-2' : 'p-2.5',
-                  (() => {
-                    const d = daysUntil(project.end_date)
-                    if (d !== null && d >= 3 && d <= 5) {
-                      return 'border-red-500/90 shadow-[0_0_14px_rgba(239,68,68,0.55)]'
-                    }
-                    if (d !== null && d >= 7 && d <= 10) {
-                      return 'border-orange-500/90 shadow-[0_0_14px_rgba(249,115,22,0.45)]'
-                    }
-                    return ''
-                  })()
-                )}
-                style={{
-                  backgroundImage: `linear-gradient(90deg, ${hexToRgba(project.color ?? '#6366f1', 0.18)} 0%, ${hexToRgba(project.color ?? '#6366f1', 0.18)} ${projectProgressById[project.id] ?? 0}%, rgba(255,255,255,0) ${projectProgressById[project.id] ?? 0}%)`,
-                }}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <Link
-                      to={`/projects/${project.id}`}
-                      className={cn('truncate font-semibold hover:text-primary', projectListDensity === 'compact' ? 'text-[13px]' : 'text-sm')}
-                    >
-                      {project.name}
-                    </Link>
-                    <p className={cn('text-muted-foreground', projectListDensity === 'compact' ? 'text-[11px]' : 'text-xs')}>
-                      {PROJECT_STATUS_LABEL[project.status] ?? project.status} · исполнение: {projectProgressById[project.id] ?? 0}% · дедлайн: {formatDate(project.end_date)} · владелец: {formatUserDisplayName(project.owner)}
-                    </p>
-                    {!!project.department_ids?.length && (
-                      <p className={cn('mt-1 text-muted-foreground', projectListDensity === 'compact' ? 'text-[11px]' : 'text-xs')}>
-                        Отделы: {project.department_ids.map((id) => departmentNameById[id] ?? id).join(', ')}
-                      </p>
-                    )}
-                  </div>
-                  {canManageDepartmentLinks && (
-                    <Button size="sm" variant="outline" onClick={() => openAssignDialog(project)}>
-                      <Building2 className="mr-1 h-3.5 w-3.5" />
-                      Отделы
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          {onlyMine && (
-            <div className="mt-3 border-t pt-3">
-              <p className="mb-2 text-xs text-muted-foreground">Мои задачи</p>
-              <div className="max-h-44 space-y-1 overflow-auto pr-1">
-                {myTasks.length === 0 && <p className="text-xs text-muted-foreground">Личных задач не найдено.</p>}
-                {myTasks.map((task) => (
-                  <Link key={task.id} to={`/projects/${task.project_id}?task=${task.id}`} className="block rounded border px-2 py-1.5 text-xs hover:bg-accent">
-                    <p className="truncate font-medium">{task.title}</p>
-                    <p className="text-muted-foreground">
-                      {TASK_STATUS_LABEL[task.status] ?? task.status} · дедлайн: {formatDate(task.end_date)}
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-        </SectionCard>
+        <DashboardOpsSignalsSection
+          tasksCount={tasks.length}
+          statusStats={statusStats}
+          taskStatusLabel={TASK_STATUS_LABEL}
+          upcomingDeadlines={upcomingDeadlines}
+          weekSignals={weekSignals}
+          escalationsCount={escalations.length}
+          skiControlTasks={skiControlTasks}
+          projectMap={projectMap}
+          daysUntil={daysUntil}
+          formatDate={formatDate}
+          deadlinePulseClass={deadlinePulseClass}
+        />
 
-        <SectionCard title="Статусы и дедлайны" className="xl:col-span-3">
-          <div className="space-y-3">
-            {Object.entries(statusStats).map(([key, value]) => (
-              <div key={key}>
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">{TASK_STATUS_LABEL[key]}</span>
-                  <span className="font-semibold tabular-nums">{value}</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-muted">
-                  <div className="h-1.5 rounded-full bg-primary" style={{ width: `${tasks.length ? (value / tasks.length) * 100 : 0}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 border-t pt-3">
-            <p className="mb-2 text-xs text-muted-foreground">Ближайшие дедлайны</p>
-            <div className="space-y-2">
-              {upcomingDeadlines.length === 0 && <p className="text-xs text-muted-foreground">Нет предстоящих дедлайнов</p>}
-              {upcomingDeadlines.map((task) => (
-                <Link
-                  key={task.id}
-                  to={`/projects/${task.project_id}`}
-                  className={cn(
-                    'block rounded border px-2 py-1.5 text-xs transition-colors',
-                    deadlinePulseClass(daysUntil(task.end_date)) || 'hover:bg-accent'
-                  )}
-                >
-                  <p className="truncate font-medium">{task.title}</p>
-                  <p className="text-muted-foreground">
-                    {projectMap[task.project_id]?.name ?? 'Проект'} · {formatDate(task.end_date)}
-                    {(() => {
-                      const d = daysUntil(task.end_date)
-                      if (d === null) return ''
-                      return d >= 0 ? ` · ${d} дн.` : ' · просрочено'
-                    })()}
-                  </p>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Сигналы контроля" className="xl:col-span-2 overflow-hidden">
-          <div className="flex h-full min-h-0 flex-col overflow-hidden">
-          <div className="grid grid-cols-2 gap-2 text-center">
-            <div className="rounded border p-2">
-              <p className="text-[11px] text-muted-foreground">Создано 7д</p>
-              <p className="text-lg font-semibold">{weekSignals.created}</p>
-            </div>
-            <div className="rounded border p-2">
-              <p className="text-[11px] text-muted-foreground">Обновлено 7д</p>
-              <p className="text-lg font-semibold">{weekSignals.updated}</p>
-            </div>
-            <div className="rounded border p-2">
-              <p className="text-[11px] text-muted-foreground">Завершено 7д</p>
-              <p className="text-lg font-semibold text-emerald-700">{weekSignals.completed}</p>
-            </div>
-            <div className="rounded border p-2">
-              <p className="text-[11px] text-muted-foreground">Без апдейта 7д+</p>
-              <p className="text-lg font-semibold text-amber-700">{weekSignals.stale}</p>
-            </div>
-          </div>
-          <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded border p-2 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Эскалации на мне</span>
-              <span className="font-semibold">{escalations.length}</span>
-            </div>
-            <div className="mt-2 flex min-h-0 flex-1 flex-col border-t pt-2">
-              <p className="mb-1 text-muted-foreground">СКИ контроль ({skiControlTasks.length})</p>
-              <div className="flex-1 min-h-0 space-y-1 overflow-y-auto overflow-x-hidden pr-1">
-                {skiControlTasks.length === 0 && <p className="text-[11px] text-muted-foreground">Нет активных задач СКИ</p>}
-                {skiControlTasks.map((task) => {
-                  const d = daysUntil(task.end_date)
-                  return (
-                    <Link
-                      key={task.id}
-                      to={`/projects/${task.project_id}?task=${task.id}`}
-                      className={cn('block rounded border px-2 py-1 text-[11px] transition-colors', deadlinePulseClass(d) || 'hover:bg-accent')}
-                    >
-                      <p className="truncate font-medium">{task.title}</p>
-                      <p className="text-muted-foreground">
-                        {formatDate(task.end_date)}
-                        {d === null ? ' · без дедлайна' : d >= 0 ? ` · ${d} дн.` : ' · просрочено'}
-                      </p>
-                    </Link>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Срочные задачи" className="xl:col-span-2">
-          <form className="space-y-2" onSubmit={handleCreateUrgentTask}>
-            <Input
-              value={urgentForm.title}
-              onChange={(e) => setUrgentForm((f) => ({ ...f, title: e.target.value }))}
-              placeholder="Быстрая заметка / задача"
-              className="h-8 text-xs"
-              required
-            />
-            <Input
-              value={urgentForm.description}
-              onChange={(e) => setUrgentForm((f) => ({ ...f, description: e.target.value }))}
-              placeholder="Комментарий"
-              className="h-8 text-xs"
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <select
-                value={urgentForm.assignee_id}
-                onChange={(e) => setUrgentForm((f) => ({ ...f, assignee_id: e.target.value }))}
-                className="rounded border bg-background px-2 py-1.5 text-xs"
-              >
-                <option value="">Ответственный</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>{formatUserDisplayName(user)}</option>
-                ))}
-              </select>
-              <Input
-                type="date"
-                value={urgentForm.end_date}
-                onChange={(e) => setUrgentForm((f) => ({ ...f, end_date: e.target.value }))}
-                className="h-8 text-xs"
-              />
-            </div>
-            <label className="flex items-center justify-between gap-3 text-xs">
-              <span>Контроль СКИ</span>
-              <Switch
-                checked={urgentForm.control_ski}
-                onCheckedChange={(checked) => setUrgentForm((f) => ({ ...f, control_ski: checked }))}
-              />
-            </label>
-            <p className="text-[11px] text-muted-foreground">По умолчанию: приоритет Высокий</p>
-            <p className="text-[11px] text-muted-foreground">Создаются в отдельном inbox «Срочные задачи (вне проектов)»</p>
-            <Button type="submit" className="w-full" size="sm" disabled={createTask.isPending}>
-              {createTask.isPending ? 'Создание...' : 'Добавить срочную задачу'}
-            </Button>
-          </form>
-        </SectionCard>
+        <DashboardUrgentTasksCard
+          urgentForm={urgentForm}
+          users={users}
+          createTaskPending={createTask.isPending}
+          onUrgentSubmit={handleCreateUrgentTask}
+          onUrgentFormChange={(patch) => setUrgentForm((prev) => ({ ...prev, ...patch }))}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
@@ -899,27 +569,13 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Мои задачи" className="xl:col-span-3">
-          <div className="max-h-64 space-y-2 overflow-auto">
-            {myUrgentTasks.length === 0 && <p className="text-sm text-muted-foreground">Личных задач нет.</p>}
-            {myUrgentTasks.map((task) => {
-              const d = daysUntil(task.end_date)
-              return (
-                <Link
-                  key={task.id}
-                  to={`/projects/${task.project_id}?task=${task.id}`}
-                  className={cn('block rounded border px-2 py-1.5 text-xs transition-colors', myTaskUrgencyClass(d))}
-                >
-                  <p className="truncate font-medium">{task.title}</p>
-                  <p className="text-muted-foreground">
-                    {TASK_STATUS_LABEL[task.status] ?? task.status} · {formatDate(task.end_date)}
-                    {d === null ? ' · без дедлайна' : d < 0 ? ' · просрочено' : ` · ${d} дн.`}
-                  </p>
-                </Link>
-              )
-            })}
-          </div>
-        </SectionCard>
+        <DashboardMyTasksCard
+          myUrgentTasks={myUrgentTasks}
+          taskStatusLabel={TASK_STATUS_LABEL}
+          formatDate={formatDate}
+          daysUntil={daysUntil}
+          myTaskUrgencyClass={myTaskUrgencyClass}
+        />
 
         <SectionCard
           title="Мудрость дня"
@@ -978,74 +634,26 @@ export function Dashboard() {
         </SectionCard>
       </div>
 
-      <Dialog open={systemLogOpen} onOpenChange={setSystemLogOpen}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>System log (последние 24 часа)</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[62vh] overflow-auto rounded-md border bg-background p-2">
-            {detailedSystemActivity.length === 0 ? (
-              <p className="px-2 py-2 text-xs text-muted-foreground">[idle] Нет системных событий за последние 24 часа</p>
-            ) : (
-              detailedSystemActivity.map((item, index) => (
-                <div
-                  key={item.id}
-                  className={cn(
-                    'px-2 py-1.5 text-xs',
-                    isDigestQueueLog(item) && 'rounded border border-cyan-500/40 bg-cyan-500/10'
-                  )}
-                >
-                  <p className="leading-relaxed">
-                    {new Intl.DateTimeFormat('ru-RU', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    }).format(new Date(item.created_at))}{' '}
-                    [{item.level}] {item.category}/{item.source} :: {item.message}
-                  </p>
-                  {item.details && Object.keys(item.details).length > 0 && (
-                    <pre className="mt-1 overflow-auto rounded border bg-muted/30 px-2 py-1 text-[11px] whitespace-pre-wrap break-words">
-                      {JSON.stringify(item.details, null, 2)}
-                    </pre>
-                  )}
-                  {index < detailedSystemActivity.length - 1 && (
-                    <div className="my-2 text-muted-foreground">────────────────────────────────────────</div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DashboardSystemLogDialog
+        open={systemLogOpen}
+        onOpenChange={setSystemLogOpen}
+        detailedSystemActivity={detailedSystemActivity}
+      />
 
-      <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Назначить отделы проекту</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">{assignProject?.name}</p>
-          <div className="max-h-56 space-y-2 overflow-auto rounded border p-2 text-sm">
-            {departments.map((dep) => (
-              <label key={dep.id} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={assignDepartmentIds.includes(dep.id)}
-                  onChange={(e) => {
-                    setAssignDepartmentIds((prev) =>
-                      e.target.checked ? [...prev, dep.id] : prev.filter((id) => id !== dep.id)
-                    )
-                  }}
-                />
-                {dep.name}
-              </label>
-            ))}
-          </div>
-          <Button onClick={saveProjectDepartments} disabled={updateProject.isPending}>
-            {updateProject.isPending ? 'Сохранение...' : 'Сохранить'}
-          </Button>
-        </DialogContent>
-      </Dialog>
+      <DashboardAssignDepartmentsDialog
+        open={assignDialogOpen}
+        onOpenChange={setAssignDialogOpen}
+        assignProject={assignProject}
+        departments={departments}
+        assignDepartmentIds={assignDepartmentIds}
+        updateProjectPending={updateProject.isPending}
+        onToggleDepartment={(departmentId, checked) => {
+          setAssignDepartmentIds((prev) =>
+            checked ? [...prev, departmentId] : prev.filter((id) => id !== departmentId)
+          )
+        }}
+        onSave={saveProjectDepartments}
+      />
     </div>
   )
 }

@@ -98,7 +98,8 @@
 - [x] Вынести task-list state и bulk-handlers из `frontend/src/pages/ProjectDetail.tsx` в `frontend/src/hooks/useProjectTaskListState.ts`.
 - [ ] Продолжить разрезание `frontend/src/pages/ProjectDetail.tsx` на секции и hooks.
 - [ ] Разрезать `frontend/src/App.tsx` на layout / search / sidebar / telemetry.
-- [ ] Затем разобрать `Team.tsx` и `Dashboard.tsx`.
+- [x] Разрезать `frontend/src/pages/Team.tsx` на секции и hooks (`components/Team/*`, `useTeamReportSettings`, `useTeamUsersAdminState`).
+- [x] Разрезать `frontend/src/pages/Dashboard.tsx` на секции и hooks (`DashboardProjectsSection`, `DashboardOpsSignalsSection`, `DashboardTasksSection`, `DashboardDialogs`, `useDashboardMetrics`).
 - [ ] Убрать дублирование словарей статусов и приоритетов.
 
 ### C. Mobile
@@ -114,7 +115,7 @@
 1. Довести backend checks до полностью бесшовного запуска без ручной подготовки окружения.
 2. Зафиксировать текущий локальный вынос task access-логики из `tasks.py` в отдельный сервис и обновить связанную документацию.
 3. Продолжить разрезание `projects.py` после вынесения `project_rules_service.py` и `project_access_service.py`.
-4. Подготовить первую итерацию следующего рефакторинга `frontend/src/pages/ProjectDetail.tsx`.
+4. Продолжить следующую итерацию рефакторинга `frontend/src/App.tsx`.
 5. Добавить следующий пакет контрактных smoke-тестов на роли и visibility.
 
 ## Риски и блокеры
@@ -145,3 +146,11 @@
 - [x] Сделана третья безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskCreateDialog`.
 - [x] Сделана четвёртая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectEditDialog`.
 - [x] Сделана пятая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `useProjectTaskListState`.
+- [x] Проведена поэтапная разгрузка `frontend/src/pages/Team.tsx` через вынос секций в `frontend/src/components/Team/*`.
+- [x] Вынесена логика report settings из `frontend/src/pages/Team.tsx` в `frontend/src/hooks/useTeamReportSettings.ts`.
+- [x] Вынесены invite/name/permission drafts из `frontend/src/pages/Team.tsx` в `frontend/src/hooks/useTeamUsersAdminState.ts`.
+- [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/Dashboard.tsx` через новый `frontend/src/components/Dashboard/DashboardProjectsSection.tsx`.
+- [x] Вынесены блоки `Статусы и дедлайны` + `Сигналы контроля` из `frontend/src/pages/Dashboard.tsx` в `frontend/src/components/Dashboard/DashboardOpsSignalsSection.tsx`.
+- [x] Вынесены блоки `Срочные задачи` + `Мои задачи` из `frontend/src/pages/Dashboard.tsx` в `frontend/src/components/Dashboard/DashboardTasksSection.tsx`.
+- [x] Вынесены служебные модалки `System log` и `Назначить отделы проекту` в `frontend/src/components/Dashboard/DashboardDialogs.tsx`.
+- [x] Вынесены derived-метрики `Dashboard` в `frontend/src/hooks/useDashboardMetrics.ts`.
