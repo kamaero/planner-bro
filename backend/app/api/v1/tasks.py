@@ -7,7 +7,6 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.task import Task, TaskComment, TaskEvent, TaskDependency
-from app.models.project import Project, ProjectMember
 from app.models.deadline_change import DeadlineChange
 from app.schemas.task import (
     TaskCreate,
@@ -66,6 +65,10 @@ from app.services.task_update_service import (
     apply_escalation_projection_for_update as _apply_escalation_projection_for_update,
     should_revalidate_dependencies as _should_revalidate_dependencies,
     split_update_payload as _split_update_payload,
+)
+from app.services.task_create_service import (
+    apply_default_escalation_assignee as _apply_default_escalation_assignee,
+    split_create_payload as _split_create_payload,
 )
 from app.services.task_timeline_service import (
     get_task_comment_with_author as _get_task_comment_with_author,
@@ -148,24 +151,20 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_member(project_id, current_user, db)
-    payload = data.model_dump()
-    predecessor_task_ids = payload.pop("predecessor_task_ids", [])
-    assignee_ids = payload.pop("assignee_ids", None)
-    if "assignee_ids" not in data.model_fields_set:
-        assignee_ids = None
-    if assignee_ids is not None:
-        payload["assigned_to_id"] = assignee_ids[0] if assignee_ids else None
+    payload, predecessor_task_ids, assignee_ids = _split_create_payload(
+        data.model_dump(),
+        assignee_ids_was_provided="assignee_ids" in data.model_fields_set,
+    )
     _prepare_escalation_fields(payload)
     payload["priority"] = _normalize_priority_for_control_ski(
         payload.get("priority", "medium"),
         bool(payload.get("control_ski")),
     )
-    if payload.get("is_escalation") and not payload.get("assigned_to_id"):
-        owner_id = (
-            await db.execute(select(Project.owner_id).where(Project.id == project_id))
-        ).scalar_one_or_none()
-        if owner_id:
-            payload["assigned_to_id"] = owner_id
+    await _apply_default_escalation_assignee(
+        db,
+        project_id=project_id,
+        payload=payload,
+    )
 
     if payload.get("assigned_to_id"):
         await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], current_user, db)
