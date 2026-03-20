@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 from app.services.task_activity_service import (
     apply_bulk_events_and_notifications,
+    notify_task_created,
     apply_update_events_and_assignee_notifications,
 )
 
@@ -61,6 +62,26 @@ class TaskActivityServiceSmokeTest(unittest.TestCase):
         self.assertEqual(notify_assigned.await_count, 2)
         notify_updated.assert_awaited_once()
         self.assertEqual(log_event.await_count, 3)
+
+    def test_notify_task_created(self):
+        async def _run():
+            task = SimpleNamespace(id="t-3")
+            serialize = AsyncMock(return_value=["u-2", "u-3"])
+            notify_assigned = AsyncMock()
+            notify_new = AsyncMock()
+            await notify_task_created(
+                SimpleNamespace(),
+                task=task,
+                actor_id="u-1",
+                serialize_assignee_ids=serialize,
+                notify_task_assigned=notify_assigned,
+                notify_new_task=notify_new,
+            )
+            return notify_assigned, notify_new
+
+        notify_assigned, notify_new = asyncio.run(_run())
+        self.assertEqual(notify_assigned.await_count, 2)
+        notify_new.assert_awaited_once()
 
 
 if __name__ == "__main__":

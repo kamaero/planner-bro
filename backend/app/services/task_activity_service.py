@@ -10,6 +10,7 @@ TaskEventLogger = Callable[[AsyncSession, str, str | None, str, str | None, str 
 TaskNotifier = Callable[[AsyncSession, Task, str], Awaitable[None]]
 TaskAssigneeNotifier = Callable[[AsyncSession, Task, str, str | None], Awaitable[None]]
 AssigneeSerializer = Callable[[Task, AsyncSession], Awaitable[list[str]]]
+TaskCreationNotifier = Callable[[AsyncSession, Task], Awaitable[None]]
 
 
 async def apply_update_events_and_assignee_notifications(
@@ -89,3 +90,17 @@ async def apply_bulk_events_and_notifications(
         ",".join(sorted(changed_payload_keys)),
     )
     await notify_task_updated(db, task, actor_id)
+
+
+async def notify_task_created(
+    db: AsyncSession,
+    *,
+    task: Task,
+    actor_id: str,
+    serialize_assignee_ids: AssigneeSerializer,
+    notify_task_assigned: TaskAssigneeNotifier,
+    notify_new_task: TaskCreationNotifier,
+) -> None:
+    for uid in await serialize_assignee_ids(task, db):
+        await notify_task_assigned(db, task, uid, actor_id)
+    await notify_new_task(db, task)

@@ -56,6 +56,7 @@ from app.services.task_access_service import (
 from app.services.task_activity_service import (
     apply_bulk_events_and_notifications as _apply_bulk_events_and_notifications,
     apply_update_events_and_assignee_notifications as _apply_update_events_and_assignee_notifications,
+    notify_task_created as _notify_task_created,
 )
 from app.services.task_deadline_service import (
     record_deadline_change_and_date_events as _record_deadline_change_and_date_events,
@@ -207,11 +208,14 @@ async def create_task(
     if assignee_ids is not None:
         await _sync_task_assignees(task, assignee_ids, project_id, current_user, db)
 
-    # Notify assignee
-    for uid in await _serialize_assignee_ids(task, db):
-        await notify_task_assigned(db, task, uid, actor_id=current_user.id)
-
-    await notify_new_task(db, task)
+    await _notify_task_created(
+        db,
+        task=task,
+        actor_id=current_user.id,
+        serialize_assignee_ids=_serialize_assignee_ids,
+        notify_task_assigned=notify_task_assigned,
+        notify_new_task=notify_new_task,
+    )
     await db.commit()
     await db.refresh(task)
 
