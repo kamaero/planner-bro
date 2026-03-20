@@ -36,6 +36,11 @@ async def require_project_visibility(project_id: str, user: User, db: AsyncSessi
         raise HTTPException(status_code=403, detail="Access denied")
 
 
+async def require_task_read_visibility(task: Task, user: User, db: AsyncSession) -> None:
+    await require_project_visibility(task.project_id, user, db)
+    require_task_visibility(task, user)
+
+
 def is_task_assignee(task: Task, user_id: str) -> bool:
     if task.assigned_to_id == user_id:
         return True

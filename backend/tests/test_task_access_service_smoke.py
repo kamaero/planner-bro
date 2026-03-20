@@ -13,6 +13,7 @@ from app.services.task_access_service import (
     is_title_only_update,
     require_bulk_permission,
     require_delete_permission,
+    require_task_read_visibility,
     require_task_update_access,
     require_task_visibility,
 )
@@ -87,6 +88,26 @@ class TaskAccessServiceSmokeTest(unittest.TestCase):
                         )
 
         asyncio.run(_run())
+
+    def test_require_task_read_visibility_calls_project_and_task_checks(self):
+        async def _run():
+            task = SimpleNamespace(project_id="p1")
+            user = SimpleNamespace(id="u1")
+            db = SimpleNamespace()
+            with patch(
+                "app.services.task_access_service.require_project_visibility",
+                new=AsyncMock(return_value=None),
+            ) as require_project_visibility_mock:
+                with patch(
+                    "app.services.task_access_service.require_task_visibility",
+                    return_value=None,
+                ) as require_task_visibility_mock:
+                    await require_task_read_visibility(task, user, db)
+            return require_project_visibility_mock, require_task_visibility_mock
+
+        require_project_visibility_mock, require_task_visibility_mock = asyncio.run(_run())
+        require_project_visibility_mock.assert_awaited_once()
+        require_task_visibility_mock.assert_called_once()
 
 
 if __name__ == "__main__":

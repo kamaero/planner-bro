@@ -18,7 +18,7 @@
 Смотрите сюда:
 
 - `backend/app/services/access_scope.py`
-- `backend/app/services/task_access_service.py` (access guards + title-only/scoped-rename fallback for update-flow)
+- `backend/app/services/task_access_service.py` (access guards + title-only/scoped-rename fallback + read-visibility helper)
 - `backend/app/models/user.py`
 - `backend/app/schemas/user.py`
 - `backend/app/api/v1/users.py`

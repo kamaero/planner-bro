@@ -48,8 +48,8 @@ from app.services.task_access_service import (
     require_project_member as _require_project_member,
     require_project_visibility as _require_project_visibility,
     require_task_editor as _require_task_editor,
+    require_task_read_visibility as _require_task_read_visibility,
     require_task_update_access as _require_task_update_access,
-    require_task_visibility as _require_task_visibility,
     serialize_assignee_ids as _serialize_assignee_ids,
     sync_task_assignees as _sync_task_assignees,
 )
@@ -249,8 +249,7 @@ async def get_task(
     db: AsyncSession = Depends(get_db),
 ):
     task = await get_task_or_404(db, task_id)
-    await _require_project_visibility(task.project_id, current_user, db)
-    _require_task_visibility(task, current_user)
+    await _require_task_read_visibility(task, current_user, db)
     return task
 
 
@@ -681,8 +680,7 @@ async def list_task_comments(
     db: AsyncSession = Depends(get_db),
 ):
     task = await get_task_or_404(db, task_id)
-    await _require_project_visibility(task.project_id, current_user, db)
-    _require_task_visibility(task, current_user)
+    await _require_task_read_visibility(task, current_user, db)
     return await _list_task_comments(db, task_id)
 
 
@@ -711,8 +709,7 @@ async def list_task_events(
     db: AsyncSession = Depends(get_db),
 ):
     task = await get_task_or_404(db, task_id)
-    await _require_project_visibility(task.project_id, current_user, db)
-    _require_task_visibility(task, current_user)
+    await _require_task_read_visibility(task, current_user, db)
     return await _list_task_events(db, task_id)
 
 
