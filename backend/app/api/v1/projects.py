@@ -1,7 +1,4 @@
-import uuid
-import io
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
-from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -17,7 +14,6 @@ from app.models.project import (
     default_completion_checklist,
 )
 from app.models.task import Task, TaskAssignee, TaskEvent, TaskComment
-from app.models.ai import AIIngestionJob
 from app.models.deadline_change import DeadlineChange
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
@@ -43,7 +39,7 @@ from app.services.notification_service import (
     notify_project_assigned,
 )
 from app.services.system_activity_service import log_system_activity
-from app.services.ms_project_import_service import parse_ms_project_content, inspect_import_file
+from app.services.ms_project_import_service import parse_ms_project_content
 from app.services.project_access_service import (
     get_project_file_or_404,
     list_project_deadline_history as list_project_deadline_history_query,
@@ -59,6 +55,14 @@ from app.services.project_member_service import (
     remove_project_member,
     update_project_member_role,
 )
+from app.services.project_file_service import (
+    build_project_file_download_response,
+    build_project_file_import_precheck,
+    delete_project_file_with_audit,
+    read_project_file_payload_or_http,
+    start_ai_processing_job_for_file,
+    upload_project_file_with_ai,
+)
 from app.services.project_rules_service import (
     apply_control_ski,
     ensure_project_completion_allowed,
@@ -71,10 +75,6 @@ from app.services.project_rules_service import (
     sync_task_assignees_for_project,
 )
 from app.services.temp_assignee_service import upsert_temp_assignees
-from app.services.project_file_storage import (
-    read_project_file_bytes,
-    delete_project_file_blob,
-)
 from app.services.project_ai_draft_service import (
     approve_ai_draft_and_archive,
     approve_ai_drafts_bulk_and_archive,
@@ -85,8 +85,6 @@ from app.services.project_ai_draft_service import (
     reject_ai_draft_and_archive,
     reject_ai_drafts_bulk_and_archive,
 )
-from app.tasks.ai_ingestion import process_file_for_ai
-
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
@@ -537,64 +535,12 @@ async def upload_project_file(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    if not upload.filename:
-        raise HTTPException(status_code=400, detail="Filename required")
-
-    content = await upload.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
-    file_id = str(uuid.uuid4())
-    storage_path, nonce, encrypted_size = store_project_file_encrypted(file_id, content)
-    size = len(content)
-    record = ProjectFile(
-        id=file_id,
-        project_id=project_id,
-        filename=upload.filename,
-        content_type=upload.content_type,
-        size=size,
-        encrypted_size=encrypted_size,
-        is_encrypted=True,
-        nonce=nonce,
-        storage_path=str(storage_path),
-        uploaded_by_id=current_user.id,
-    )
-    db.add(record)
-    await db.commit()
-    result = await db.execute(
-        select(ProjectFile)
-        .where(ProjectFile.id == file_id)
-        .options(selectinload(ProjectFile.uploaded_by))
-    )
-    file_out = result.scalar_one()
-
-    # Queue AI parsing job (best-effort)
-    job = AIIngestionJob(
-        project_id=project_id,
-        project_file_id=file_id,
-        created_by_id=current_user.id,
-        status="queued",
-    )
-    db.add(job)
-    await db.commit()
-    process_file_for_ai.delay(job.id)
-    await log_system_activity(
+    return await upload_project_file_with_ai(
         db,
-        source="backend",
-        category="file_upload",
-        level="info",
-        message=f"Uploaded file '{upload.filename}' in project {project_id}",
-        details={
-            "project_id": project_id,
-            "file_id": file_id,
-            "filename": upload.filename,
-            "size": size,
-            "uploaded_by_id": current_user.id,
-            "ai_job_id": job.id,
-        },
-        commit=True,
+        project_id=project_id,
+        upload=upload,
+        actor=current_user,
     )
-    return file_out
 
 
 @router.post("/{project_id}/tasks/import/ms-project", response_model=MSProjectImportResult)
@@ -801,21 +747,8 @@ async def download_project_file(
 ):
     await require_project_access(project_id, current_user, db)
     record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
-    try:
-        payload = read_project_file_bytes(record)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="File missing on disk")
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Could not decrypt file: {exc}")
-
-    headers = {
-        "Content-Disposition": f'attachment; filename="{record.filename}"',
-    }
-    return StreamingResponse(
-        io.BytesIO(payload),
-        media_type=record.content_type or "application/octet-stream",
-        headers=headers,
-    )
+    payload = read_project_file_payload_or_http(record)
+    return build_project_file_download_response(record, payload)
 
 
 @router.get("/{project_id}/files/{file_id}/import-precheck", response_model=ImportFilePrecheckOut)
@@ -827,14 +760,7 @@ async def get_project_file_import_precheck(
 ):
     await require_project_access(project_id, current_user, db)
     record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
-    try:
-        payload = read_project_file_bytes(record)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="File missing on disk")
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Could not decrypt file: {exc}")
-
-    return ImportFilePrecheckOut(**inspect_import_file(payload, filename=record.filename).__dict__)
+    return ImportFilePrecheckOut(**build_project_file_import_precheck(record))
 
 
 @router.delete("/{project_id}/files/{file_id}", status_code=204)
@@ -846,24 +772,12 @@ async def delete_project_file(
 ):
     require_delete_permission(current_user)
     await require_project_access(project_id, current_user, db, require_manager=True)
-    record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
-    delete_project_file_blob(record)
-    await log_system_activity(
+    await delete_project_file_with_audit(
         db,
-        source="backend",
-        category="file_delete",
-        level="warning",
-        message=f"Deleted file '{record.filename}' from project {project_id}",
-        details={
-            "project_id": project_id,
-            "file_id": file_id,
-            "filename": record.filename,
-            "deleted_by_id": current_user.id,
-        },
-        commit=False,
+        project_id=project_id,
+        file_id=file_id,
+        actor_id=current_user.id,
     )
-    await db.delete(record)
-    await db.commit()
 
 
 @router.get("/{project_id}/ai-jobs", response_model=list[AIIngestionJobOut])
@@ -886,37 +800,13 @@ async def start_ai_processing_for_file(
 ):
     require_import_permission(current_user)
     await require_project_access(project_id, current_user, db)
-
-    file_record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
-
-    job = AIIngestionJob(
-        project_id=project_id,
-        project_file_id=file_id,
-        created_by_id=current_user.id,
-        status="queued",
-    )
-    db.add(job)
-    await db.commit()
-    await db.refresh(job)
-
-    prompt_instruction = (data.prompt_instruction or "").strip() if data else ""
-    process_file_for_ai.delay(job.id, prompt_instruction or None)
-    await log_system_activity(
+    return await start_ai_processing_job_for_file(
         db,
-        source="backend",
-        category="ai",
-        level="info",
-        message=f"AI processing started for file {file_id}",
-        details={
-            "project_id": project_id,
-            "file_id": file_id,
-            "job_id": job.id,
-            "requested_by_id": current_user.id,
-            "prompt_instruction_set": bool(prompt_instruction),
-        },
-        commit=True,
+        project_id=project_id,
+        file_id=file_id,
+        actor_id=current_user.id,
+        prompt_instruction=(data.prompt_instruction if data else None),
     )
-    return job
 
 
 @router.get("/{project_id}/ai-drafts", response_model=list[AITaskDraftOut])
