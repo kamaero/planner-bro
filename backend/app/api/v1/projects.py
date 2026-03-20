@@ -52,6 +52,9 @@ from app.services.project_access_service import (
     get_member_or_404,
     get_project_file_or_404,
     get_member,
+    list_project_deadline_history as list_project_deadline_history_query,
+    list_project_files as list_project_files_query,
+    list_project_members,
     maybe_archive_processed_file,
     require_assignment_scope_user,
     require_project_access,
@@ -514,12 +517,7 @@ async def list_members(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    result = await db.execute(
-        select(ProjectMember)
-        .where(ProjectMember.project_id == project_id)
-        .options(selectinload(ProjectMember.user))
-    )
-    return result.scalars().all()
+    return await list_project_members(db, project_id=project_id)
 
 
 @router.get("/{project_id}/files", response_model=list[ProjectFileOut])
@@ -529,12 +527,7 @@ async def list_project_files(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    result = await db.execute(
-        select(ProjectFile)
-        .where(ProjectFile.project_id == project_id)
-        .options(selectinload(ProjectFile.uploaded_by))
-    )
-    return result.scalars().all()
+    return await list_project_files_query(db, project_id=project_id)
 
 
 @router.post("/{project_id}/files", response_model=ProjectFileOut, status_code=201)
@@ -1123,10 +1116,4 @@ async def list_project_deadline_history(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    result = await db.execute(
-        select(DeadlineChange)
-        .where(DeadlineChange.entity_type == "project", DeadlineChange.entity_id == project_id)
-        .options(selectinload(DeadlineChange.changed_by))
-        .order_by(DeadlineChange.created_at.desc())
-    )
-    return result.scalars().all()
+    return await list_project_deadline_history_query(db, project_id=project_id)

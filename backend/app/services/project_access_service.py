@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.models.ai import AITaskDraft
+from app.models.deadline_change import DeadlineChange
 from app.models.department import Department
 from app.models.project import Project, ProjectDepartment, ProjectFile, ProjectMember
 from app.models.user import User
@@ -134,6 +135,46 @@ async def get_project_file_or_404(
     if not file_record:
         raise HTTPException(status_code=404, detail="File not found")
     return file_record
+
+
+async def list_project_members(
+    db: AsyncSession,
+    *,
+    project_id: str,
+) -> list[ProjectMember]:
+    result = await db.execute(
+        select(ProjectMember)
+        .where(ProjectMember.project_id == project_id)
+        .options(selectinload(ProjectMember.user))
+    )
+    return result.scalars().all()
+
+
+async def list_project_files(
+    db: AsyncSession,
+    *,
+    project_id: str,
+) -> list[ProjectFile]:
+    result = await db.execute(
+        select(ProjectFile)
+        .where(ProjectFile.project_id == project_id)
+        .options(selectinload(ProjectFile.uploaded_by))
+    )
+    return result.scalars().all()
+
+
+async def list_project_deadline_history(
+    db: AsyncSession,
+    *,
+    project_id: str,
+) -> list[DeadlineChange]:
+    result = await db.execute(
+        select(DeadlineChange)
+        .where(DeadlineChange.entity_type == "project", DeadlineChange.entity_id == project_id)
+        .options(selectinload(DeadlineChange.changed_by))
+        .order_by(DeadlineChange.created_at.desc())
+    )
+    return result.scalars().all()
 
 
 async def require_assignment_scope_user(

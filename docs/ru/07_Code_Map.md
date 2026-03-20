@@ -242,5 +242,5 @@
 
 - развивать карту вокруг `tasks.py` и `ProjectDetail.tsx` по мере их разрезания;
 - зафиксировать более детальную модульную карту для `App.tsx` (auth bootstrap / route shell / layout state);
-- обновить backend map для `tasks.py` с явным разделением access / dependency / rules / lifecycle / mutation / bulk / activity / deadline / route orchestration зон;
+- обновить backend map для `projects.py` и `tasks.py` с явным разделением access / query / rules / lifecycle / mutation / bulk / activity / deadline / route orchestration зон;
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.
