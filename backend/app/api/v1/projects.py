@@ -17,7 +17,7 @@ from app.models.project import (
     default_completion_checklist,
 )
 from app.models.task import Task, TaskAssignee, TaskEvent, TaskComment
-from app.models.ai import AIIngestionJob, AITaskDraft
+from app.models.ai import AIIngestionJob
 from app.models.deadline_change import DeadlineChange
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
@@ -45,21 +45,19 @@ from app.services.notification_service import (
 from app.services.system_activity_service import log_system_activity
 from app.services.ms_project_import_service import parse_ms_project_content, inspect_import_file
 from app.services.project_access_service import (
-    ensure_add_member_role_allowed,
-    ensure_manager_assignment_allowed,
-    ensure_member_absent,
-    ensure_update_member_role_allowed,
-    get_member_or_404,
     get_project_file_or_404,
-    get_member,
     list_project_deadline_history as list_project_deadline_history_query,
     list_project_files as list_project_files_query,
     list_project_members,
-    maybe_archive_processed_file,
     require_assignment_scope_user,
     require_project_access,
     sync_project_departments,
     validate_department_ids,
+)
+from app.services.project_member_service import (
+    add_project_member,
+    remove_project_member,
+    update_project_member_role,
 )
 from app.services.project_rules_service import (
     apply_control_ski,
@@ -78,13 +76,14 @@ from app.services.project_file_storage import (
     delete_project_file_blob,
 )
 from app.services.project_ai_draft_service import (
-    approve_single_ai_draft,
+    approve_ai_draft_and_archive,
+    approve_ai_drafts_bulk_and_archive,
     get_ai_draft_or_404,
     get_user_candidates,
     list_ai_drafts_for_project,
-    list_ai_drafts_by_ids,
     list_ai_jobs_for_project,
-    reject_pending_draft,
+    reject_ai_draft_and_archive,
+    reject_ai_drafts_bulk_and_archive,
 )
 from app.tasks.ai_ingestion import process_file_for_ai
 
@@ -951,11 +950,13 @@ async def approve_ai_draft(
     await require_project_access(project_id, current_user, db)
     user_candidates = await get_user_candidates(db)
     draft = await get_ai_draft_or_404(db, project_id=project_id, draft_id=draft_id)
-    if draft.status != "pending":
-        raise HTTPException(status_code=400, detail="AI draft is already processed")
-
-    await approve_single_ai_draft(project_id, draft, current_user, db, user_candidates=user_candidates)
-    await maybe_archive_processed_file(project_id, draft.project_file_id, current_user.id, db)
+    await approve_ai_draft_and_archive(
+        db,
+        project_id=project_id,
+        draft=draft,
+        actor=current_user,
+        user_candidates=user_candidates,
+    )
     await db.commit()
     await db.refresh(draft)
     return draft
@@ -970,23 +971,13 @@ async def approve_ai_drafts_bulk(
 ):
     await require_project_access(project_id, current_user, db)
     user_candidates = await get_user_candidates(db)
-    drafts = await list_ai_drafts_by_ids(db, project_id=project_id, draft_ids=data.draft_ids)
-    draft_map = {d.id: d for d in drafts}
-    approved: list[AITaskDraft] = []
-    for draft_id in data.draft_ids:
-        draft = draft_map.get(draft_id)
-        if not draft or draft.status != "pending":
-            continue
-        await approve_single_ai_draft(
-            project_id,
-            draft,
-            current_user,
-            db,
-            user_candidates=user_candidates,
-        )
-        approved.append(draft)
-    for file_id in {d.project_file_id for d in approved}:
-        await maybe_archive_processed_file(project_id, file_id, current_user.id, db)
+    approved = await approve_ai_drafts_bulk_and_archive(
+        db,
+        project_id=project_id,
+        draft_ids=data.draft_ids,
+        actor=current_user,
+        user_candidates=user_candidates,
+    )
     await db.commit()
     return approved
 
@@ -999,16 +990,12 @@ async def reject_ai_drafts_bulk(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    drafts = await list_ai_drafts_by_ids(db, project_id=project_id, draft_ids=data.draft_ids)
-    draft_map = {d.id: d for d in drafts}
-    rejected: list[AITaskDraft] = []
-    for draft_id in data.draft_ids:
-        draft = draft_map.get(draft_id)
-        if not draft or not reject_pending_draft(draft, actor_id=current_user.id):
-            continue
-        rejected.append(draft)
-    for file_id in {d.project_file_id for d in rejected}:
-        await maybe_archive_processed_file(project_id, file_id, current_user.id, db)
+    rejected = await reject_ai_drafts_bulk_and_archive(
+        db,
+        project_id=project_id,
+        draft_ids=data.draft_ids,
+        actor_id=current_user.id,
+    )
     await db.commit()
     return rejected
 
@@ -1022,10 +1009,12 @@ async def reject_ai_draft(
 ):
     await require_project_access(project_id, current_user, db)
     draft = await get_ai_draft_or_404(db, project_id=project_id, draft_id=draft_id)
-    if draft.status != "pending":
-        raise HTTPException(status_code=400, detail="AI draft is already processed")
-    reject_pending_draft(draft, actor_id=current_user.id)
-    await maybe_archive_processed_file(project_id, draft.project_file_id, current_user.id, db)
+    await reject_ai_draft_and_archive(
+        db,
+        project_id=project_id,
+        draft=draft,
+        actor_id=current_user.id,
+    )
     await db.commit()
     await db.refresh(draft)
     return draft
@@ -1038,25 +1027,12 @@ async def add_member(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await require_project_access(project_id, current_user, db, require_manager=True)
-    requester_member = await get_member(project_id, current_user.id, db)
-    ensure_add_member_role_allowed(data.role)
-    ensure_manager_assignment_allowed(
-        data.role,
-        current_user_role=current_user.role,
-        requester_member=requester_member,
-    )
-    await require_assignment_scope_user(db, current_user, data.user_id)
-    await ensure_member_absent(project_id, data.user_id, db)
-    member = ProjectMember(project_id=project_id, user_id=data.user_id, role=data.role)
-    db.add(member)
-    await db.commit()
-    await notify_project_assigned(
+    await add_project_member(
         db,
         project_id=project_id,
-        project_name=project.name,
-        user_id=data.user_id,
-        assigned_role=data.role,
+        target_user_id=data.user_id,
+        role=data.role,
+        actor=current_user,
     )
     return {"message": "Member added"}
 
@@ -1069,24 +1045,12 @@ async def update_member_role(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await require_project_access(project_id, current_user, db, require_manager=True)
-    requester_member = await get_member(project_id, current_user.id, db)
-    member = await get_member_or_404(project_id, user_id, db)
-    ensure_update_member_role_allowed(member.role, data.role)
-    ensure_manager_assignment_allowed(
-        data.role,
-        current_user_role=current_user.role,
-        requester_member=requester_member,
-    )
-
-    member.role = data.role
-    await db.commit()
-    await notify_project_assigned(
+    await update_project_member_role(
         db,
         project_id=project_id,
-        project_name=project.name,
-        user_id=user_id,
-        assigned_role=data.role,
+        target_user_id=user_id,
+        role=data.role,
+        actor=current_user,
     )
     return {"message": "Member role updated"}
 
@@ -1098,15 +1062,12 @@ async def remove_member(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await require_project_access(project_id, current_user, db, require_manager=True)
-    member = await get_member_or_404(project_id, user_id, db)
-    if member.role == "owner":
-        raise HTTPException(
-            status_code=400,
-            detail="Project owner cannot be removed. Transfer ownership first.",
-        )
-    await db.delete(member)
-    await db.commit()
+    await remove_project_member(
+        db,
+        project_id=project_id,
+        target_user_id=user_id,
+        actor=current_user,
+    )
 
 
 @router.get("/{project_id}/deadline-history", response_model=list[DeadlineChangeOut])

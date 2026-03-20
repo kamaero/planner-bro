@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -104,6 +105,92 @@ def reject_pending_draft(draft: AITaskDraft, *, actor_id: str) -> bool:
     draft.status = "rejected"
     draft.approved_by_id = actor_id
     return True
+
+
+def ensure_pending_draft_or_400(draft: AITaskDraft) -> None:
+    if draft.status != "pending":
+        raise HTTPException(status_code=400, detail="AI draft is already processed")
+
+
+async def approve_ai_draft_and_archive(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    draft: AITaskDraft,
+    actor: User,
+    user_candidates: list[User],
+) -> None:
+    from app.services.project_access_service import maybe_archive_processed_file
+
+    ensure_pending_draft_or_400(draft)
+    await approve_single_ai_draft(project_id, draft, actor, db, user_candidates=user_candidates)
+    await maybe_archive_processed_file(project_id, draft.project_file_id, actor.id, db)
+
+
+async def approve_ai_drafts_bulk_and_archive(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    draft_ids: list[str],
+    actor: User,
+    user_candidates: list[User],
+) -> list[AITaskDraft]:
+    from app.services.project_access_service import maybe_archive_processed_file
+
+    drafts = await list_ai_drafts_by_ids(db, project_id=project_id, draft_ids=draft_ids)
+    draft_map = {d.id: d for d in drafts}
+    approved: list[AITaskDraft] = []
+    for draft_id in draft_ids:
+        draft = draft_map.get(draft_id)
+        if not draft or draft.status != "pending":
+            continue
+        await approve_single_ai_draft(
+            project_id,
+            draft,
+            actor,
+            db,
+            user_candidates=user_candidates,
+        )
+        approved.append(draft)
+    for file_id in {d.project_file_id for d in approved}:
+        await maybe_archive_processed_file(project_id, file_id, actor.id, db)
+    return approved
+
+
+async def reject_ai_draft_and_archive(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    draft: AITaskDraft,
+    actor_id: str,
+) -> None:
+    from app.services.project_access_service import maybe_archive_processed_file
+
+    ensure_pending_draft_or_400(draft)
+    reject_pending_draft(draft, actor_id=actor_id)
+    await maybe_archive_processed_file(project_id, draft.project_file_id, actor_id, db)
+
+
+async def reject_ai_drafts_bulk_and_archive(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    draft_ids: list[str],
+    actor_id: str,
+) -> list[AITaskDraft]:
+    from app.services.project_access_service import maybe_archive_processed_file
+
+    drafts = await list_ai_drafts_by_ids(db, project_id=project_id, draft_ids=draft_ids)
+    draft_map = {d.id: d for d in drafts}
+    rejected: list[AITaskDraft] = []
+    for draft_id in draft_ids:
+        draft = draft_map.get(draft_id)
+        if not draft or not reject_pending_draft(draft, actor_id=actor_id):
+            continue
+        rejected.append(draft)
+    for file_id in {d.project_file_id for d in rejected}:
+        await maybe_archive_processed_file(project_id, file_id, actor_id, db)
+    return rejected
 
 
 async def approve_single_ai_draft(

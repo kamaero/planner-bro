@@ -243,4 +243,5 @@
 - развивать карту вокруг `tasks.py` и `ProjectDetail.tsx` по мере их разрезания;
 - зафиксировать более детальную модульную карту для `App.tsx` (auth bootstrap / route shell / layout state);
 - обновить backend map для `projects.py` и `tasks.py` с явным разделением access / query / rules / lifecycle / mutation / bulk / activity / deadline / route orchestration зон;
+- отдельно описать связи новых `project_member_service.py` и `project_ai_draft_service.py` orchestration helper'ов с route-слоем `projects.py`;
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.
