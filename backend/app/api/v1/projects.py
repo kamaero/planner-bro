@@ -1,6 +1,5 @@
 import uuid
 import io
-from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,13 +36,10 @@ from app.services.project_service import get_gantt_data
 from app.services.access_scope import (
     can_access_project,
     get_user_access_scope,
-    get_task_assignment_scope_user_ids,
     has_department_level_access,
 )
 from app.services.notification_service import (
     notify_project_updated,
-    notify_new_task,
-    notify_task_assigned,
     notify_project_assigned,
 )
 from app.services.system_activity_service import log_system_activity
@@ -64,9 +60,7 @@ from app.services.project_access_service import (
 )
 from app.services.project_rules_service import (
     apply_control_ski,
-    collect_assignee_hints,
     ensure_project_completion_allowed,
-    extract_task_number,
     fio_short,
     fio_short_from_parts,
     match_assignee_ids,
@@ -84,7 +78,9 @@ from app.services.project_ai_draft_service import (
     approve_single_ai_draft,
     get_ai_draft_or_404,
     get_user_candidates,
+    list_ai_drafts_for_project,
     list_ai_drafts_by_ids,
+    list_ai_jobs_for_project,
     reject_pending_draft,
 )
 from app.tasks.ai_ingestion import process_file_for_ai
@@ -885,13 +881,7 @@ async def list_ai_jobs(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    result = await db.execute(
-        select(AIIngestionJob)
-        .where(AIIngestionJob.project_id == project_id)
-        .order_by(AIIngestionJob.created_at.desc())
-        .limit(50)
-    )
-    return result.scalars().all()
+    return await list_ai_jobs_for_project(db, project_id=project_id)
 
 
 @router.post("/{project_id}/files/{file_id}/ai-process", response_model=AIIngestionJobOut, status_code=202)
@@ -948,18 +938,14 @@ async def list_ai_drafts(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    stmt = (
-        select(AITaskDraft)
-        .where(AITaskDraft.project_id == project_id)
-        .options(selectinload(AITaskDraft.assignee))
-        .order_by(AITaskDraft.created_at.desc())
+    return await list_ai_drafts_for_project(
+        db,
+        project_id=project_id,
+        file_id=file_id,
+        status_filter=status_filter,
+        limit=limit,
+        offset=offset,
     )
-    if file_id:
-        stmt = stmt.where(AITaskDraft.project_file_id == file_id)
-    if status_filter:
-        stmt = stmt.where(AITaskDraft.status == status_filter)
-    result = await db.execute(stmt.offset(offset).limit(limit))
-    return result.scalars().all()
 
 
 @router.post("/{project_id}/ai-drafts/{draft_id}/approve", response_model=AITaskDraftOut)

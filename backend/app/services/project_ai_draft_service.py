@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.ai import AITaskDraft
+from app.models.ai import AIIngestionJob, AITaskDraft
 from app.models.deadline_change import DeadlineChange
 from app.models.task import Task, TaskAssignee, TaskComment, TaskEvent
 from app.models.user import User
@@ -62,6 +62,39 @@ async def list_ai_drafts_by_ids(
         )
         .options(selectinload(AITaskDraft.assignee))
     )
+    return result.scalars().all()
+
+
+async def list_ai_jobs_for_project(db: AsyncSession, *, project_id: str) -> list[AIIngestionJob]:
+    result = await db.execute(
+        select(AIIngestionJob)
+        .where(AIIngestionJob.project_id == project_id)
+        .order_by(AIIngestionJob.created_at.desc())
+        .limit(50)
+    )
+    return result.scalars().all()
+
+
+async def list_ai_drafts_for_project(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    file_id: str | None,
+    status_filter: str | None,
+    limit: int,
+    offset: int,
+) -> list[AITaskDraft]:
+    stmt = (
+        select(AITaskDraft)
+        .where(AITaskDraft.project_id == project_id)
+        .options(selectinload(AITaskDraft.assignee))
+        .order_by(AITaskDraft.created_at.desc())
+    )
+    if file_id:
+        stmt = stmt.where(AITaskDraft.project_file_id == file_id)
+    if status_filter:
+        stmt = stmt.where(AITaskDraft.status == status_filter)
+    result = await db.execute(stmt.offset(offset).limit(limit))
     return result.scalars().all()
 
 

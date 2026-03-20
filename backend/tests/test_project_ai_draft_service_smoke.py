@@ -9,7 +9,9 @@ from fastapi import HTTPException
 from app.services.project_ai_draft_service import (
     get_ai_draft_or_404,
     get_user_candidates,
+    list_ai_drafts_for_project,
     list_ai_drafts_by_ids,
+    list_ai_jobs_for_project,
     reject_pending_draft,
 )
 
@@ -51,6 +53,26 @@ class ProjectAIDraftServiceSmokeTest(unittest.TestCase):
         users, drafts = asyncio.run(_run())
         self.assertEqual([u.id for u in users], ["u-1", "u-2"])
         self.assertEqual([d.id for d in drafts], ["d-1", "d-2"])
+
+    def test_list_ai_jobs_and_filtered_drafts(self):
+        async def _run():
+            jobs = [SimpleNamespace(id="j-1"), SimpleNamespace(id="j-2")]
+            drafts = [SimpleNamespace(id="d-3")]
+            db = _FakeDB([jobs, drafts])
+            job_rows = await list_ai_jobs_for_project(db, project_id="p-1")
+            draft_rows = await list_ai_drafts_for_project(
+                db,
+                project_id="p-1",
+                file_id="f-1",
+                status_filter="pending",
+                limit=20,
+                offset=0,
+            )
+            return job_rows, draft_rows
+
+        jobs, drafts = asyncio.run(_run())
+        self.assertEqual([j.id for j in jobs], ["j-1", "j-2"])
+        self.assertEqual([d.id for d in drafts], ["d-3"])
 
     def test_get_ai_draft_or_404(self):
         async def _run():
