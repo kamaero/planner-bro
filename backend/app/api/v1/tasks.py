@@ -63,7 +63,9 @@ from app.services.task_deadline_service import (
     validate_deadline_reason as _validate_deadline_reason,
 )
 from app.services.task_update_service import (
+    apply_update_status_side_effects as _apply_update_status_side_effects,
     apply_escalation_projection_for_update as _apply_escalation_projection_for_update,
+    should_validate_predecessors as _should_validate_predecessors,
     should_revalidate_dependencies as _should_revalidate_dependencies,
     split_update_payload as _split_update_payload,
 )
@@ -320,13 +322,20 @@ async def update_task(
     )
     if _should_revalidate_dependencies(predecessor_task_ids, payload):
         await _validate_incoming_dependency_rules(db, task=task, auto_shift_fs=True)
-    if ("status" in payload and task.status != old_status) or predecessor_task_ids is not None:
+    if _should_validate_predecessors(
+        payload=payload,
+        predecessor_task_ids=predecessor_task_ids,
+        old_status=old_status,
+        new_status=task.status,
+    ):
         await ensure_predecessors_done(task, task.status, db)
 
-    if task.status == "done":
-        task.next_check_in_due_at = None
-    elif old_status == "done" and task.status != "done":
-        task.next_check_in_due_at = _plan_next_check_in(task, _now_utc())
+    _apply_update_status_side_effects(
+        task,
+        old_status=old_status,
+        now=_now_utc(),
+        plan_next_check_in=_plan_next_check_in,
+    )
 
     await _record_deadline_change_and_date_events(
         db,

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import unittest
 from types import SimpleNamespace
 
 from app.services.task_update_service import (
+    apply_update_status_side_effects,
     apply_escalation_projection_for_update,
+    should_validate_predecessors,
     should_revalidate_dependencies,
     split_update_payload,
 )
@@ -48,6 +51,51 @@ class TaskUpdateServiceSmokeTest(unittest.TestCase):
         self.assertTrue(should_revalidate_dependencies(["a"], {}))
         self.assertTrue(should_revalidate_dependencies(None, {"start_date": "x"}))
         self.assertFalse(should_revalidate_dependencies(None, {"title": "x"}))
+
+    def test_should_validate_predecessors(self):
+        self.assertTrue(
+            should_validate_predecessors(
+                payload={"status": "done"},
+                predecessor_task_ids=None,
+                old_status="todo",
+                new_status="done",
+            )
+        )
+        self.assertTrue(
+            should_validate_predecessors(
+                payload={},
+                predecessor_task_ids=["x"],
+                old_status="todo",
+                new_status="todo",
+            )
+        )
+        self.assertFalse(
+            should_validate_predecessors(
+                payload={"title": "x"},
+                predecessor_task_ids=None,
+                old_status="todo",
+                new_status="todo",
+            )
+        )
+
+    def test_apply_update_status_side_effects(self):
+        task = SimpleNamespace(status="done", next_check_in_due_at=datetime.now(timezone.utc))
+        apply_update_status_side_effects(
+            task,
+            old_status="in_progress",
+            now=datetime.now(timezone.utc),
+            plan_next_check_in=lambda _task, _now: None,
+        )
+        self.assertIsNone(task.next_check_in_due_at)
+
+        task = SimpleNamespace(status="todo", next_check_in_due_at=None)
+        apply_update_status_side_effects(
+            task,
+            old_status="done",
+            now=datetime(2026, 3, 20, tzinfo=timezone.utc),
+            plan_next_check_in=lambda _task, now: now,
+        )
+        self.assertEqual(task.next_check_in_due_at, datetime(2026, 3, 20, tzinfo=timezone.utc))
 
 
 if __name__ == "__main__":

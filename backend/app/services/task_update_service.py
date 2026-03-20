@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 
 from app.models.task import Task
 
 EscalationPreparer = Callable[[dict, object | None], None]
+NextCheckInPlanner = Callable[[Task, datetime], datetime | None]
 
 
 def split_update_payload(raw_payload: dict) -> tuple[dict, list[str] | None, list[str] | None, str | None]:
@@ -47,3 +49,26 @@ def apply_escalation_projection_for_update(
 
 def should_revalidate_dependencies(predecessor_task_ids: list[str] | None, payload: dict) -> bool:
     return predecessor_task_ids is not None or "start_date" in payload or "end_date" in payload
+
+
+def should_validate_predecessors(
+    *,
+    payload: dict,
+    predecessor_task_ids: list[str] | None,
+    old_status: str,
+    new_status: str,
+) -> bool:
+    return ("status" in payload and new_status != old_status) or predecessor_task_ids is not None
+
+
+def apply_update_status_side_effects(
+    task: Task,
+    *,
+    old_status: str,
+    now: datetime,
+    plan_next_check_in: NextCheckInPlanner,
+) -> None:
+    if task.status == "done":
+        task.next_check_in_due_at = None
+    elif old_status == "done" and task.status != "done":
+        task.next_check_in_due_at = plan_next_check_in(task, now)
