@@ -1,6 +1,6 @@
 # PlannerBro TODO (общий список)
 
-Обновлено: 2026-03-12
+Обновлено: 2026-03-20
 
 Связанные рабочие документы:
 
@@ -54,6 +54,11 @@
    - Резервные копии PostgreSQL (скрипт + ротация).
    - Оптимизация frontend bundle + виртуализация длинных списков.
    - Check-in workflow, напоминания и контроль СКИ.
+
+7. ✅ Разгрузка тяжёлых backend-роутов (большой прогресс)
+   - `backend/app/api/v1/tasks.py` доведён до тонкого route-shell: ключевые ветки create/update/bulk/mutation/dependency вынесены в отдельные service-модули orchestration.
+   - `backend/app/api/v1/projects.py` радикально уменьшен за счёт поэтапного выноса file/import/update/dashboard/analytics/catalog/AI moderation orchestration.
+   - Для новых service-слоёв добавлены smoke-тесты, прогоняемые через `./scripts/check-local.sh`.
 
 ---
 

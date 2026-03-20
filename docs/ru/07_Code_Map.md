@@ -1,6 +1,6 @@
 # PlannerBro — Code Map
 
-Обновлено: 2026-03-19
+Обновлено: 2026-03-20
 
 ## Зачем нужен этот документ
 
@@ -49,6 +49,10 @@
 - `backend/app/services/task_update_service.py` (update payload split + escalation projection + dependency/predecessor status side-effects)
 - `backend/app/services/task_timeline_service.py` (read-only query helper'ы comments/events/deadline-history)
 - `backend/app/services/task_create_service.py` (create payload split + escalation default assignee)
+- `backend/app/services/task_route_mutation_service.py` (route-level mutation orchestration: delete/status/check-in/comment)
+- `backend/app/services/task_route_bulk_service.py` (route-level bulk orchestration: bulk update/delete)
+- `backend/app/services/task_route_write_service.py` (route-level write orchestration: create/update)
+- `backend/app/services/task_route_dependency_service.py` (route-level dependency orchestration: list/add/remove)
 - `frontend/src/types/index.ts`
 - `frontend/src/pages/ProjectDetail.tsx`
 - `frontend/src/pages/Analytics.tsx`
@@ -252,5 +256,6 @@
 - отдельно описать `task_route_mutation_service.py` как слой orchestration для route-level mutation flow задач (`delete/status/check-in/comment`);
 - отдельно описать `task_route_bulk_service.py` как слой orchestration для route-level bulk flow задач (`bulk update` / `bulk delete`);
 - отдельно описать `task_route_write_service.py` как слой orchestration для route-level write flow задач (`create` / `update`);
+- отдельно описать `task_route_dependency_service.py` как слой orchestration для route-level dependency flow задач (`list` / `add` / `remove`);
 - отдельно описать `project_route_ai_service.py` как слой orchestration для route-level AI moderation flow проектов (`approve/reject`, single/bulk);
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.

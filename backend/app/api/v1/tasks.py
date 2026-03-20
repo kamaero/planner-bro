@@ -40,9 +40,6 @@ from app.services.task_timeline_service import (
     list_task_deadline_history as _list_task_deadline_history,
     list_task_events as _list_task_events,
 )
-from app.services.task_lifecycle_service import (
-    rollup_parent_schedule as _rollup_parent_schedule,
-)
 from app.services.task_route_mutation_service import (
     add_task_comment_and_refresh as _add_task_comment_and_refresh,
     check_in_task_and_refresh as _check_in_task_and_refresh,
@@ -56,14 +53,13 @@ from app.services.task_route_write_service import (
     create_task_from_payload as _create_task_from_payload,
     update_task_from_payload as _update_task_from_payload,
 )
+from app.services.task_route_dependency_service import (
+    add_dependency_for_task_editor as _add_dependency_for_task_editor,
+    list_dependencies_for_task_editor as _list_dependencies_for_task_editor,
+    remove_dependency_for_task_editor as _remove_dependency_for_task_editor,
+)
 from app.services.task_dependency_service import (
-    apply_outgoing_fs_autoplan as _apply_outgoing_fs_autoplan,
-    dependency_short_label as _dependency_short_label,
-    enforce_dependency_dates_or_autoplan as _enforce_dependency_dates_or_autoplan,
-    get_dependency_or_404 as _get_dependency_or_404,
-    list_dependencies_for_successor as _list_dependencies_for_successor,
     project_critical_path,
-    upsert_dependency as _upsert_dependency,
 )
 
 router = APIRouter(tags=["tasks"])
@@ -153,9 +149,11 @@ async def list_task_dependencies(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_or_404(db, task_id)
-    await _require_task_editor(task, current_user, db)
-    return await _list_dependencies_for_successor(db, task_id)
+    return await _list_dependencies_for_task_editor(
+        db,
+        task_id=task_id,
+        actor=current_user,
+    )
 
 
 @router.post("/tasks/{task_id}/dependencies", response_model=TaskDependencyOut, status_code=201)
@@ -165,39 +163,15 @@ async def add_task_dependency(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    successor = await get_task_or_404(db, task_id)
-    await _require_task_editor(successor, current_user, db)
-
-    predecessor = await get_task_or_404(db, data.predecessor_task_id, detail="Predecessor task not found")
-    lag_days = max(0, int(data.lag_days or 0))
-    dep = await _upsert_dependency(
+    return await _add_dependency_for_task_editor(
         db,
-        successor=successor,
-        predecessor=predecessor,
-        actor_id=current_user.id,
+        task_id=task_id,
+        predecessor_task_id=data.predecessor_task_id,
         dependency_type=data.dependency_type,
-        lag_days=lag_days,
+        lag_days=data.lag_days,
+        actor=current_user,
+        log_task_event=_log_task_event,
     )
-
-    await _enforce_dependency_dates_or_autoplan(
-        predecessor,
-        successor,
-        dep.dependency_type,
-        lag_days,
-        auto_shift_fs=True,
-    )
-    await _apply_outgoing_fs_autoplan(db, successor.id)
-    await _rollup_parent_schedule(db, successor.parent_task_id)
-    await _log_task_event(
-        db,
-        successor.id,
-        current_user.id,
-        "dependency_added",
-        f"{predecessor.id}->{successor.id} [{_dependency_short_label(dep.dependency_type)};+{lag_days}d]",
-    )
-    await db.commit()
-    await db.refresh(dep)
-    return dep
 
 
 @router.delete("/tasks/{task_id}/dependencies/{predecessor_task_id}", status_code=204)
@@ -207,22 +181,13 @@ async def remove_task_dependency(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    successor = await get_task_or_404(db, task_id)
-    await _require_task_editor(successor, current_user, db)
-    dep = await _get_dependency_or_404(
+    await _remove_dependency_for_task_editor(
         db,
-        successor_task_id=task_id,
+        task_id=task_id,
         predecessor_task_id=predecessor_task_id,
+        actor=current_user,
+        log_task_event=_log_task_event,
     )
-    await db.delete(dep)
-    await _log_task_event(
-        db,
-        successor.id,
-        current_user.id,
-        "dependency_removed",
-        f"{predecessor_task_id}->{task_id}",
-    )
-    await db.commit()
 
 
 @router.post("/projects/{project_id}/tasks/bulk", response_model=TaskBulkUpdateResult)
