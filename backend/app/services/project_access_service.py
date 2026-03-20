@@ -80,6 +80,43 @@ async def get_member(project_id: str, user_id: str, db: AsyncSession) -> Project
     return result.scalar_one_or_none()
 
 
+async def get_member_or_404(project_id: str, user_id: str, db: AsyncSession) -> ProjectMember:
+    member = await get_member(project_id, user_id, db)
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return member
+
+
+async def ensure_member_absent(project_id: str, user_id: str, db: AsyncSession) -> None:
+    member = await get_member(project_id, user_id, db)
+    if member:
+        raise HTTPException(status_code=400, detail="User is already a member")
+
+
+def ensure_add_member_role_allowed(role: str) -> None:
+    if role == "owner":
+        raise HTTPException(status_code=400, detail="Use project owner transfer instead")
+
+
+def ensure_update_member_role_allowed(current_role: str, new_role: str) -> None:
+    if current_role == "owner":
+        raise HTTPException(status_code=400, detail="Owner role is managed via ownership transfer")
+    if new_role not in ("member", "manager"):
+        raise HTTPException(status_code=400, detail="Role must be one of: member, manager")
+
+
+def ensure_manager_assignment_allowed(
+    target_role: str,
+    *,
+    current_user_role: str,
+    requester_member: ProjectMember | None,
+) -> None:
+    if target_role != "manager" or current_user_role == "admin":
+        return
+    if not requester_member or requester_member.role != "owner":
+        raise HTTPException(status_code=403, detail="Only owner or admin can assign manager role")
+
+
 async def get_project_file_or_404(
     db: AsyncSession,
     *,

@@ -49,6 +49,11 @@ from app.services.notification_service import (
 from app.services.system_activity_service import log_system_activity
 from app.services.ms_project_import_service import parse_ms_project_content, inspect_import_file
 from app.services.project_access_service import (
+    ensure_add_member_role_allowed,
+    ensure_manager_assignment_allowed,
+    ensure_member_absent,
+    ensure_update_member_role_allowed,
+    get_member_or_404,
     get_project_file_or_404,
     get_member,
     maybe_archive_processed_file,
@@ -1095,20 +1100,14 @@ async def add_member(
 ):
     project = await require_project_access(project_id, current_user, db, require_manager=True)
     requester_member = await get_member(project_id, current_user.id, db)
-    if data.role == "owner":
-        raise HTTPException(status_code=400, detail="Use project owner transfer instead")
-    if data.role == "manager" and current_user.role != "admin":
-        if not requester_member or requester_member.role != "owner":
-            raise HTTPException(status_code=403, detail="Only owner or admin can assign manager role")
-    await require_assignment_scope_user(db, current_user, data.user_id)
-    existing = await db.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == data.user_id
-        )
+    ensure_add_member_role_allowed(data.role)
+    ensure_manager_assignment_allowed(
+        data.role,
+        current_user_role=current_user.role,
+        requester_member=requester_member,
     )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="User is already a member")
+    await require_assignment_scope_user(db, current_user, data.user_id)
+    await ensure_member_absent(project_id, data.user_id, db)
     member = ProjectMember(project_id=project_id, user_id=data.user_id, role=data.role)
     db.add(member)
     await db.commit()
@@ -1132,16 +1131,13 @@ async def update_member_role(
 ):
     project = await require_project_access(project_id, current_user, db, require_manager=True)
     requester_member = await get_member(project_id, current_user.id, db)
-    member = await get_member(project_id, user_id, db)
-    if not member:
-        raise HTTPException(status_code=404, detail="Member not found")
-    if member.role == "owner":
-        raise HTTPException(status_code=400, detail="Owner role is managed via ownership transfer")
-    if data.role not in ("member", "manager"):
-        raise HTTPException(status_code=400, detail="Role must be one of: member, manager")
-    if data.role == "manager" and current_user.role != "admin":
-        if not requester_member or requester_member.role != "owner":
-            raise HTTPException(status_code=403, detail="Only owner or admin can assign manager role")
+    member = await get_member_or_404(project_id, user_id, db)
+    ensure_update_member_role_allowed(member.role, data.role)
+    ensure_manager_assignment_allowed(
+        data.role,
+        current_user_role=current_user.role,
+        requester_member=requester_member,
+    )
 
     member.role = data.role
     await db.commit()
@@ -1163,15 +1159,7 @@ async def remove_member(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db, require_manager=True)
-    result = await db.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == user_id
-        )
-    )
-    member = result.scalar_one_or_none()
-    if not member:
-        raise HTTPException(status_code=404, detail="Member not found")
+    member = await get_member_or_404(project_id, user_id, db)
     if member.role == "owner":
         raise HTTPException(
             status_code=400,

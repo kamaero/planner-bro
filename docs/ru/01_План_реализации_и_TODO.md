@@ -159,6 +159,7 @@
 - [x] Сделана следующая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через расширение `backend/app/services/task_activity_service.py` (helper `notify_task_created` для create-flow уведомлений).
 - [x] Сделана следующая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через расширение `backend/app/services/task_update_service.py` (helpers `should_validate_predecessors` и `apply_update_status_side_effects` для update-flow).
 - [x] Начата следующая безопасная итерация разгрузки `backend/app/api/v1/projects.py` через расширение `backend/app/services/project_access_service.py` (helper `get_project_file_or_404` + снижение дублирования file endpoints).
+- [x] Продолжена безопасная итерация разгрузки `backend/app/api/v1/projects.py` через расширение `backend/app/services/project_access_service.py` (member role/access helpers для member endpoints).
 - [x] Добавлен `backend/tests/test_domain_contracts_smoke.py` с контрактными smoke-проверками статусов/приоритетов, ролей+visibility, permissions и sync realtime-events backend<->frontend.
 - [x] Добавлен `backend/tests/test_mobile_domain_drift_smoke.py` с drift-проверками mobile-словарей статусов/приоритетов относительно backend канона.
 - [x] Добавлен `backend/tests/test_task_lifecycle_service_smoke.py` для новой service-логики lifecycle helper'ов задач.
@@ -178,6 +179,7 @@
 - [x] Обновлён `backend/tests/test_task_activity_service_smoke.py` для helper'а `notify_task_created`.
 - [x] Обновлён `backend/tests/test_task_update_service_smoke.py` для helper'ов `should_validate_predecessors` и `apply_update_status_side_effects`.
 - [x] Добавлен `backend/tests/test_project_access_service_smoke.py` для helper'а `get_project_file_or_404`.
+- [x] Обновлён `backend/tests/test_project_access_service_smoke.py` для helper'ов member role/access (`get_member_or_404`, `ensure_member_absent`, `ensure_*_member_role_allowed`).
 - [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.
 - [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectFilesSection`.
 - [x] Сделана вторая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskListToolbar`.
