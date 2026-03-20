@@ -13,8 +13,6 @@ from app.models.project import Project, ProjectDepartment, ProjectFile, ProjectM
 from app.models.user import User
 from app.models.vault import VaultFile
 from app.services.access_scope import can_access_project, get_task_assignment_scope_user_ids
-from app.services.project_file_storage import read_project_file_bytes
-from app.services.vault_crypto import encrypt_file
 
 
 def project_vault_key(secret_key: str, vault_encryption_key: str) -> str:
@@ -82,6 +80,25 @@ async def get_member(project_id: str, user_id: str, db: AsyncSession) -> Project
     return result.scalar_one_or_none()
 
 
+async def get_project_file_or_404(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    file_id: str,
+) -> ProjectFile:
+    file_record = (
+        await db.execute(
+            select(ProjectFile).where(
+                ProjectFile.id == file_id,
+                ProjectFile.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+    return file_record
+
+
 async def require_assignment_scope_user(
     db: AsyncSession,
     actor: User,
@@ -98,6 +115,9 @@ async def maybe_archive_processed_file(
     actor_id: str,
     db: AsyncSession,
 ) -> None:
+    from app.services.project_file_storage import read_project_file_bytes
+    from app.services.vault_crypto import encrypt_file
+
     pending_count = (
         await db.execute(
             select(func.count())

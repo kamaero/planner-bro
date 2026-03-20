@@ -49,6 +49,7 @@ from app.services.notification_service import (
 from app.services.system_activity_service import log_system_activity
 from app.services.ms_project_import_service import parse_ms_project_content, inspect_import_file
 from app.services.project_access_service import (
+    get_project_file_or_404,
     get_member,
     maybe_archive_processed_file,
     require_assignment_scope_user,
@@ -800,15 +801,7 @@ async def download_project_file(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    result = await db.execute(
-        select(ProjectFile).where(
-            ProjectFile.id == file_id,
-            ProjectFile.project_id == project_id,
-        )
-    )
-    record = result.scalar_one_or_none()
-    if not record:
-        raise HTTPException(status_code=404, detail="File not found")
+    record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
     try:
         payload = read_project_file_bytes(record)
     except FileNotFoundError:
@@ -834,15 +827,7 @@ async def get_project_file_import_precheck(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    result = await db.execute(
-        select(ProjectFile).where(
-            ProjectFile.id == file_id,
-            ProjectFile.project_id == project_id,
-        )
-    )
-    record = result.scalar_one_or_none()
-    if not record:
-        raise HTTPException(status_code=404, detail="File not found")
+    record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
     try:
         payload = read_project_file_bytes(record)
     except FileNotFoundError:
@@ -862,15 +847,7 @@ async def delete_project_file(
 ):
     require_delete_permission(current_user)
     await require_project_access(project_id, current_user, db, require_manager=True)
-    result = await db.execute(
-        select(ProjectFile).where(
-            ProjectFile.id == file_id,
-            ProjectFile.project_id == project_id,
-        )
-    )
-    record = result.scalar_one_or_none()
-    if not record:
-        raise HTTPException(status_code=404, detail="File not found")
+    record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
     delete_project_file_blob(record)
     await log_system_activity(
         db,
@@ -917,16 +894,7 @@ async def start_ai_processing_for_file(
     require_import_permission(current_user)
     await require_project_access(project_id, current_user, db)
 
-    file_record = (
-        await db.execute(
-            select(ProjectFile).where(
-                ProjectFile.id == file_id,
-                ProjectFile.project_id == project_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if not file_record:
-        raise HTTPException(status_code=404, detail="File not found")
+    file_record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
 
     job = AIIngestionJob(
         project_id=project_id,
