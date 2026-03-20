@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -6,8 +6,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.task import Task, TaskComment, TaskEvent, TaskDependency
-from app.models.deadline_change import DeadlineChange
+from app.models.task import Task, TaskEvent
 from app.schemas.task import (
     TaskCreate,
     TaskUpdate,
@@ -34,7 +33,6 @@ from app.services.notification_service import (
     notify_task_assigned,
     notify_task_updated,
     notify_new_task,
-    notify_check_in_help_requested,
 )
 from app.services.task_access_service import (
     ensure_member_for_assignee as _ensure_member_for_assignee,
@@ -74,18 +72,17 @@ from app.services.task_create_service import (
     split_create_payload as _split_create_payload,
 )
 from app.services.task_timeline_service import (
-    get_task_comment_with_author as _get_task_comment_with_author,
     list_task_comments as _list_task_comments,
     list_task_deadline_history as _list_task_deadline_history,
     list_task_events as _list_task_events,
 )
 from app.services.task_lifecycle_service import (
     get_project_settings as _get_project_settings,
-    mark_escalation_response as _mark_escalation_response,
     normalize_priority_for_control_ski as _normalize_priority_for_control_ski,
+    prepare_escalation_fields as _prepare_escalation_fields,
+    mark_escalation_response as _mark_escalation_response,
     now_utc as _now_utc,
     plan_next_check_in as _plan_next_check_in,
-    prepare_escalation_fields as _prepare_escalation_fields,
     rollup_parent_schedule as _rollup_parent_schedule,
     validate_parent_task as _validate_parent_task,
 )
@@ -95,10 +92,12 @@ from app.services.task_bulk_service import (
     parse_bulk_payload as _parse_bulk_payload,
     validate_bulk_priority as _validate_bulk_priority,
 )
-from app.services.task_mutation_service import (
-    apply_status_update as _apply_status_update,
-    apply_task_check_in as _apply_task_check_in,
-    validate_task_status as _validate_task_status,
+from app.services.task_mutation_service import validate_task_status as _validate_task_status
+from app.services.task_route_mutation_service import (
+    add_task_comment_and_refresh as _add_task_comment_and_refresh,
+    check_in_task_and_refresh as _check_in_task_and_refresh,
+    delete_task_and_rollup as _delete_task_and_rollup,
+    update_task_status_and_refresh as _update_task_status_and_refresh,
 )
 from app.services.task_dependency_service import (
     apply_outgoing_fs_autoplan as _apply_outgoing_fs_autoplan,
@@ -562,11 +561,12 @@ async def delete_task(
     _require_delete_permission(current_user)
     task = await get_task_or_404(db, task_id)
     await _require_task_editor(task, current_user, db)
-    parent_task_id = task.parent_task_id
-    await _log_task_event(db, task.id, current_user.id, "task_deleted")
-    await db.delete(task)
-    await _rollup_parent_schedule(db, parent_task_id)
-    await db.commit()
+    await _delete_task_and_rollup(
+        db,
+        task=task,
+        actor_id=current_user.id,
+        log_task_event=_log_task_event,
+    )
 
 
 @router.patch("/tasks/{task_id}/status", response_model=TaskOut)
@@ -578,26 +578,13 @@ async def update_task_status(
 ):
     task = await get_task_or_404(db, task_id)
     await _require_task_editor(task, current_user, db)
-
-    _validate_task_status(data.status)
-    await ensure_predecessors_done(task, data.status, db)
-
-    await _apply_status_update(
+    return await _update_task_status_and_refresh(
         db,
         task=task,
+        data=data,
         actor_id=current_user.id,
-        status=data.status,
-        progress_percent=data.progress_percent,
-        next_step=data.next_step,
-        now=_now_utc(),
-        plan_next_check_in=_plan_next_check_in,
         log_task_event=_log_task_event,
     )
-    await notify_task_updated(db, task, current_user.id)
-    await db.commit()
-    await db.refresh(task)
-
-    return await get_task_with_assignees_or_404(db, task.id)
 
 
 @router.post("/tasks/{task_id}/check-in", response_model=TaskOut)
@@ -609,36 +596,14 @@ async def check_in_task(
 ):
     task = await get_task_or_404(db, task_id)
     await _require_task_editor(task, current_user, db)
-
-    summary = data.summary.strip()
-    blockers = data.blockers.strip() if data.blockers else None
-
-    await _apply_task_check_in(
+    return await _check_in_task_and_refresh(
         db,
         task=task,
+        data=data,
         actor_id=current_user.id,
-        summary=summary,
-        blockers=blockers,
-        need_manager_help=data.need_manager_help,
-        next_check_in_due_at=data.next_check_in_due_at,
-        now=_now_utc(),
-        plan_next_check_in=_plan_next_check_in,
+        actor_name=current_user.name,
         log_task_event=_log_task_event,
     )
-    await _mark_escalation_response(task, current_user.id, db, _log_task_event)
-    await db.commit()
-
-    if data.need_manager_help:
-        await notify_check_in_help_requested(
-            db,
-            task=task,
-            actor_id=current_user.id,
-            actor_name=current_user.name,
-            summary=summary,
-            blockers=blockers,
-        )
-
-    return await get_task_with_assignees_or_404(db, task.id)
 
 
 @router.get("/tasks/escalations/inbox", response_model=list[TaskOut])
@@ -680,13 +645,14 @@ async def add_task_comment(
 ):
     task = await get_task_or_404(db, task_id)
     await _require_task_editor(task, current_user, db)
-    comment = TaskComment(task_id=task_id, author_id=current_user.id, body=data.body)
-    db.add(comment)
-    await db.flush()
-    await _mark_escalation_response(task, current_user.id, db, _log_task_event)
-    await _log_task_event(db, task_id, current_user.id, "comment_added")
-    await db.commit()
-    return await _get_task_comment_with_author(db, comment.id)
+    return await _add_task_comment_and_refresh(
+        db,
+        task=task,
+        task_id=task_id,
+        actor_id=current_user.id,
+        body=data.body,
+        log_task_event=_log_task_event,
+    )
 
 
 @router.get("/tasks/{task_id}/events", response_model=list[TaskEventOut])
