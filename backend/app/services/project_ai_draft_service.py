@@ -4,12 +4,12 @@ from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.ai import AITaskDraft
 from app.models.deadline_change import DeadlineChange
 from app.models.task import Task, TaskAssignee, TaskComment, TaskEvent
 from app.models.user import User
-from app.services.notification_service import notify_new_task, notify_task_assigned
 from app.services.project_rules_service import (
     collect_assignee_hints,
     extract_task_number,
@@ -21,6 +21,58 @@ from app.services.project_rules_service import (
 from app.services.temp_assignee_service import upsert_temp_assignees
 
 
+async def get_user_candidates(db: AsyncSession) -> list[User]:
+    return (await db.execute(select(User).where(User.is_active == True))).scalars().all()
+
+
+async def get_ai_draft_or_404(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    draft_id: str,
+) -> AITaskDraft:
+    draft = (
+        await db.execute(
+            select(AITaskDraft)
+            .where(
+                AITaskDraft.id == draft_id,
+                AITaskDraft.project_id == project_id,
+            )
+            .options(selectinload(AITaskDraft.assignee))
+        )
+    ).scalar_one_or_none()
+    if not draft:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="AI draft not found")
+    return draft
+
+
+async def list_ai_drafts_by_ids(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    draft_ids: list[str],
+) -> list[AITaskDraft]:
+    result = await db.execute(
+        select(AITaskDraft)
+        .where(
+            AITaskDraft.project_id == project_id,
+            AITaskDraft.id.in_(draft_ids),
+        )
+        .options(selectinload(AITaskDraft.assignee))
+    )
+    return result.scalars().all()
+
+
+def reject_pending_draft(draft: AITaskDraft, *, actor_id: str) -> bool:
+    if draft.status != "pending":
+        return False
+    draft.status = "rejected"
+    draft.approved_by_id = actor_id
+    return True
+
+
 async def approve_single_ai_draft(
     project_id: str,
     draft: AITaskDraft,
@@ -28,6 +80,8 @@ async def approve_single_ai_draft(
     db: AsyncSession,
     user_candidates: list[User] | None = None,
 ) -> Task:
+    from app.services.notification_service import notify_new_task, notify_task_assigned
+
     raw_payload = draft.raw_payload or {}
     assignee_hints = collect_assignee_hints(draft.assignee_hint, raw_payload)
     assignee_ids: list[str] = []

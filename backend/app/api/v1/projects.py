@@ -80,7 +80,13 @@ from app.services.project_file_storage import (
     read_project_file_bytes,
     delete_project_file_blob,
 )
-from app.services.project_ai_draft_service import approve_single_ai_draft
+from app.services.project_ai_draft_service import (
+    approve_single_ai_draft,
+    get_ai_draft_or_404,
+    get_user_candidates,
+    list_ai_drafts_by_ids,
+    reject_pending_draft,
+)
 from app.tasks.ai_ingestion import process_file_for_ai
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -964,21 +970,8 @@ async def approve_ai_draft(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    user_candidates = (
-        await db.execute(select(User).where(User.is_active == True))
-    ).scalars().all()
-    draft = (
-        await db.execute(
-            select(AITaskDraft)
-            .where(
-                AITaskDraft.id == draft_id,
-                AITaskDraft.project_id == project_id,
-            )
-            .options(selectinload(AITaskDraft.assignee))
-        )
-    ).scalar_one_or_none()
-    if not draft:
-        raise HTTPException(status_code=404, detail="AI draft not found")
+    user_candidates = await get_user_candidates(db)
+    draft = await get_ai_draft_or_404(db, project_id=project_id, draft_id=draft_id)
     if draft.status != "pending":
         raise HTTPException(status_code=400, detail="AI draft is already processed")
 
@@ -997,18 +990,8 @@ async def approve_ai_drafts_bulk(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    user_candidates = (
-        await db.execute(select(User).where(User.is_active == True))
-    ).scalars().all()
-    result = await db.execute(
-        select(AITaskDraft)
-        .where(
-            AITaskDraft.project_id == project_id,
-            AITaskDraft.id.in_(data.draft_ids),
-        )
-        .options(selectinload(AITaskDraft.assignee))
-    )
-    drafts = result.scalars().all()
+    user_candidates = await get_user_candidates(db)
+    drafts = await list_ai_drafts_by_ids(db, project_id=project_id, draft_ids=data.draft_ids)
     draft_map = {d.id: d for d in drafts}
     approved: list[AITaskDraft] = []
     for draft_id in data.draft_ids:
@@ -1037,23 +1020,13 @@ async def reject_ai_drafts_bulk(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    result = await db.execute(
-        select(AITaskDraft)
-        .where(
-            AITaskDraft.project_id == project_id,
-            AITaskDraft.id.in_(data.draft_ids),
-        )
-        .options(selectinload(AITaskDraft.assignee))
-    )
-    drafts = result.scalars().all()
+    drafts = await list_ai_drafts_by_ids(db, project_id=project_id, draft_ids=data.draft_ids)
     draft_map = {d.id: d for d in drafts}
     rejected: list[AITaskDraft] = []
     for draft_id in data.draft_ids:
         draft = draft_map.get(draft_id)
-        if not draft or draft.status != "pending":
+        if not draft or not reject_pending_draft(draft, actor_id=current_user.id):
             continue
-        draft.status = "rejected"
-        draft.approved_by_id = current_user.id
         rejected.append(draft)
     for file_id in {d.project_file_id for d in rejected}:
         await maybe_archive_processed_file(project_id, file_id, current_user.id, db)
@@ -1069,22 +1042,10 @@ async def reject_ai_draft(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    draft = (
-        await db.execute(
-            select(AITaskDraft)
-            .where(
-                AITaskDraft.id == draft_id,
-                AITaskDraft.project_id == project_id,
-            )
-            .options(selectinload(AITaskDraft.assignee))
-        )
-    ).scalar_one_or_none()
-    if not draft:
-        raise HTTPException(status_code=404, detail="AI draft not found")
+    draft = await get_ai_draft_or_404(db, project_id=project_id, draft_id=draft_id)
     if draft.status != "pending":
         raise HTTPException(status_code=400, detail="AI draft is already processed")
-    draft.status = "rejected"
-    draft.approved_by_id = current_user.id
+    reject_pending_draft(draft, actor_id=current_user.id)
     await maybe_archive_processed_file(project_id, draft.project_file_id, current_user.id, db)
     await db.commit()
     await db.refresh(draft)

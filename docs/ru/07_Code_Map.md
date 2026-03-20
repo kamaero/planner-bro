@@ -66,6 +66,7 @@
 - `backend/app/services/project_service.py`
 - `backend/app/services/project_rules_service.py`
 - `backend/app/services/project_access_service.py` (`get_project_file_or_404` + member role/access helper'ы для file/member endpoints)
+- `backend/app/services/project_ai_draft_service.py` (approve use-case + AI draft query/reject helpers для draft endpoints)
 - `frontend/src/pages/ProjectDetail.tsx`
 - `frontend/src/components/ProjectFilesSection/ProjectFilesSection.tsx`
 - `frontend/src/components/ProjectTaskListToolbar/ProjectTaskListToolbar.tsx`
