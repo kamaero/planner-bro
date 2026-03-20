@@ -47,14 +47,14 @@ from app.services.project_rules_service import (
     require_import_permission,
 )
 from app.services.project_ai_draft_service import (
-    approve_ai_draft_and_archive,
-    approve_ai_drafts_bulk_and_archive,
-    get_ai_draft_or_404,
-    get_user_candidates,
     list_ai_drafts_for_project,
     list_ai_jobs_for_project,
-    reject_ai_draft_and_archive,
-    reject_ai_drafts_bulk_and_archive,
+)
+from app.services.project_route_ai_service import (
+    approve_ai_draft_flow,
+    approve_ai_drafts_bulk_flow,
+    reject_ai_draft_flow,
+    reject_ai_drafts_bulk_flow,
 )
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -307,18 +307,12 @@ async def approve_ai_draft(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    user_candidates = await get_user_candidates(db)
-    draft = await get_ai_draft_or_404(db, project_id=project_id, draft_id=draft_id)
-    await approve_ai_draft_and_archive(
+    return await approve_ai_draft_flow(
         db,
         project_id=project_id,
-        draft=draft,
+        draft_id=draft_id,
         actor=current_user,
-        user_candidates=user_candidates,
     )
-    await db.commit()
-    await db.refresh(draft)
-    return draft
 
 
 @router.post("/{project_id}/ai-drafts/approve-bulk", response_model=list[AITaskDraftOut])
@@ -329,16 +323,12 @@ async def approve_ai_drafts_bulk(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    user_candidates = await get_user_candidates(db)
-    approved = await approve_ai_drafts_bulk_and_archive(
+    return await approve_ai_drafts_bulk_flow(
         db,
         project_id=project_id,
         draft_ids=data.draft_ids,
         actor=current_user,
-        user_candidates=user_candidates,
     )
-    await db.commit()
-    return approved
 
 
 @router.post("/{project_id}/ai-drafts/reject-bulk", response_model=list[AITaskDraftOut])
@@ -349,14 +339,12 @@ async def reject_ai_drafts_bulk(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    rejected = await reject_ai_drafts_bulk_and_archive(
+    return await reject_ai_drafts_bulk_flow(
         db,
         project_id=project_id,
         draft_ids=data.draft_ids,
         actor_id=current_user.id,
     )
-    await db.commit()
-    return rejected
 
 
 @router.post("/{project_id}/ai-drafts/{draft_id}/reject", response_model=AITaskDraftOut)
@@ -367,16 +355,12 @@ async def reject_ai_draft(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    draft = await get_ai_draft_or_404(db, project_id=project_id, draft_id=draft_id)
-    await reject_ai_draft_and_archive(
+    return await reject_ai_draft_flow(
         db,
         project_id=project_id,
-        draft=draft,
+        draft_id=draft_id,
         actor_id=current_user.id,
     )
-    await db.commit()
-    await db.refresh(draft)
-    return draft
 
 
 @router.post("/{project_id}/members", status_code=201)

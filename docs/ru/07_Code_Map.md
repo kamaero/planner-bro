@@ -252,4 +252,5 @@
 - отдельно описать `task_route_mutation_service.py` как слой orchestration для route-level mutation flow задач (`delete/status/check-in/comment`);
 - отдельно описать `task_route_bulk_service.py` как слой orchestration для route-level bulk flow задач (`bulk update` / `bulk delete`);
 - отдельно описать `task_route_write_service.py` как слой orchestration для route-level write flow задач (`create` / `update`);
+- отдельно описать `project_route_ai_service.py` как слой orchestration для route-level AI moderation flow проектов (`approve/reject`, single/bulk);
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.

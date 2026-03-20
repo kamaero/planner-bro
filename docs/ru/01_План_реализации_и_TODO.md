@@ -172,6 +172,7 @@
 - [x] Продолжена разгрузка `backend/app/api/v1/tasks.py`: mutation-route orchestration для `delete/status/check-in/comment` вынесен в новый `backend/app/services/task_route_mutation_service.py`.
 - [x] Продолжена разгрузка `backend/app/api/v1/tasks.py`: bulk route orchestration вынесен в новый `backend/app/services/task_route_bulk_service.py` (проверки/массовое обновление/массовое удаление/события/уведомления в одном service-слое).
 - [x] Сделан крупный этап разгрузки `backend/app/api/v1/tasks.py`: create/update route orchestration вынесен в новый `backend/app/services/task_route_write_service.py` (синхронизация predecessor/assignee, deadline-аудит, side-effects, notifications).
+- [x] Продолжена разгрузка `backend/app/api/v1/projects.py`: AI approve/reject route orchestration (single/bulk) вынесен в новый `backend/app/services/project_route_ai_service.py`.
 - [x] Добавлен `backend/tests/test_domain_contracts_smoke.py` с контрактными smoke-проверками статусов/приоритетов, ролей+visibility, permissions и sync realtime-events backend<->frontend.
 - [x] Добавлен `backend/tests/test_mobile_domain_drift_smoke.py` с drift-проверками mobile-словарей статусов/приоритетов относительно backend канона.
 - [x] Добавлен `backend/tests/test_task_lifecycle_service_smoke.py` для новой service-логики lifecycle helper'ов задач.
@@ -208,6 +209,7 @@
 - [x] Добавлен `backend/tests/test_task_route_mutation_service_smoke.py` для route-level mutation helper'ов задач.
 - [x] Добавлен `backend/tests/test_task_route_bulk_service_smoke.py` для route-level bulk helper'а задач.
 - [x] Добавлен `backend/tests/test_task_route_write_service_smoke.py` для route-level create/update helper'ов задач.
+- [x] Добавлен `backend/tests/test_project_route_ai_service_smoke.py` для route-level AI moderation helper'ов проектов.
 - [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.
 - [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectFilesSection`.
 - [x] Сделана вторая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskListToolbar`.
