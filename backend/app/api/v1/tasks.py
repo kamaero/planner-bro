@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.task import Task, TaskComment, TaskEvent, TaskDependency, TaskAssignee
+from app.models.task import Task, TaskComment, TaskEvent, TaskDependency
 from app.models.project import Project, ProjectMember
 from app.models.deadline_change import DeadlineChange
 from app.schemas.task import (
@@ -27,6 +27,7 @@ from app.schemas.deadline_change import DeadlineChangeOut
 from app.services.task_service import (
     get_task_or_404,
     get_task_with_assignees_or_404,
+    get_tasks_for_user,
     get_tasks_for_project,
     list_escalations_for_assignee,
 )
@@ -98,6 +99,7 @@ from app.services.task_dependency_service import (
     dependency_short_label as _dependency_short_label,
     enforce_dependency_dates_or_autoplan as _enforce_dependency_dates_or_autoplan,
     get_dependency_or_404 as _get_dependency_or_404,
+    list_dependencies_for_successor as _list_dependencies_for_successor,
     project_critical_path,
     upsert_dependency as _upsert_dependency,
     sync_task_predecessors as _sync_task_predecessors,
@@ -222,24 +224,7 @@ async def list_my_tasks(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = (
-        select(Task)
-        .outerjoin(TaskAssignee, TaskAssignee.task_id == Task.id)
-        .where(
-            or_(
-                Task.assigned_to_id == current_user.id,
-                TaskAssignee.user_id == current_user.id,
-            )
-        )
-        .options(
-            selectinload(Task.assignee),
-            selectinload(Task.assignee_links).selectinload(TaskAssignee.user),
-            selectinload(Task.predecessor_links),
-        )
-        .order_by(Task.updated_at.desc())
-        .distinct()
-    )
-    return (await db.execute(stmt)).scalars().all()
+    return await get_tasks_for_user(db, current_user.id)
 
 
 @router.get("/tasks/{task_id}", response_model=TaskOut)
@@ -391,12 +376,7 @@ async def list_task_dependencies(
 ):
     task = await get_task_or_404(db, task_id)
     await _require_task_editor(task, current_user, db)
-    result = await db.execute(
-        select(TaskDependency)
-        .where(TaskDependency.successor_task_id == task_id)
-        .order_by(TaskDependency.created_at.asc())
-    )
-    return result.scalars().all()
+    return await _list_dependencies_for_successor(db, task_id)
 
 
 @router.post("/tasks/{task_id}/dependencies", response_model=TaskDependencyOut, status_code=201)
@@ -646,12 +626,7 @@ async def check_in_task(
             blockers=blockers,
         )
 
-    result = await db.execute(
-        select(Task)
-        .where(Task.id == task.id)
-        .options(selectinload(Task.assignee), selectinload(Task.assignee_links).selectinload(TaskAssignee.user))
-    )
-    return result.scalar_one()
+    return await get_task_with_assignees_or_404(db, task.id)
 
 
 @router.get("/tasks/escalations/inbox", response_model=list[TaskOut])

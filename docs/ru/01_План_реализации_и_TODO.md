@@ -154,6 +154,7 @@
 - [x] Сделана следующая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через расширение `backend/app/services/task_service.py` (`get_task_or_404` и `get_task_with_assignees_or_404` для тонких роутов без дублирования 404-блоков).
 - [x] Сделана следующая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через новый `backend/app/services/task_timeline_service.py` (read-only query helper'ы comments/events/deadline-history).
 - [x] Сделана следующая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через расширение `backend/app/services/task_access_service.py` (helper `require_task_read_visibility` для read-only task endpoints).
+- [x] Сделана следующая безопасная итерация разгрузки `backend/app/api/v1/tasks.py` через расширение `backend/app/services/task_service.py` и `backend/app/services/task_dependency_service.py` (my-tasks query + dependency list query + упрощение check-in refresh-path).
 - [x] Добавлен `backend/tests/test_domain_contracts_smoke.py` с контрактными smoke-проверками статусов/приоритетов, ролей+visibility, permissions и sync realtime-events backend<->frontend.
 - [x] Добавлен `backend/tests/test_mobile_domain_drift_smoke.py` с drift-проверками mobile-словарей статусов/приоритетов относительно backend канона.
 - [x] Добавлен `backend/tests/test_task_lifecycle_service_smoke.py` для новой service-логики lifecycle helper'ов задач.
@@ -168,6 +169,7 @@
 - [x] Обновлён `backend/tests/test_task_service_smoke.py` для helper'ов `get_task_or_404` и `get_task_with_assignees_or_404`.
 - [x] Добавлен `backend/tests/test_task_timeline_service_smoke.py` для read-only query helper'ов comments/events/deadline-history.
 - [x] Обновлён `backend/tests/test_task_access_service_smoke.py` для helper'а `require_task_read_visibility`.
+- [x] Обновлены `backend/tests/test_task_service_smoke.py` и `backend/tests/test_task_dependency_service_smoke.py` для helper'ов `get_tasks_for_user` и `list_dependencies_for_successor`.
 - [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.
 - [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectFilesSection`.
 - [x] Сделана вторая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskListToolbar`.

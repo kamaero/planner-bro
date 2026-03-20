@@ -234,6 +234,15 @@ async def validate_incoming_dependency_rules(
         )
 
 
+async def list_dependencies_for_successor(db: AsyncSession, task_id: str) -> list[TaskDependency]:
+    result = await db.execute(
+        select(TaskDependency)
+        .where(TaskDependency.successor_task_id == task_id)
+        .order_by(TaskDependency.created_at.asc())
+    )
+    return result.scalars().all()
+
+
 async def upsert_dependency(
     db: AsyncSession,
     *,

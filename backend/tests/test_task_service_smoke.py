@@ -16,6 +16,7 @@ warnings.filterwarnings(
 
 from app.services.task_service import (
     get_task_or_404,
+    get_tasks_for_user,
     get_task_with_assignees,
     get_task_with_assignees_or_404,
     list_escalations_for_assignee,
@@ -87,6 +88,15 @@ class TaskServiceSmokeTest(unittest.TestCase):
 
         result = asyncio.run(_run())
         self.assertEqual([task.id for task in result], ["e1", "e2"])
+
+    def test_get_tasks_for_user(self):
+        async def _run():
+            tasks = [SimpleNamespace(id="t1"), SimpleNamespace(id="t2")]
+            db = _FakeDB([_ScalarsAllResult(tasks)])
+            return await get_tasks_for_user(db, "u-1")
+
+        result = asyncio.run(_run())
+        self.assertEqual([task.id for task in result], ["t1", "t2"])
 
 
 if __name__ == "__main__":

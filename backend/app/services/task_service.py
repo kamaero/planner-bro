@@ -39,6 +39,24 @@ async def get_tasks_for_project(db: AsyncSession, project_id: str) -> list[Task]
     return tasks
 
 
+async def get_tasks_for_user(db: AsyncSession, user_id: str) -> list[Task]:
+    stmt = (
+        select(Task)
+        .outerjoin(TaskAssignee, TaskAssignee.task_id == Task.id)
+        .where(
+            (Task.assigned_to_id == user_id) | (TaskAssignee.user_id == user_id)
+        )
+        .options(
+            selectinload(Task.assignee),
+            selectinload(Task.assignee_links).selectinload(TaskAssignee.user),
+            selectinload(Task.predecessor_links),
+        )
+        .order_by(Task.updated_at.desc())
+        .distinct()
+    )
+    return (await db.execute(stmt)).scalars().all()
+
+
 async def get_task_by_id(db: AsyncSession, task_id: str) -> Task | None:
     result = await db.execute(
         select(Task)

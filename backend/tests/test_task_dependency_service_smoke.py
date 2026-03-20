@@ -12,6 +12,7 @@ from app.services.task_dependency_service import (
     enforce_dependency_dates_or_autoplan,
     get_dependency_or_404,
     has_dependency_path,
+    list_dependencies_for_successor,
     normalize_dependency_type,
     upsert_dependency,
 )
@@ -31,6 +32,17 @@ class _ScalarResult:
 
     def scalar_one_or_none(self):
         return self._value
+
+
+class _ScalarsAllResult:
+    def __init__(self, values):
+        self._values = values
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self._values
 
 
 class _FakeDB:
@@ -118,6 +130,15 @@ class TaskDependencyServiceSmokeTest(unittest.TestCase):
                 )
 
         asyncio.run(_run())
+
+    def test_list_dependencies_for_successor(self):
+        async def _run():
+            deps = [SimpleNamespace(id="d1"), SimpleNamespace(id="d2")]
+            db = _FakeDB([_ScalarsAllResult(deps)])
+            return await list_dependencies_for_successor(db, "task-1")
+
+        result = asyncio.run(_run())
+        self.assertEqual([dep.id for dep in result], ["d1", "d2"])
 
 
 if __name__ == "__main__":
