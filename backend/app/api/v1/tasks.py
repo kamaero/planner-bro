@@ -66,6 +66,12 @@ from app.services.task_update_service import (
     should_revalidate_dependencies as _should_revalidate_dependencies,
     split_update_payload as _split_update_payload,
 )
+from app.services.task_timeline_service import (
+    get_task_comment_with_author as _get_task_comment_with_author,
+    list_task_comments as _list_task_comments,
+    list_task_deadline_history as _list_task_deadline_history,
+    list_task_events as _list_task_events,
+)
 from app.services.task_lifecycle_service import (
     get_project_settings as _get_project_settings,
     mark_escalation_response as _mark_escalation_response,
@@ -677,13 +683,7 @@ async def list_task_comments(
     task = await get_task_or_404(db, task_id)
     await _require_project_visibility(task.project_id, current_user, db)
     _require_task_visibility(task, current_user)
-    result = await db.execute(
-        select(TaskComment)
-        .where(TaskComment.task_id == task_id)
-        .options(selectinload(TaskComment.author))
-        .order_by(TaskComment.created_at.asc())
-    )
-    return result.scalars().all()
+    return await _list_task_comments(db, task_id)
 
 
 @router.post("/tasks/{task_id}/comments", response_model=TaskCommentOut, status_code=201)
@@ -701,10 +701,7 @@ async def add_task_comment(
     await _mark_escalation_response(task, current_user.id, db, _log_task_event)
     await _log_task_event(db, task_id, current_user.id, "comment_added")
     await db.commit()
-    result = await db.execute(
-        select(TaskComment).where(TaskComment.id == comment.id).options(selectinload(TaskComment.author))
-    )
-    return result.scalar_one()
+    return await _get_task_comment_with_author(db, comment.id)
 
 
 @router.get("/tasks/{task_id}/events", response_model=list[TaskEventOut])
@@ -716,14 +713,7 @@ async def list_task_events(
     task = await get_task_or_404(db, task_id)
     await _require_project_visibility(task.project_id, current_user, db)
     _require_task_visibility(task, current_user)
-    result = await db.execute(
-        select(TaskEvent)
-        .where(TaskEvent.task_id == task_id)
-        .options(selectinload(TaskEvent.actor))
-        .order_by(TaskEvent.created_at.desc())
-        .limit(100)
-    )
-    return result.scalars().all()
+    return await _list_task_events(db, task_id)
 
 
 @router.get("/tasks/{task_id}/deadline-history", response_model=list[DeadlineChangeOut])
@@ -734,10 +724,4 @@ async def list_task_deadline_history(
 ):
     task = await get_task_or_404(db, task_id)
     await _require_project_visibility(task.project_id, current_user, db)
-    result = await db.execute(
-        select(DeadlineChange)
-        .where(DeadlineChange.entity_type == "task", DeadlineChange.entity_id == task_id)
-        .options(selectinload(DeadlineChange.changed_by))
-        .order_by(DeadlineChange.created_at.desc())
-    )
-    return result.scalars().all()
+    return await _list_task_deadline_history(db, task_id)

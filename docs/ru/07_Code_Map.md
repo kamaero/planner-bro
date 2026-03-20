@@ -47,6 +47,7 @@
 - `backend/app/services/task_activity_service.py` (assignee/status events + notification orchestration)
 - `backend/app/services/task_deadline_service.py` (deadline reason validation + date/deadline audit)
 - `backend/app/services/task_update_service.py` (update payload split + escalation projection + dependency revalidation flags)
+- `backend/app/services/task_timeline_service.py` (read-only query helper'ы comments/events/deadline-history)
 - `frontend/src/types/index.ts`
 - `frontend/src/pages/ProjectDetail.tsx`
 - `frontend/src/pages/Analytics.tsx`
