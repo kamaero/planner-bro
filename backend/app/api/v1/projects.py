@@ -1,18 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.project import (
-    Project,
-    ProjectMember,
-    ProjectDepartment,
-    default_completion_checklist,
-)
-from app.models.task import Task, TaskAssignee
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
     AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut, MSProjectImportResult,
@@ -26,8 +17,8 @@ from app.schemas.ai import (
     AIProcessStartRequest,
 )
 from app.schemas.deadline_change import DeadlineChangeOut, DeadlineStats
+from app.services.project_catalog_service import create_project_with_owner_member, list_projects_for_user
 from app.services.project_service import get_gantt_data
-from app.services.access_scope import get_user_access_scope
 from app.services.project_dashboard_service import build_department_dashboard_payload
 from app.services.project_analytics_service import compute_deadline_stats_summary
 from app.services.project_import_service import import_tasks_from_ms_project_content
@@ -38,8 +29,6 @@ from app.services.project_access_service import (
     list_project_files as list_project_files_query,
     list_project_members,
     require_project_access,
-    sync_project_departments,
-    validate_department_ids,
 )
 from app.services.project_member_service import (
     add_project_member,
@@ -56,8 +45,6 @@ from app.services.project_file_service import (
 )
 from app.services.project_update_service import update_project_with_rules
 from app.services.project_rules_service import (
-    apply_control_ski,
-    normalize_checklist,
     require_delete_permission,
     require_import_permission,
 )
@@ -79,51 +66,7 @@ async def list_projects(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if current_user.role == "admin":
-        result = await db.execute(
-            select(Project).options(selectinload(Project.owner), selectinload(Project.departments))
-        )
-        return result.scalars().all()
-
-    scope = await get_user_access_scope(db, current_user)
-    project_ids_from_members = (
-        await db.execute(
-            select(ProjectMember.project_id).where(ProjectMember.user_id.in_(scope.user_ids))
-        )
-    ).scalars().all()
-    project_ids_from_departments = (
-        await db.execute(
-            select(ProjectDepartment.project_id).where(
-                ProjectDepartment.department_id.in_(scope.department_ids or {""})
-            )
-        )
-    ).scalars().all()
-    own_task_project_ids = (
-        await db.execute(
-            select(Task.project_id).where(Task.assigned_to_id == current_user.id)
-        )
-    ).scalars().all()
-    own_multi_task_project_ids = (
-        await db.execute(
-            select(Task.project_id)
-            .join(TaskAssignee, TaskAssignee.task_id == Task.id)
-            .where(TaskAssignee.user_id == current_user.id)
-        )
-    ).scalars().all()
-    accessible_ids = (
-        set(project_ids_from_members)
-        | set(project_ids_from_departments)
-        | set(own_task_project_ids)
-        | set(own_multi_task_project_ids)
-    )
-    if not accessible_ids:
-        return []
-    result = await db.execute(
-        select(Project)
-        .where(Project.id.in_(accessible_ids))
-        .options(selectinload(Project.owner), selectinload(Project.departments))
-    )
-    return result.scalars().all()
+    return await list_projects_for_user(db, actor=current_user)
 
 
 @router.post("/", response_model=ProjectOut, status_code=201)
@@ -132,31 +75,11 @@ async def create_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    payload = data.model_dump()
-    department_ids = await validate_department_ids(db, payload.pop("department_ids", []))
-    incoming_checklist = normalize_checklist(payload.get("completion_checklist"))
-    payload["completion_checklist"] = incoming_checklist or default_completion_checklist()
-    apply_control_ski(payload)
-
-    if payload.get("launch_basis_file_id"):
-        raise HTTPException(status_code=400, detail="launch_basis_file_id can be set only after upload")
-    project = Project(**payload, owner_id=current_user.id)
-    db.add(project)
-    await db.flush()
-    await sync_project_departments(db, project.id, department_ids)
-
-    # Add owner as member
-    member = ProjectMember(project_id=project.id, user_id=current_user.id, role="owner")
-    db.add(member)
-    await db.commit()
-    await db.refresh(project)
-
-    result = await db.execute(
-        select(Project)
-        .where(Project.id == project.id)
-        .options(selectinload(Project.owner), selectinload(Project.departments))
+    return await create_project_with_owner_member(
+        db,
+        payload=data.model_dump(),
+        owner_id=current_user.id,
     )
-    return result.scalar_one()
 
 
 @router.get("/dashboard/departments", response_model=DepartmentProjectsResponse)
