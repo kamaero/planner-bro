@@ -25,8 +25,8 @@ from app.schemas.task import (
 )
 from app.schemas.deadline_change import DeadlineChangeOut
 from app.services.task_service import (
-    get_task_by_id,
-    get_task_with_assignees,
+    get_task_or_404,
+    get_task_with_assignees_or_404,
     get_tasks_for_project,
     list_escalations_for_assignee,
 )
@@ -208,10 +208,7 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
 
-    fresh_task = await get_task_with_assignees(db, task.id)
-    if not fresh_task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return fresh_task
+    return await get_task_with_assignees_or_404(db, task.id)
 
 
 @router.get("/tasks/my", response_model=list[TaskOut])
@@ -245,9 +242,7 @@ async def get_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_by_id(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await get_task_or_404(db, task_id)
     await _require_project_visibility(task.project_id, current_user, db)
     _require_task_visibility(task, current_user)
     return task
@@ -260,9 +255,7 @@ async def update_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_by_id(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await get_task_or_404(db, task_id)
 
     old_assignee = task.assigned_to_id
     old_status = task.status
@@ -382,10 +375,7 @@ async def update_task(
     await db.commit()
     await db.refresh(task)
 
-    fresh_task = await get_task_with_assignees(db, task.id)
-    if not fresh_task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return fresh_task
+    return await get_task_with_assignees_or_404(db, task.id)
 
 
 @router.get("/tasks/{task_id}/dependencies", response_model=list[TaskDependencyOut])
@@ -394,9 +384,7 @@ async def list_task_dependencies(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_by_id(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await get_task_or_404(db, task_id)
     await _require_task_editor(task, current_user, db)
     result = await db.execute(
         select(TaskDependency)
@@ -413,14 +401,10 @@ async def add_task_dependency(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    successor = await get_task_by_id(db, task_id)
-    if not successor:
-        raise HTTPException(status_code=404, detail="Task not found")
+    successor = await get_task_or_404(db, task_id)
     await _require_task_editor(successor, current_user, db)
 
-    predecessor = await get_task_by_id(db, data.predecessor_task_id)
-    if not predecessor:
-        raise HTTPException(status_code=404, detail="Predecessor task not found")
+    predecessor = await get_task_or_404(db, data.predecessor_task_id, detail="Predecessor task not found")
     lag_days = max(0, int(data.lag_days or 0))
     dep = await _upsert_dependency(
         db,
@@ -459,9 +443,7 @@ async def remove_task_dependency(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    successor = await get_task_by_id(db, task_id)
-    if not successor:
-        raise HTTPException(status_code=404, detail="Task not found")
+    successor = await get_task_or_404(db, task_id)
     await _require_task_editor(successor, current_user, db)
     dep = await _get_dependency_or_404(
         db,
@@ -581,9 +563,7 @@ async def delete_task(
     db: AsyncSession = Depends(get_db),
 ):
     _require_delete_permission(current_user)
-    task = await get_task_by_id(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await get_task_or_404(db, task_id)
     await _require_task_editor(task, current_user, db)
     parent_task_id = task.parent_task_id
     await _log_task_event(db, task.id, current_user.id, "task_deleted")
@@ -599,9 +579,7 @@ async def update_task_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_by_id(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await get_task_or_404(db, task_id)
     await _require_task_editor(task, current_user, db)
 
     _validate_task_status(data.status)
@@ -622,10 +600,7 @@ async def update_task_status(
     await db.commit()
     await db.refresh(task)
 
-    fresh_task = await get_task_with_assignees(db, task.id)
-    if not fresh_task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return fresh_task
+    return await get_task_with_assignees_or_404(db, task.id)
 
 
 @router.post("/tasks/{task_id}/check-in", response_model=TaskOut)
@@ -635,9 +610,7 @@ async def check_in_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_by_id(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await get_task_or_404(db, task_id)
     await _require_task_editor(task, current_user, db)
 
     summary = data.summary.strip()
@@ -701,9 +674,7 @@ async def list_task_comments(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_by_id(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await get_task_or_404(db, task_id)
     await _require_project_visibility(task.project_id, current_user, db)
     _require_task_visibility(task, current_user)
     result = await db.execute(
@@ -722,9 +693,7 @@ async def add_task_comment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_by_id(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await get_task_or_404(db, task_id)
     await _require_task_editor(task, current_user, db)
     comment = TaskComment(task_id=task_id, author_id=current_user.id, body=data.body)
     db.add(comment)
@@ -744,9 +713,7 @@ async def list_task_events(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_by_id(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await get_task_or_404(db, task_id)
     await _require_project_visibility(task.project_id, current_user, db)
     _require_task_visibility(task, current_user)
     result = await db.execute(
@@ -765,9 +732,7 @@ async def list_task_deadline_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_by_id(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await get_task_or_404(db, task_id)
     await _require_project_visibility(task.project_id, current_user, db)
     result = await db.execute(
         select(DeadlineChange)

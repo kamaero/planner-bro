@@ -43,7 +43,7 @@
 - `backend/app/services/task_lifecycle_service.py`
 - `backend/app/services/task_mutation_service.py`
 - `backend/app/services/task_bulk_service.py`
-- `backend/app/services/task_service.py` (query helpers: task refresh / escalation inbox)
+- `backend/app/services/task_service.py` (query helpers: task refresh / escalation inbox / task-or-404)
 - `backend/app/services/task_activity_service.py` (assignee/status events + notification orchestration)
 - `backend/app/services/task_deadline_service.py` (deadline reason validation + date/deadline audit)
 - `backend/app/services/task_update_service.py` (update payload split + escalation projection + dependency revalidation flags)

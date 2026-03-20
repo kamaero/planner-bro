@@ -5,6 +5,7 @@ import unittest
 import warnings
 from types import SimpleNamespace
 
+from fastapi import HTTPException
 from sqlalchemy.exc import SAWarning
 
 warnings.filterwarnings(
@@ -14,7 +15,9 @@ warnings.filterwarnings(
 )
 
 from app.services.task_service import (
+    get_task_or_404,
     get_task_with_assignees,
+    get_task_with_assignees_or_404,
     list_escalations_for_assignee,
 )
 
@@ -58,6 +61,23 @@ class TaskServiceSmokeTest(unittest.TestCase):
         result = asyncio.run(_run())
         self.assertIsNotNone(result)
         self.assertEqual(result.id, "task-1")
+
+    def test_get_task_or_404_raises(self):
+        async def _run():
+            db = _FakeDB([_ScalarOneOrNoneResult(None)])
+            with self.assertRaises(HTTPException):
+                await get_task_or_404(db, "missing")
+
+        asyncio.run(_run())
+
+    def test_get_task_with_assignees_or_404_returns_task(self):
+        async def _run():
+            task = SimpleNamespace(id="task-2")
+            db = _FakeDB([_ScalarOneOrNoneResult(task)])
+            return await get_task_with_assignees_or_404(db, "task-2")
+
+        result = asyncio.run(_run())
+        self.assertEqual(result.id, "task-2")
 
     def test_list_escalations_for_assignee(self):
         async def _run():

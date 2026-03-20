@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from fastapi import HTTPException
 from app.models.task import Task, TaskComment, TaskAssignee
 
 
@@ -51,6 +52,18 @@ async def get_task_by_id(db: AsyncSession, task_id: str) -> Task | None:
     return result.scalar_one_or_none()
 
 
+async def get_task_or_404(
+    db: AsyncSession,
+    task_id: str,
+    *,
+    detail: str = "Task not found",
+) -> Task:
+    task = await get_task_by_id(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=detail)
+    return task
+
+
 async def get_task_with_assignees(db: AsyncSession, task_id: str) -> Task | None:
     result = await db.execute(
         select(Task)
@@ -61,6 +74,18 @@ async def get_task_with_assignees(db: AsyncSession, task_id: str) -> Task | None
         )
     )
     return result.scalar_one_or_none()
+
+
+async def get_task_with_assignees_or_404(
+    db: AsyncSession,
+    task_id: str,
+    *,
+    detail: str = "Task not found",
+) -> Task:
+    task = await get_task_with_assignees(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=detail)
+    return task
 
 
 async def list_escalations_for_assignee(db: AsyncSession, assignee_id: str) -> list[Task]:
