@@ -245,4 +245,5 @@
 - обновить backend map для `projects.py` и `tasks.py` с явным разделением access / query / rules / lifecycle / mutation / bulk / activity / deadline / route orchestration зон;
 - отдельно описать связи новых `project_member_service.py` и `project_ai_draft_service.py` orchestration helper'ов с route-слоем `projects.py`;
 - отдельно описать `project_file_service.py` как слой file/ai-start orchestration между route и storage/import helpers;
+- отдельно описать `project_update_service.py` и `project_import_service.py` как слой orchestration для самых тяжёлых write-path в `projects.py`;
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.

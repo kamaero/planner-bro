@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -13,8 +13,7 @@ from app.models.project import (
     ProjectDepartment,
     default_completion_checklist,
 )
-from app.models.task import Task, TaskAssignee, TaskEvent, TaskComment
-from app.models.deadline_change import DeadlineChange
+from app.models.task import Task, TaskAssignee
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
     AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut, MSProjectImportResult,
@@ -30,22 +29,15 @@ from app.schemas.ai import (
 from app.schemas.deadline_change import DeadlineChangeOut, DeadlineStats
 from app.services.project_service import get_gantt_data
 from app.services.access_scope import (
-    can_access_project,
     get_user_access_scope,
-    has_department_level_access,
 )
-from app.services.notification_service import (
-    notify_project_updated,
-    notify_project_assigned,
-)
-from app.services.system_activity_service import log_system_activity
-from app.services.ms_project_import_service import parse_ms_project_content
+from app.services.project_import_service import import_tasks_from_ms_project_content
 from app.services.project_access_service import (
     get_project_file_or_404,
+    get_member,
     list_project_deadline_history as list_project_deadline_history_query,
     list_project_files as list_project_files_query,
     list_project_members,
-    require_assignment_scope_user,
     require_project_access,
     sync_project_departments,
     validate_department_ids,
@@ -63,18 +55,13 @@ from app.services.project_file_service import (
     start_ai_processing_job_for_file,
     upload_project_file_with_ai,
 )
+from app.services.project_update_service import update_project_with_rules
 from app.services.project_rules_service import (
     apply_control_ski,
-    ensure_project_completion_allowed,
-    fio_short,
-    fio_short_from_parts,
-    match_assignee_ids,
     normalize_checklist,
     require_delete_permission,
     require_import_permission,
-    sync_task_assignees_for_project,
 )
-from app.services.temp_assignee_service import upsert_temp_assignees
 from app.services.project_ai_draft_service import (
     approve_ai_draft_and_archive,
     approve_ai_drafts_bulk_and_archive,
@@ -379,110 +366,14 @@ async def update_project(
 ):
     project = await require_project_access(project_id, current_user, db, require_manager=False)
     requester_member = await get_member(project_id, current_user.id, db)
-    payload = data.model_dump(exclude_none=True)
-    owner_id = payload.pop("owner_id", None)
-    incoming_department_ids = payload.pop("department_ids", None)
-    checklist_payload = payload.pop("completion_checklist", None)
-    deadline_change_reason = payload.pop("deadline_change_reason", None)
-
-    # Department-level actors can rename projects even without explicit project-manager membership.
-    # Any other project edits still require owner/manager membership (or admin).
-    title_only_update = (
-        set(payload.keys()) <= {"name"}
-        and owner_id is None
-        and incoming_department_ids is None
-        and checklist_payload is None
-        and deadline_change_reason is None
+    return await update_project_with_rules(
+        db,
+        project=project,
+        project_id=project_id,
+        payload=data.model_dump(exclude_none=True),
+        actor=current_user,
+        requester_member=requester_member,
     )
-    has_manager_membership = requester_member and requester_member.role in ("owner", "manager")
-    if current_user.role != "admin" and not has_manager_membership:
-        can_rename_with_scope = (
-            title_only_update
-            and await has_department_level_access(db, current_user)
-            and await can_access_project(db, current_user, project_id)
-        )
-        if not can_rename_with_scope:
-            raise HTTPException(status_code=403, detail="Manager access required")
-
-    if checklist_payload is not None:
-        project.completion_checklist = normalize_checklist(checklist_payload)
-    target_status = payload.get("status", project.status)
-    if target_status == "completed":
-        ensure_project_completion_allowed(project.completion_checklist)
-
-    # Validate deadline change requires a reason
-    new_end_date = payload.get("end_date")
-    old_end_date = project.end_date
-    if new_end_date is not None and new_end_date != old_end_date:
-        if not deadline_change_reason:
-            raise HTTPException(status_code=422, detail="Укажите причину изменения дедлайна")
-
-    launch_basis_file_id = payload.get("launch_basis_file_id")
-    if launch_basis_file_id:
-        file_result = await db.execute(
-            select(ProjectFile.id).where(
-                ProjectFile.id == launch_basis_file_id,
-                ProjectFile.project_id == project_id,
-            )
-        )
-        if not file_result.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Launch basis file not found")
-
-    apply_control_ski(payload, existing_priority=project.priority, existing_control_ski=project.control_ski)
-    for field, value in payload.items():
-        setattr(project, field, value)
-    if incoming_department_ids is not None:
-        normalized_department_ids = await validate_department_ids(db, incoming_department_ids)
-        await sync_project_departments(db, project_id, normalized_department_ids)
-
-    # Record deadline change if end_date actually changed
-    if new_end_date is not None and new_end_date != old_end_date and deadline_change_reason:
-        db.add(DeadlineChange(
-            entity_type="project",
-            entity_id=project_id,
-            changed_by_id=current_user.id,
-            old_date=old_end_date,
-            new_date=new_end_date,
-            reason=deadline_change_reason,
-        ))
-
-    if owner_id and owner_id != project.owner_id:
-        if current_user.role != "admin" and (not requester_member or requester_member.role != "owner"):
-            raise HTTPException(status_code=403, detail="Only owner or admin can transfer ownership")
-        await require_assignment_scope_user(db, current_user, owner_id)
-        owner_result = await db.execute(select(User).where(User.id == owner_id))
-        new_owner = owner_result.scalar_one_or_none()
-        if not new_owner:
-            raise HTTPException(status_code=404, detail="Owner not found")
-        project.owner_id = owner_id
-        members_result = await db.execute(
-            select(ProjectMember).where(ProjectMember.project_id == project_id)
-        )
-        members = members_result.scalars().all()
-        for member in members:
-            if member.role == "owner" and member.user_id != owner_id:
-                member.role = "manager"
-        target_member = next((m for m in members if m.user_id == owner_id), None)
-        if target_member:
-            target_member.role = "owner"
-        else:
-            db.add(ProjectMember(project_id=project_id, user_id=owner_id, role="owner"))
-        await notify_project_assigned(
-            db,
-            project_id=project_id,
-            project_name=project.name,
-            user_id=owner_id,
-            assigned_role="owner",
-        )
-    await db.commit()
-    result = await db.execute(
-        select(Project)
-        .where(Project.id == project_id)
-        .options(selectinload(Project.owner), selectinload(Project.departments))
-    )
-    project = result.scalar_one()
-    await notify_project_updated(db, project)
-    return project
 
 
 @router.delete("/{project_id}", status_code=204)
@@ -560,182 +451,15 @@ async def import_tasks_from_ms_project(
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    try:
-        parsed = parse_ms_project_content(content, filename=upload.filename)
-    except ValueError as exc:
-        await log_system_activity(
-            db,
-            source="backend",
-            category="file_processing",
-            level="error",
-            message=f"MS Project import failed for '{upload.filename}'",
-            details={
-                "project_id": project_id,
-                "filename": upload.filename,
-                "uploaded_by_id": current_user.id,
-                "error": str(exc),
-            },
-            commit=True,
-        )
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    if not parsed.tasks:
-        return MSProjectImportResult(
-            total_in_file=0,
-            created=0,
-            linked_to_parent=0,
-            skipped=parsed.skipped_count,
-            deleted_existing=0,
-        )
-
-    deleted_existing = 0
-    if replace_existing:
-        imported_task_ids_subquery = (
-            select(TaskEvent.task_id)
-            .join(Task, Task.id == TaskEvent.task_id)
-            .where(
-                Task.project_id == project_id,
-                TaskEvent.event_type == "task_imported_from_ms_project",
-            )
-            .distinct()
-        )
-        delete_result = await db.execute(
-            delete(Task).where(
-                Task.project_id == project_id,
-                Task.id.in_(imported_task_ids_subquery),
-            )
-        )
-        deleted_existing = delete_result.rowcount or 0
-
-    created_by_uid: dict[str, Task] = {}
-    parent_links: list[tuple[Task, str]] = []
-    user_candidates = (
-        await db.execute(select(User).where(User.is_active == True))
-    ).scalars().all()
-    known_emails = {
-        value
-        for u in user_candidates
-        for value in ((u.email or "").strip().lower(), (u.work_email or "").strip().lower())
-        if value
-    }
-    known_names = {u.name.strip().lower() for u in user_candidates if u.name}
-    known_short_names = {
-        short
-        for u in user_candidates
-        for short in (
-            fio_short(u.name),
-            fio_short_from_parts(u.last_name, u.first_name, getattr(u, "middle_name", "")),
-        )
-        if short
-    }
-    for item in parsed.tasks:
-        status = "done" if item.progress_percent >= 100 else ("in_progress" if item.progress_percent > 0 else "todo")
-        title = item.title
-        if item.outline_number and not title.startswith(f"{item.outline_number} "):
-            title = f"{item.outline_number} {title}"
-        assignee_hints = item.assignee_hints or ([item.assignee_hint] if item.assignee_hint else [])
-        matched_assignee_ids = match_assignee_ids(assignee_hints, user_candidates)
-        task = Task(
-            project_id=project_id,
-            title=title,
-            description=None,
-            status=status,
-            priority=item.priority,
-            progress_percent=item.progress_percent,
-            start_date=item.start_date,
-            end_date=item.end_date,
-            assigned_to_id=matched_assignee_ids[0] if matched_assignee_ids else None,
-            estimated_hours=item.estimated_hours,
-            created_by_id=current_user.id,
-        )
-        db.add(task)
-        await db.flush()
-        await sync_task_assignees_for_project(task, project_id, matched_assignee_ids, db)
-        db.add(
-            TaskEvent(
-                task_id=task.id,
-                actor_id=current_user.id,
-                event_type="task_imported_from_ms_project",
-                payload=f"ms_project_uid={item.uid};outline={item.outline_number or ''}",
-            )
-        )
-        if item.description:
-            db.add(
-                TaskComment(
-                    task_id=task.id,
-                    author_id=current_user.id,
-                    body=f"Импортированный комментарий из MS Project:\n{item.description}",
-                )
-            )
-            db.add(
-                TaskEvent(
-                    task_id=task.id,
-                    actor_id=current_user.id,
-                    event_type="comment_added",
-                    payload="source=ms_project_notes",
-                )
-            )
-        unresolved_hints = [
-            hint
-            for hint in assignee_hints
-            if hint
-            and hint.lower() not in known_emails
-            and hint.lower() not in known_names
-            and fio_short(hint) not in known_short_names
-        ]
-        if unresolved_hints:
-            await upsert_temp_assignees(
-                db,
-                names=unresolved_hints,
-                source="ms_project_import",
-                project_id=project_id,
-                created_by_id=current_user.id,
-            )
-            db.add(
-                TaskComment(
-                    task_id=task.id,
-                    author_id=current_user.id,
-                    body=f"Исполнители из файла не найдены в системе: {', '.join(unresolved_hints[:10])}",
-                )
-            )
-        created_by_uid[item.uid] = task
-        if item.parent_uid:
-            parent_links.append((task, item.parent_uid))
-
-    linked_to_parent = 0
-    for task, parent_uid in parent_links:
-        parent_task = created_by_uid.get(parent_uid)
-        if not parent_task:
-            continue
-        task.parent_task_id = parent_task.id
-        linked_to_parent += 1
-
-    await db.commit()
-    await log_system_activity(
+    result = await import_tasks_from_ms_project_content(
         db,
-        source="backend",
-        category="file_processing",
-        level="info",
-        message=f"Imported {len(parsed.tasks)} tasks from '{upload.filename}'",
-        details={
-            "project_id": project_id,
-            "filename": upload.filename,
-            "uploaded_by_id": current_user.id,
-            "replace_existing": replace_existing,
-            "deleted_existing": deleted_existing,
-            "created": len(parsed.tasks),
-            "skipped": parsed.skipped_count,
-            "linked_to_parent": linked_to_parent,
-        },
-        commit=True,
+        project_id=project_id,
+        filename=upload.filename,
+        content=content,
+        replace_existing=replace_existing,
+        actor_id=current_user.id,
     )
-    return MSProjectImportResult(
-        total_in_file=len(parsed.tasks) + parsed.skipped_count,
-        created=len(parsed.tasks),
-        linked_to_parent=linked_to_parent,
-        skipped=parsed.skipped_count,
-        deleted_existing=deleted_existing,
-    )
+    return MSProjectImportResult(**result)
 
 
 @router.get("/{project_id}/files/{file_id}/download")
