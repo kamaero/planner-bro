@@ -250,4 +250,5 @@
 - отдельно описать `project_catalog_service.py` как слой list/create orchestration между route и access/rules сервисами;
 - отдельно описать `project_import_service.py` и `project_file_service.py` как owner для upload/precheck/download import-path в `projects.py`;
 - отдельно описать `task_route_mutation_service.py` как слой orchestration для route-level mutation flow задач (`delete/status/check-in/comment`);
+- отдельно описать `task_route_bulk_service.py` как слой orchestration для route-level bulk flow задач (`bulk update` / `bulk delete`);
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.
