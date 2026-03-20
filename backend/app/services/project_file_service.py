@@ -169,6 +169,27 @@ async def delete_project_file_with_audit(
     await db.commit()
 
 
+async def get_project_file_download_response(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    file_id: str,
+) -> StreamingResponse:
+    record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
+    payload = read_project_file_payload_or_http(record)
+    return build_project_file_download_response(record, payload)
+
+
+async def get_project_file_import_precheck_by_id(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    file_id: str,
+) -> dict:
+    record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
+    return build_project_file_import_precheck(record)
+
+
 async def start_ai_processing_job_for_file(
     db: AsyncSession,
     *,

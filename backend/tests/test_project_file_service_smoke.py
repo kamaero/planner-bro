@@ -11,6 +11,8 @@ from app.services.project_file_service import (
     build_project_file_download_response,
     build_project_file_import_precheck,
     delete_project_file_with_audit,
+    get_project_file_download_response,
+    get_project_file_import_precheck_by_id,
     read_project_file_payload_or_http,
     start_ai_processing_job_for_file,
     upload_project_file_with_ai,
@@ -101,6 +103,39 @@ class ProjectFileServiceSmokeTest(unittest.TestCase):
             ),
         ):
             precheck = build_project_file_import_precheck(record)
+        self.assertEqual(precheck["file_type"], "mpp")
+
+    def test_download_and_precheck_by_file_id(self):
+        async def _run():
+            record = SimpleNamespace(id="f-1", filename="plan.mpp", content_type="application/octet-stream")
+            with (
+                patch(
+                    "app.services.project_file_service.get_project_file_or_404",
+                    new=AsyncMock(return_value=record),
+                ),
+                patch(
+                    "app.services.project_file_service.read_project_file_payload_or_http",
+                    return_value=b"abc",
+                ),
+                patch(
+                    "app.services.project_file_service.build_project_file_import_precheck",
+                    return_value={"file_type": "mpp"},
+                ),
+            ):
+                response = await get_project_file_download_response(
+                    SimpleNamespace(),
+                    project_id="p-1",
+                    file_id="f-1",
+                )
+                precheck = await get_project_file_import_precheck_by_id(
+                    SimpleNamespace(),
+                    project_id="p-1",
+                    file_id="f-1",
+                )
+                return response, precheck
+
+        response, precheck = asyncio.run(_run())
+        self.assertIn("attachment; filename=", response.headers.get("content-disposition", ""))
         self.assertEqual(precheck["file_type"], "mpp")
 
     def test_upload_project_file_with_ai_happy_path(self):

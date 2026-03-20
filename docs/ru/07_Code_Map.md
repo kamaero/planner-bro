@@ -248,4 +248,5 @@
 - отдельно описать `project_update_service.py` и `project_import_service.py` как слой orchestration для самых тяжёлых write-path в `projects.py`;
 - отдельно описать `project_dashboard_service.py` и `project_analytics_service.py` как слой read/aggregation orchestration для dashboard и deadline stats;
 - отдельно описать `project_catalog_service.py` как слой list/create orchestration между route и access/rules сервисами;
+- отдельно описать `project_import_service.py` и `project_file_service.py` как owner для upload/precheck/download import-path в `projects.py`;
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.

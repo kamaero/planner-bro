@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 
 from app.services.project_import_service import import_tasks_from_ms_project_content
+from app.services.project_import_service import read_import_upload_or_400
 
 
 class _ScalarResult:
@@ -55,6 +56,27 @@ class _FakeDB:
 
 
 class ProjectImportServiceSmokeTest(unittest.TestCase):
+    def test_read_import_upload_or_400(self):
+        class _Upload:
+            def __init__(self, filename, payload):
+                self.filename = filename
+                self._payload = payload
+
+            async def read(self):
+                return self._payload
+
+        async def _run():
+            ok_name, ok_content = await read_import_upload_or_400(_Upload("a.mpp", b"123"))
+            with self.assertRaises(HTTPException):
+                await read_import_upload_or_400(_Upload(None, b"123"))
+            with self.assertRaises(HTTPException):
+                await read_import_upload_or_400(_Upload("a.mpp", b""))
+            return ok_name, ok_content
+
+        name, content = asyncio.run(_run())
+        self.assertEqual(name, "a.mpp")
+        self.assertEqual(content, b"123")
+
     def test_parse_error_maps_to_http_400(self):
         async def _run():
             db = _FakeDB([])

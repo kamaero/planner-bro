@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,15 @@ from app.services.project_rules_service import (
 )
 from app.services.system_activity_service import log_system_activity
 from app.services.temp_assignee_service import upsert_temp_assignees
+
+
+async def read_import_upload_or_400(upload: UploadFile) -> tuple[str, bytes]:
+    if not upload.filename:
+        raise HTTPException(status_code=400, detail="Filename required")
+    content = await upload.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    return upload.filename, content
 
 
 async def import_tasks_from_ms_project_content(

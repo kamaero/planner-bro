@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -21,9 +21,8 @@ from app.services.project_catalog_service import create_project_with_owner_membe
 from app.services.project_service import get_gantt_data
 from app.services.project_dashboard_service import build_department_dashboard_payload
 from app.services.project_analytics_service import compute_deadline_stats_summary
-from app.services.project_import_service import import_tasks_from_ms_project_content
+from app.services.project_import_service import import_tasks_from_ms_project_content, read_import_upload_or_400
 from app.services.project_access_service import (
-    get_project_file_or_404,
     get_member,
     list_project_deadline_history as list_project_deadline_history_query,
     list_project_files as list_project_files_query,
@@ -36,10 +35,9 @@ from app.services.project_member_service import (
     update_project_member_role,
 )
 from app.services.project_file_service import (
-    build_project_file_download_response,
-    build_project_file_import_precheck,
     delete_project_file_with_audit,
-    read_project_file_payload_or_http,
+    get_project_file_download_response,
+    get_project_file_import_precheck_by_id,
     start_ai_processing_job_for_file,
     upload_project_file_with_ai,
 )
@@ -197,17 +195,12 @@ async def import_tasks_from_ms_project(
 ):
     require_import_permission(current_user)
     await require_project_access(project_id, current_user, db)
-    if not upload.filename:
-        raise HTTPException(status_code=400, detail="Filename required")
-
-    content = await upload.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    filename, content = await read_import_upload_or_400(upload)
 
     result = await import_tasks_from_ms_project_content(
         db,
         project_id=project_id,
-        filename=upload.filename,
+        filename=filename,
         content=content,
         replace_existing=replace_existing,
         actor_id=current_user.id,
@@ -223,9 +216,7 @@ async def download_project_file(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
-    payload = read_project_file_payload_or_http(record)
-    return build_project_file_download_response(record, payload)
+    return await get_project_file_download_response(db, project_id=project_id, file_id=file_id)
 
 
 @router.get("/{project_id}/files/{file_id}/import-precheck", response_model=ImportFilePrecheckOut)
@@ -236,8 +227,9 @@ async def get_project_file_import_precheck(
     db: AsyncSession = Depends(get_db),
 ):
     await require_project_access(project_id, current_user, db)
-    record = await get_project_file_or_404(db, project_id=project_id, file_id=file_id)
-    return ImportFilePrecheckOut(**build_project_file_import_precheck(record))
+    return ImportFilePrecheckOut(
+        **(await get_project_file_import_precheck_by_id(db, project_id=project_id, file_id=file_id))
+    )
 
 
 @router.delete("/{project_id}/files/{file_id}", status_code=204)
