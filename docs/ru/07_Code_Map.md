@@ -246,4 +246,5 @@
 - отдельно описать связи новых `project_member_service.py` и `project_ai_draft_service.py` orchestration helper'ов с route-слоем `projects.py`;
 - отдельно описать `project_file_service.py` как слой file/ai-start orchestration между route и storage/import helpers;
 - отдельно описать `project_update_service.py` и `project_import_service.py` как слой orchestration для самых тяжёлых write-path в `projects.py`;
+- отдельно описать `project_dashboard_service.py` и `project_analytics_service.py` как слой read/aggregation orchestration для dashboard и deadline stats;
 - затем продолжить рефакторинг самых тяжёлых узлов по очереди, а не всем табуном сразу.

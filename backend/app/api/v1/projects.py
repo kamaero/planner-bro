@@ -6,7 +6,6 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.department import Department
 from app.models.project import (
     Project,
     ProjectMember,
@@ -17,7 +16,7 @@ from app.models.task import Task, TaskAssignee
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
     AddMemberRequest, UpdateMemberRoleRequest, GanttData, ProjectFileOut, MSProjectImportResult,
-    DepartmentProjectsResponse, DepartmentProjectsSection, ImportFilePrecheckOut,
+    DepartmentProjectsResponse, ImportFilePrecheckOut,
 )
 from app.schemas.ai import (
     AIIngestionJobOut,
@@ -28,9 +27,9 @@ from app.schemas.ai import (
 )
 from app.schemas.deadline_change import DeadlineChangeOut, DeadlineStats
 from app.services.project_service import get_gantt_data
-from app.services.access_scope import (
-    get_user_access_scope,
-)
+from app.services.access_scope import get_user_access_scope
+from app.services.project_dashboard_service import build_department_dashboard_payload
+from app.services.project_analytics_service import compute_deadline_stats_summary
 from app.services.project_import_service import import_tasks_from_ms_project_content
 from app.services.project_access_service import (
     get_project_file_or_404,
@@ -165,112 +164,9 @@ async def get_department_dashboard(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    scope = None if current_user.role == "admin" else await get_user_access_scope(db, current_user)
-    departments = (await db.execute(select(Department).order_by(Department.name.asc()))).scalars().all()
-    users = (await db.execute(select(User.id, User.manager_id, User.department_id))).all()
-    projects = (
-        await db.execute(select(Project).options(selectinload(Project.owner), selectinload(Project.departments)))
-    ).scalars().all()
-    members_query = select(ProjectMember.project_id, ProjectMember.user_id, ProjectMember.role).where(
-        ProjectMember.role != "owner"
+    return DepartmentProjectsResponse(
+        **(await build_department_dashboard_payload(db, current_user=current_user))
     )
-    if scope:
-        members_query = members_query.where(ProjectMember.user_id.in_(scope.user_ids))
-    members = (await db.execute(members_query)).all()
-
-    manual_links_query = select(ProjectDepartment.project_id, ProjectDepartment.department_id)
-    if scope:
-        manual_links_query = manual_links_query.where(
-            ProjectDepartment.department_id.in_(scope.department_ids or {""})
-        )
-    manual_links = (await db.execute(manual_links_query)).all()
-
-    children_map: dict[str, list[str]] = {}
-    user_department_map: dict[str, str | None] = {}
-    for user_id, manager_id, department_id in users:
-        user_department_map[user_id] = department_id
-        if manager_id:
-            children_map.setdefault(manager_id, []).append(user_id)
-
-    department_children_map: dict[str, list[str]] = {}
-    for dep in departments:
-        if dep.parent_id:
-            department_children_map.setdefault(dep.parent_id, []).append(dep.id)
-
-    def _collect_department_tree(department_id: str) -> set[str]:
-        collected: set[str] = set()
-        stack = [department_id]
-        while stack:
-            current = stack.pop()
-            if current in collected:
-                continue
-            collected.add(current)
-            stack.extend(department_children_map.get(current, []))
-        return collected
-
-    def _collect_subordinates(head_user_id: str | None) -> set[str]:
-        if not head_user_id:
-            return set()
-        collected: set[str] = set()
-        stack = [head_user_id]
-        while stack:
-            cur = stack.pop()
-            if cur in collected:
-                continue
-            collected.add(cur)
-            stack.extend(children_map.get(cur, []))
-        return collected
-
-    dept_user_ids: dict[str, set[str]] = {}
-    for dep in departments:
-        dept_tree = _collect_department_tree(dep.id)
-        users_in_tree = {
-            user_id
-            for user_id, user_dep_id in user_department_map.items()
-            if user_dep_id in dept_tree
-        }
-        # Keep manager hierarchy support, but do not leak users outside department tree.
-        subordinates_in_tree = {
-            user_id
-            for user_id in _collect_subordinates(dep.head_user_id)
-            if user_department_map.get(user_id) in dept_tree
-        }
-        dept_user_ids[dep.id] = users_in_tree | subordinates_in_tree
-
-    project_ids_by_dept: dict[str, set[str]] = {dep.id: set() for dep in departments}
-    for project_id, user_id, _role in members:
-        for dep in departments:
-            if user_id in dept_user_ids.get(dep.id, set()):
-                project_ids_by_dept[dep.id].add(project_id)
-    for project_id, dep_id in manual_links:
-        if dep_id in project_ids_by_dept:
-            project_ids_by_dept[dep_id].add(project_id)
-
-    project_map = {project.id: project for project in projects}
-    sections: list[DepartmentProjectsSection] = []
-    for dep in departments:
-        if scope and dep.id not in scope.department_ids:
-            continue
-        dep_projects = [
-            project_map[pid]
-            for pid in sorted(project_ids_by_dept.get(dep.id, set()))
-            if pid in project_map
-        ]
-        dep_projects.sort(
-            key=lambda p: (
-                1 if p.status == "completed" else 0,
-                p.end_date.isoformat() if p.end_date else "9999-12-31",
-                p.name.lower(),
-            )
-        )
-        sections.append(
-            DepartmentProjectsSection(
-                department_id=dep.id,
-                department_name=dep.name,
-                projects=dep_projects,
-            )
-        )
-    return DepartmentProjectsResponse(departments=sections)
 
 
 @router.get("/analytics/deadline-stats-summary", response_model=DeadlineStats)
@@ -279,73 +175,7 @@ async def get_deadline_stats_list(
     db: AsyncSession = Depends(get_db),
 ):
     """Alias placed before /{project_id} to avoid route shadowing."""
-    from datetime import date as date_type
-
-    all_changes = (
-        await db.execute(
-            select(DeadlineChange).options(selectinload(DeadlineChange.changed_by))
-        )
-    ).scalars().all()
-
-    total_shifts = len(all_changes)
-    task_ids_with_shifts = {c.entity_id for c in all_changes if c.entity_type == "task"}
-    project_ids_with_shifts = {c.entity_id for c in all_changes if c.entity_type == "project"}
-    shift_days = [abs((c.new_date - c.old_date).days) for c in all_changes]
-    avg_shift_days = round(sum(shift_days) / len(shift_days), 1) if shift_days else 0.0
-
-    today = date_type.today()
-    real_overdue_tasks = []
-    if task_ids_with_shifts:
-        tasks_result = await db.execute(
-            select(Task).where(Task.id.in_(task_ids_with_shifts), Task.status != "done")
-        )
-        tasks_with_history = tasks_result.scalars().all()
-        for task in tasks_with_history:
-            task_changes = sorted(
-                [c for c in all_changes if c.entity_type == "task" and c.entity_id == task.id],
-                key=lambda c: c.created_at,
-            )
-            original_end = task_changes[0].old_date if task_changes else task.end_date
-            if original_end and original_end < today:
-                real_overdue_tasks.append({
-                    "id": task.id,
-                    "title": task.title,
-                    "project_id": task.project_id,
-                    "original_end_date": original_end.isoformat(),
-                    "current_end_date": task.end_date.isoformat() if task.end_date else None,
-                    "shifts": len(task_changes),
-                })
-
-    shifts_by_project_map: dict[str, int] = {}
-    for c in all_changes:
-        if c.entity_type == "task":
-            task_res = (await db.execute(select(Task.project_id).where(Task.id == c.entity_id))).scalar_one_or_none()
-            if task_res:
-                shifts_by_project_map[task_res] = shifts_by_project_map.get(task_res, 0) + 1
-        else:
-            shifts_by_project_map[c.entity_id] = shifts_by_project_map.get(c.entity_id, 0) + 1
-
-    project_names: dict[str, str] = {}
-    if shifts_by_project_map:
-        proj_result = await db.execute(
-            select(Project.id, Project.name).where(Project.id.in_(list(shifts_by_project_map.keys())))
-        )
-        for pid, pname in proj_result.all():
-            project_names[pid] = pname
-
-    shifts_by_project = [
-        {"project_id": pid, "project_name": project_names.get(pid, pid), "shifts": cnt}
-        for pid, cnt in sorted(shifts_by_project_map.items(), key=lambda x: -x[1])
-    ]
-
-    return DeadlineStats(
-        total_shifts=total_shifts,
-        tasks_with_shifts=len(task_ids_with_shifts),
-        projects_with_shifts=len(project_ids_with_shifts),
-        avg_shift_days=avg_shift_days,
-        real_overdue_tasks=real_overdue_tasks,
-        shifts_by_project=shifts_by_project,
-    )
+    return DeadlineStats(**(await compute_deadline_stats_summary(db)))
 
 
 @router.get("/{project_id}", response_model=ProjectOut)

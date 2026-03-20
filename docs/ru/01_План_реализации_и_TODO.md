@@ -166,6 +166,7 @@
 - [x] Сделана более крупная итерация разгрузки `backend/app/api/v1/projects.py`: вынесены AI moderation orchestration helper'ы в `backend/app/services/project_ai_draft_service.py` и member mutation orchestration в новый `backend/app/services/project_member_service.py`.
 - [x] Сделана ещё одна крупная итерация разгрузки `backend/app/api/v1/projects.py`: file/ai-start orchestration вынесен в новый `backend/app/services/project_file_service.py` (`upload`, `download`, `import-precheck`, `delete`, `start_ai_processing`).
 - [x] Сделан крупный этап разгрузки `backend/app/api/v1/projects.py`: update/import orchestration вынесен в новые сервисы `backend/app/services/project_update_service.py` и `backend/app/services/project_import_service.py` (route-слой стал заметно тоньше).
+- [x] Сделан следующий крупный этап разгрузки `backend/app/api/v1/projects.py`: dashboard и deadline analytics orchestration вынесены в `backend/app/services/project_dashboard_service.py` и `backend/app/services/project_analytics_service.py`.
 - [x] Добавлен `backend/tests/test_domain_contracts_smoke.py` с контрактными smoke-проверками статусов/приоритетов, ролей+visibility, permissions и sync realtime-events backend<->frontend.
 - [x] Добавлен `backend/tests/test_mobile_domain_drift_smoke.py` с drift-проверками mobile-словарей статусов/приоритетов относительно backend канона.
 - [x] Добавлен `backend/tests/test_task_lifecycle_service_smoke.py` для новой service-логики lifecycle helper'ов задач.
@@ -194,6 +195,8 @@
 - [x] Добавлен `backend/tests/test_project_file_service_smoke.py` для file/ai-start orchestration helper'ов и error mapping чтения project files.
 - [x] Добавлен `backend/tests/test_project_import_service_smoke.py` для MS Project import orchestration helper'а (error/empty/happy path).
 - [x] Добавлен `backend/tests/test_project_update_service_smoke.py` для update access/deadline/title-only helper'ов.
+- [x] Добавлен `backend/tests/test_project_dashboard_service_smoke.py` для dashboard aggregation helper'а по отделам.
+- [x] Добавлен `backend/tests/test_project_analytics_service_smoke.py` для deadline stats summary helper'а.
 - [x] Начата разгрузка frontend-слоя через вынос доменных UI-словарей в `frontend/src/lib/domainMeta.ts`.
 - [x] Сделана первая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectFilesSection`.
 - [x] Сделана вторая безопасная итерация разгрузки `frontend/src/pages/ProjectDetail.tsx` через новый `ProjectTaskListToolbar`.
