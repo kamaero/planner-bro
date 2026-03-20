@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.task import Task, TaskEvent
+from app.models.task import TaskEvent
 from app.schemas.task import (
     TaskCreate,
     TaskUpdate,
@@ -22,49 +22,18 @@ from app.schemas.task import (
 from app.schemas.deadline_change import DeadlineChangeOut
 from app.services.task_service import (
     get_task_or_404,
-    get_task_with_assignees_or_404,
     get_tasks_for_user,
     get_tasks_for_project,
     list_escalations_for_assignee,
 )
-from app.services.notification_service import (
-    notify_task_assigned,
-    notify_task_updated,
-    notify_new_task,
-)
 from app.services.task_access_service import (
-    ensure_member_for_assignee as _ensure_member_for_assignee,
     is_own_tasks_only as _is_own_tasks_only,
-    is_title_only_update as _is_title_only_update,
     is_task_assignee as _is_task_assignee,
     require_delete_permission as _require_delete_permission,
     require_project_exists as _require_project_exists,
-    require_project_member as _require_project_member,
     require_project_visibility as _require_project_visibility,
     require_task_editor as _require_task_editor,
     require_task_read_visibility as _require_task_read_visibility,
-    require_task_update_access as _require_task_update_access,
-    serialize_assignee_ids as _serialize_assignee_ids,
-    sync_task_assignees as _sync_task_assignees,
-)
-from app.services.task_activity_service import (
-    apply_update_events_and_assignee_notifications as _apply_update_events_and_assignee_notifications,
-    notify_task_created as _notify_task_created,
-)
-from app.services.task_deadline_service import (
-    record_deadline_change_and_date_events as _record_deadline_change_and_date_events,
-    validate_deadline_reason as _validate_deadline_reason,
-)
-from app.services.task_update_service import (
-    apply_update_status_side_effects as _apply_update_status_side_effects,
-    apply_escalation_projection_for_update as _apply_escalation_projection_for_update,
-    should_validate_predecessors as _should_validate_predecessors,
-    should_revalidate_dependencies as _should_revalidate_dependencies,
-    split_update_payload as _split_update_payload,
-)
-from app.services.task_create_service import (
-    apply_default_escalation_assignee as _apply_default_escalation_assignee,
-    split_create_payload as _split_create_payload,
 )
 from app.services.task_timeline_service import (
     list_task_comments as _list_task_comments,
@@ -72,14 +41,7 @@ from app.services.task_timeline_service import (
     list_task_events as _list_task_events,
 )
 from app.services.task_lifecycle_service import (
-    get_project_settings as _get_project_settings,
-    normalize_priority_for_control_ski as _normalize_priority_for_control_ski,
-    prepare_escalation_fields as _prepare_escalation_fields,
-    mark_escalation_response as _mark_escalation_response,
-    now_utc as _now_utc,
-    plan_next_check_in as _plan_next_check_in,
     rollup_parent_schedule as _rollup_parent_schedule,
-    validate_parent_task as _validate_parent_task,
 )
 from app.services.task_route_mutation_service import (
     add_task_comment_and_refresh as _add_task_comment_and_refresh,
@@ -90,6 +52,10 @@ from app.services.task_route_mutation_service import (
 from app.services.task_route_bulk_service import (
     apply_bulk_task_update_flow as _apply_bulk_task_update_flow,
 )
+from app.services.task_route_write_service import (
+    create_task_from_payload as _create_task_from_payload,
+    update_task_from_payload as _update_task_from_payload,
+)
 from app.services.task_dependency_service import (
     apply_outgoing_fs_autoplan as _apply_outgoing_fs_autoplan,
     dependency_short_label as _dependency_short_label,
@@ -98,13 +64,6 @@ from app.services.task_dependency_service import (
     list_dependencies_for_successor as _list_dependencies_for_successor,
     project_critical_path,
     upsert_dependency as _upsert_dependency,
-    sync_task_predecessors as _sync_task_predecessors,
-    validate_incoming_dependency_rules as _validate_incoming_dependency_rules,
-)
-from app.services.task_rules_service import (
-    ensure_predecessors_done,
-    validate_child_dates_within_parent,
-    validate_strict_past_dates,
 )
 
 router = APIRouter(tags=["tasks"])
@@ -143,75 +102,14 @@ async def create_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_member(project_id, current_user, db)
-    payload, predecessor_task_ids, assignee_ids = _split_create_payload(
-        data.model_dump(),
+    return await _create_task_from_payload(
+        db,
+        project_id=project_id,
+        payload=data.model_dump(),
         assignee_ids_was_provided="assignee_ids" in data.model_fields_set,
-    )
-    _prepare_escalation_fields(payload)
-    payload["priority"] = _normalize_priority_for_control_ski(
-        payload.get("priority", "medium"),
-        bool(payload.get("control_ski")),
-    )
-    await _apply_default_escalation_assignee(
-        db,
-        project_id=project_id,
-        payload=payload,
-    )
-
-    if payload.get("assigned_to_id"):
-        await _ensure_member_for_assignee(project_id, payload["assigned_to_id"], current_user, db)
-    project = await _get_project_settings(project_id, db)
-    task = Task(**payload, project_id=project_id, created_by_id=current_user.id)
-    task.next_check_in_due_at = _plan_next_check_in(task, _now_utc())
-    db.add(task)
-    await db.flush()
-    parent_task = await _validate_parent_task(
-        db,
-        project_id=project_id,
-        task_id=task.id,
-        parent_task_id=task.parent_task_id,
-    )
-    validate_strict_past_dates(project, start_date=task.start_date, end_date=task.end_date)
-    validate_child_dates_within_parent(
-        project,
-        parent=parent_task,
-        start_date=task.start_date,
-        end_date=task.end_date,
-    )
-    await _sync_task_predecessors(
-        db,
-        task=task,
-        predecessor_task_ids=predecessor_task_ids,
-        actor_id=current_user.id,
+        actor=current_user,
         log_task_event=_log_task_event,
     )
-    await _validate_incoming_dependency_rules(db, task=task, auto_shift_fs=True)
-    await ensure_predecessors_done(task, task.status, db)
-    await _rollup_parent_schedule(db, task.parent_task_id)
-    await _apply_outgoing_fs_autoplan(db, task.id)
-    await _log_task_event(
-        db,
-        task.id,
-        current_user.id,
-        "task_created",
-        f"is_escalation={task.is_escalation};assignee={task.assigned_to_id or ''}",
-    )
-    if assignee_ids is not None:
-        await _sync_task_assignees(task, assignee_ids, project_id, current_user, db)
-
-    await _notify_task_created(
-        db,
-        task=task,
-        actor_id=current_user.id,
-        serialize_assignee_ids=_serialize_assignee_ids,
-        notify_task_assigned=notify_task_assigned,
-        notify_new_task=notify_new_task,
-    )
-    await db.commit()
-    await db.refresh(task)
-
-    return await get_task_with_assignees_or_404(db, task.id)
 
 
 @router.get("/tasks/my", response_model=list[TaskOut])
@@ -240,134 +138,13 @@ async def update_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    task = await get_task_or_404(db, task_id)
-
-    old_assignee = task.assigned_to_id
-    old_status = task.status
-    old_start_date = task.start_date
-    old_end_date = task.end_date
-    old_parent_task_id = task.parent_task_id
-    # Keep explicitly passed nulls (e.g. clearing dates/assignee) but ignore fields not sent by client.
-    payload, assignee_ids, predecessor_task_ids, deadline_change_reason = _split_update_payload(
-        data.model_dump(exclude_unset=True)
-    )
-
-    title_only_update = _is_title_only_update(
-        payload,
-        assignee_ids=assignee_ids,
-        deadline_change_reason=deadline_change_reason,
-    )
-    await _require_task_update_access(
-        task,
-        current_user,
+    return await _update_task_from_payload(
         db,
-        title_only_update=title_only_update,
-    )
-
-    projected_status = payload.get("status", task.status)
-    _validate_deadline_reason(
-        old_end_date=old_end_date,
-        new_end_date=payload.get("end_date"),
-        projected_status=projected_status,
-        deadline_change_reason=deadline_change_reason,
-    )
-
-    _apply_escalation_projection_for_update(
-        task,
-        payload,
-        prepare_escalation_fields=_prepare_escalation_fields,
-    )
-
-    for field, value in payload.items():
-        setattr(task, field, value)
-
-    parent_task = await _validate_parent_task(
-        db,
-        project_id=task.project_id,
-        task_id=task.id,
-        parent_task_id=task.parent_task_id,
-    )
-    project = await _get_project_settings(task.project_id, db)
-    effective_start_date = task.start_date
-    effective_end_date = task.end_date
-    if "start_date" in payload or "end_date" in payload:
-        validate_strict_past_dates(
-            project,
-            start_date=effective_start_date,
-            end_date=effective_end_date,
-        )
-    if "parent_task_id" in payload or "start_date" in payload or "end_date" in payload:
-        validate_child_dates_within_parent(
-            project,
-            parent=parent_task,
-            start_date=effective_start_date,
-            end_date=effective_end_date,
-        )
-    await _sync_task_predecessors(
-        db,
-        task=task,
-        predecessor_task_ids=predecessor_task_ids,
-        actor_id=current_user.id,
+        task_id=task_id,
+        payload=data.model_dump(exclude_unset=True),
+        actor=current_user,
         log_task_event=_log_task_event,
     )
-    if _should_revalidate_dependencies(predecessor_task_ids, payload):
-        await _validate_incoming_dependency_rules(db, task=task, auto_shift_fs=True)
-    if _should_validate_predecessors(
-        payload=payload,
-        predecessor_task_ids=predecessor_task_ids,
-        old_status=old_status,
-        new_status=task.status,
-    ):
-        await ensure_predecessors_done(task, task.status, db)
-
-    _apply_update_status_side_effects(
-        task,
-        old_status=old_status,
-        now=_now_utc(),
-        plan_next_check_in=_plan_next_check_in,
-    )
-
-    await _record_deadline_change_and_date_events(
-        db,
-        task=task,
-        actor_id=current_user.id,
-        old_start_date=old_start_date,
-        old_end_date=old_end_date,
-        projected_status=projected_status,
-        deadline_change_reason=deadline_change_reason,
-        log_task_event=_log_task_event,
-    )
-
-    if _should_revalidate_dependencies(predecessor_task_ids, payload):
-        await _apply_outgoing_fs_autoplan(db, task.id)
-
-    await _rollup_parent_schedule(db, old_parent_task_id)
-    await _rollup_parent_schedule(db, task.parent_task_id)
-
-    task.priority = _normalize_priority_for_control_ski(task.priority, bool(task.control_ski))
-    await db.flush()
-
-    if "assigned_to_id" in payload and task.assigned_to_id:
-        await _ensure_member_for_assignee(task.project_id, task.assigned_to_id, current_user, db)
-    await _sync_task_assignees(task, assignee_ids, task.project_id, current_user, db)
-
-    await _apply_update_events_and_assignee_notifications(
-        db,
-        task=task,
-        actor_id=current_user.id,
-        old_status=old_status,
-        old_assignee=old_assignee,
-        serialize_assignee_ids=_serialize_assignee_ids,
-        notify_task_assigned=notify_task_assigned,
-        log_task_event=_log_task_event,
-    )
-    await _mark_escalation_response(task, current_user.id, db, _log_task_event)
-
-    await notify_task_updated(db, task, current_user.id)
-    await db.commit()
-    await db.refresh(task)
-
-    return await get_task_with_assignees_or_404(db, task.id)
 
 
 @router.get("/tasks/{task_id}/dependencies", response_model=list[TaskDependencyOut])
