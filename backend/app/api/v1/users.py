@@ -720,8 +720,7 @@ async def update_user_permissions(
             if conflict.scalar_one_or_none():
                 raise HTTPException(status_code=400, detail="Work email already registered")
         payload["work_email"] = normalized_work_email
-    if "manager_id" in payload and payload["manager_id"] == user.id:
-        raise HTTPException(status_code=400, detail="User cannot be their own manager")
+
     if "visibility_scope" in payload:
         payload["visibility_scope"] = _validate_visibility_scope(payload.get("visibility_scope"), current_user)
     if "own_tasks_visibility_enabled" in payload:
@@ -729,6 +728,23 @@ async def update_user_permissions(
             payload.get("own_tasks_visibility_enabled"), current_user, user
         )
     old_own_tasks_visibility = user.own_tasks_visibility_enabled
+
+    # Validate manager_id: no direct or multi-hop cycles
+    if "manager_id" in payload and payload["manager_id"]:
+        new_manager_id: str = payload["manager_id"]
+        visited: set[str] = set()
+        current_id: str | None = new_manager_id
+        while current_id:
+            if current_id == user.id:
+                raise HTTPException(status_code=400, detail="Обнаружен цикл в иерархии менеджеров")
+            if current_id in visited:
+                break
+            visited.add(current_id)
+            row = (
+                await db.execute(select(User.manager_id).where(User.id == current_id))
+            ).scalar_one_or_none()
+            current_id = row
+
     if current_user.role != "admin":
         scope = await get_user_access_scope(db, current_user)
         if "department_id" in payload and payload["department_id"] and payload["department_id"] not in scope.department_ids:
@@ -944,8 +960,22 @@ async def update_department(
     if not dep:
         raise HTTPException(status_code=404, detail="Department not found")
     payload = data.model_dump(exclude_unset=True)
-    if payload.get("parent_id") == dep.id:
-        raise HTTPException(status_code=400, detail="Department cannot be parent of itself")
+
+    # Check for direct and multi-hop parent cycles
+    if payload.get("parent_id"):
+        visited: set[str] = set()
+        current_id: str | None = payload["parent_id"]
+        while current_id:
+            if current_id == department_id:
+                raise HTTPException(status_code=400, detail="Обнаружен цикл в иерархии отделов")
+            if current_id in visited:
+                break
+            visited.add(current_id)
+            row = (
+                await db.execute(select(Department.parent_id).where(Department.id == current_id))
+            ).scalar_one_or_none()
+            current_id = row
+
     for field, value in payload.items():
         if field == "name" and isinstance(value, str):
             value = value.strip()
