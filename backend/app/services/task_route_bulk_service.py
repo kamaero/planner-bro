@@ -4,7 +4,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.task import Task
+from fastapi import HTTPException
+
+from app.models.task import Task, TaskAssignee
 from app.models.user import User
 from app.services.task_access_service import (
     ensure_member_for_assignee as _ensure_member_for_assignee,
@@ -76,12 +78,27 @@ async def apply_bulk_task_update_flow(
                 Task.project_id == project_id,
                 Task.id.in_(task_ids),
             )
-            .options(selectinload(Task.assignee))
+            .options(
+                selectinload(Task.assignee),
+                selectinload(Task.assignee_links),
+            )
         )
     ).scalars().all()
 
     requested = len(task_ids)
-    result = {"requested": requested, "updated": 0, "deleted": 0, "skipped": max(0, requested - len(tasks))}
+    found_ids = {task.id for task in tasks}
+    errors: list[dict] = [
+        {"task_id": tid, "reason": "Task not found in project"}
+        for tid in task_ids
+        if tid not in found_ids
+    ]
+    result = {
+        "requested": requested,
+        "updated": 0,
+        "deleted": 0,
+        "skipped": len(errors),
+        "errors": errors,
+    }
 
     if delete_requested:
         affected_parent_ids = {task.parent_task_id for task in tasks if task.parent_task_id}
@@ -100,7 +117,12 @@ async def apply_bulk_task_update_flow(
         changed = False
 
         if "status" in payload:
-            await ensure_predecessors_done(task, payload["status"], db)
+            try:
+                await ensure_predecessors_done(task, payload["status"], db)
+            except HTTPException as exc:
+                result["skipped"] += 1
+                result["errors"].append({"task_id": task.id, "reason": exc.detail})
+                continue
 
         changed = _apply_bulk_fields(task, payload) or changed
         if assignee_ids is not None:
