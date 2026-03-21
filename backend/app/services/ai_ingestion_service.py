@@ -15,6 +15,11 @@ from pypdf import PdfReader
 from app.core.config import settings
 
 
+def _max_drafts_limit() -> int:
+    value = int(getattr(settings, "AI_MAX_DRAFTS", 2000) or 2000)
+    return max(50, min(5000, value))
+
+
 def _xml_local_name(tag: str) -> str:
     if "}" in tag:
         return tag.split("}", 1)[1]
@@ -392,7 +397,7 @@ def _extract_tasks_from_fixed_plan_table(source_text: str) -> list[dict[str, Any
             }
         )
 
-    return tasks[:120]
+    return tasks[:_max_drafts_limit()]
 
 
 def _extract_tasks_from_numbered_lines(source_text: str) -> list[dict[str, Any]]:
@@ -408,7 +413,7 @@ def _extract_tasks_from_numbered_lines(source_text: str) -> list[dict[str, Any]]
         if any(marker in lowered for marker in ("№", "мероприятие", "ответственный", "приоритет")):
             continue
 
-        match = re.match(r"^(\d{1,3}(?:\.\d+)*)(?:[.)])?\s+(.+)$", line)
+        match = re.match(r"^(\d{1,3}(?:\.\d+)*)(?:[.])? (.+)$", line)
         if match:
             task_no = match.group(1).strip()
             # Guard against dates like 12.03.2026 being parsed as task numbers.
@@ -459,7 +464,7 @@ def _extract_tasks_from_numbered_lines(source_text: str) -> list[dict[str, Any]]
                 "raw_payload": row,
             }
         )
-    return tasks[:120]
+    return tasks[:_max_drafts_limit()]
 
 
 def _extract_llm_content(data: dict[str, Any], provider: str) -> str:
@@ -495,21 +500,24 @@ async def generate_task_drafts_from_text(
     text: str,
     project_name: str,
     member_hints: list[str],
+    prompt_instruction: str | None = None,
 ) -> list[dict[str, Any]]:
+    max_drafts = _max_drafts_limit()
     fixed_tasks = _extract_tasks_from_fixed_plan_table(text)
     numbered_tasks = _extract_tasks_from_numbered_lines(text)
     preparsed_tasks = fixed_tasks if len(fixed_tasks) >= len(numbered_tasks) else numbered_tasks
     # If deterministic parsing already found enough tasks, prefer it over LLM.
     if len(preparsed_tasks) >= 30:
-        return preparsed_tasks[:120]
+        return preparsed_tasks[:max_drafts]
 
     try:
         provider, api_key, base_url, model = _resolve_ai_provider()
     except ValueError:
         if preparsed_tasks:
-            return preparsed_tasks[:120]
+            return preparsed_tasks[:max_drafts]
         raise
 
+    extra_instruction = (prompt_instruction or "").strip()
     prompt = (
         "Ты помощник PM в ИТ-отделе. Извлеки только реальные ИТ-задачи из документа.\n"
         "КРИТИЧНО: нельзя придумывать задачи. Бери только то, что явно написано в тексте.\n"
@@ -535,9 +543,10 @@ async def generate_task_drafts_from_text(
         "    }\n"
         "  ]\n"
         "}\n"
-        "Включай не более 120 задач.\n"
+        f"Включай не более {max_drafts} задач.\n"
         f"Проект: {project_name}\n"
         f"Участники команды (подсказки): {', '.join(member_hints) if member_hints else 'не указаны'}\n"
+        f"{'Доп. указания пользователя: ' + extra_instruction + chr(10) if extra_instruction else ''}"
         "Текст документа:\n"
         f"{text[:100000]}"
     )
@@ -613,7 +622,7 @@ async def generate_task_drafts_from_text(
             relaxed_tasks.append(_build_task(item, source_quote=None, confidence_cap=45))
 
     # Strict mode first; if all tasks were filtered out, fallback to relaxed mode to avoid empty result.
-    llm_tasks = strict_tasks[:120] if strict_tasks else relaxed_tasks[:120]
+    llm_tasks = strict_tasks[:max_drafts] if strict_tasks else relaxed_tasks[:max_drafts]
     if preparsed_tasks and len(preparsed_tasks) >= max(len(llm_tasks), 12):
-        return preparsed_tasks[:120]
+        return preparsed_tasks[:max_drafts]
     return llm_tasks
