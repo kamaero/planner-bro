@@ -156,6 +156,16 @@ async def sync_task_assignees(
 
 
 async def serialize_assignee_ids(task: Task, db: AsyncSession) -> list[str]:
+    from sqlalchemy.orm import inspect as sa_inspect
+    from sqlalchemy.orm.base import NO_VALUE
+
+    insp = sa_inspect(task)
+    loaded = insp.attrs.assignee_links.loaded_value
+    if loaded is not NO_VALUE:
+        if loaded:
+            return [link.user_id for link in loaded]
+        return [task.assigned_to_id] if task.assigned_to_id else []
+
     rows = (
         await db.execute(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id))
     ).scalars().all()
