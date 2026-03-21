@@ -266,6 +266,25 @@ async def _has_dependency_path(
     return False
 
 
+async def _would_create_subtask_cycle(
+    db: AsyncSession, task_id: str, new_parent_id: str
+) -> bool:
+    """Return True if setting task_id's parent to new_parent_id would create a cycle."""
+    visited: set[str] = set()
+    current: str | None = new_parent_id
+    while current:
+        if current == task_id:
+            return True
+        if current in visited:
+            break
+        visited.add(current)
+        row = (
+            await db.execute(select(Task.parent_task_id).where(Task.id == current))
+        ).scalar_one_or_none()
+        current = row
+    return False
+
+
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskOut])
 async def list_tasks(
     project_id: str,
@@ -379,6 +398,14 @@ async def update_task(
     if end_date_provided and old_end_date is not None and new_end_date != old_end_date and requires_reason:
         if not deadline_change_reason:
             raise HTTPException(status_code=422, detail="Укажите причину изменения дедлайна")
+
+    # Validate parent_task_id change does not create a cycle
+    if "parent_task_id" in payload and payload["parent_task_id"]:
+        new_parent_id = payload["parent_task_id"]
+        if new_parent_id == task.id:
+            raise HTTPException(status_code=400, detail="Задача не может быть родителем самой себя")
+        if await _would_create_subtask_cycle(db, task.id, new_parent_id):
+            raise HTTPException(status_code=400, detail="Обнаружен цикл в иерархии подзадач")
 
     if any(
         key in payload
@@ -639,7 +666,14 @@ async def bulk_update_tasks(
     ).scalars().all()
 
     requested = len(task_ids)
-    result = TaskBulkUpdateResult(requested=requested, skipped=max(0, requested - len(tasks)))
+    found_ids = {task.id for task in tasks}
+    result = TaskBulkUpdateResult(requested=requested)
+
+    # Report tasks not found in project
+    for tid in task_ids:
+        if tid not in found_ids:
+            result.skipped += 1
+            result.errors.append({"task_id": tid, "reason": "Task not found in project"})
 
     if delete_requested:
         for task in tasks:
@@ -655,7 +689,12 @@ async def bulk_update_tasks(
         changed = False
 
         if "status" in payload:
-            await _ensure_predecessors_done(task, payload["status"], db)
+            try:
+                await _ensure_predecessors_done(task, payload["status"], db)
+            except HTTPException as exc:
+                result.skipped += 1
+                result.errors.append({"task_id": task.id, "reason": exc.detail})
+                continue
 
         for field, value in payload.items():
             if getattr(task, field) != value:
@@ -919,13 +958,17 @@ async def critical_path(
         else:
             roots.append(t.id)
 
-    def score(task_id: str) -> tuple[int, list[str]]:
+    def score(task_id: str, visiting: frozenset[str] = frozenset()) -> tuple[int, list[str]]:
+        if task_id in visiting:
+            # Cycle detected — stop recursion
+            return 0, []
+        new_visiting = visiting | {task_id}
         childs = children.get(task_id, [])
         if not childs:
             return 1, [task_id]
-        best = (0, [])
+        best: tuple[int, list[str]] = (0, [])
         for c in childs:
-            s = score(c)
+            s = score(c, new_visiting)
             if s[0] > best[0]:
                 best = s
         return best[0] + 1, [task_id] + best[1]
