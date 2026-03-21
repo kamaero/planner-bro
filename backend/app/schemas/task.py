@@ -1,7 +1,18 @@
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from datetime import datetime, date
 from typing import Optional
 from app.schemas.user import UserOut
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _ensure_iso_date_string(value: object, field_name: str) -> object:
+    if value is None or isinstance(value, date):
+        return value
+    if isinstance(value, str) and _ISO_DATE_RE.fullmatch(value):
+        return value
+    raise ValueError(f"{field_name} must be in YYYY-MM-DD format")
 
 
 class TaskBase(BaseModel):
@@ -26,9 +37,14 @@ class TaskBase(BaseModel):
     escalation_overdue_at: Optional[datetime] = None
     repeat_every_days: Optional[int] = None
 
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def validate_date_fields(cls, value: object, info: ValidationInfo) -> object:
+        return _ensure_iso_date_string(value, info.field_name)
+
 
 class TaskCreate(TaskBase):
-    pass
+    predecessor_task_ids: list[str] = Field(default_factory=list)
 
 
 class TaskUpdate(BaseModel):
@@ -52,7 +68,13 @@ class TaskUpdate(BaseModel):
     escalation_first_response_at: Optional[datetime] = None
     escalation_overdue_at: Optional[datetime] = None
     repeat_every_days: Optional[int] = None
+    predecessor_task_ids: Optional[list[str]] = None
     deadline_change_reason: Optional[str] = None
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def validate_date_fields(cls, value: object, info: ValidationInfo) -> object:
+        return _ensure_iso_date_string(value, info.field_name)
 
 
 class TaskStatusUpdate(BaseModel):
@@ -62,7 +84,7 @@ class TaskStatusUpdate(BaseModel):
 
 
 class TaskBulkUpdateRequest(BaseModel):
-    task_ids: list[str] = Field(min_length=1, max_length=500)
+    task_ids: list[str] = Field(min_length=1, max_length=5000)
     status: Optional[str] = None
     priority: Optional[str] = None
     control_ski: Optional[bool] = None
@@ -85,6 +107,7 @@ class TaskOut(TaskBase):
     created_by_id: str
     assignee: Optional[UserOut] = None
     assignees: list[UserOut] = Field(default_factory=list)
+    predecessor_ids: list[str] = Field(default_factory=list)
     last_comment: Optional[str] = None
     last_check_in_at: Optional[datetime] = None
     next_check_in_due_at: Optional[datetime] = None
@@ -132,11 +155,15 @@ class TaskCheckInCreate(BaseModel):
 
 class TaskDependencyCreate(BaseModel):
     predecessor_task_id: str
+    dependency_type: str = "finish_to_start"
+    lag_days: int = Field(default=0, ge=0, le=3650)
 
 
 class TaskDependencyOut(BaseModel):
     predecessor_task_id: str
     successor_task_id: str
+    dependency_type: str
+    lag_days: int
     created_at: datetime
 
     model_config = {"from_attributes": True}

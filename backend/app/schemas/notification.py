@@ -86,20 +86,50 @@ class ReportDigestSchedule(BaseModel):
     email_analytics_slots: list[str] = Field(default_factory=lambda: ["mon@08:10", "fri@16:10"])
 
 
+class AdminDirectiveSettings(BaseModel):
+    enabled: bool = False
+    recipient: str = "aerokamero@gmail.com"
+    days: list[str] = Field(default_factory=lambda: ["mon", "tue", "wed", "thu", "fri"])
+    time_window: str = "09:00-12:00"
+    include_overdue: bool = True
+    include_stale: bool = True
+    stale_days: int = Field(default=7, ge=1, le=90)
+    include_unassigned: bool = True
+    custom_text: str = ""
+
+
 class ReportDispatchSettingsOut(BaseModel):
+    smtp_enabled: bool
     telegram_summaries_enabled: bool
     email_analytics_enabled: bool
     email_analytics_recipients: str
     digest_filters: ReportDigestFilters
     digest_schedule: ReportDigestSchedule
+    admin_directive: AdminDirectiveSettings
 
 
 class ReportDispatchSettingsUpdateIn(BaseModel):
+    smtp_enabled: bool
     telegram_summaries_enabled: bool
     email_analytics_enabled: bool
     email_analytics_recipients: str = ""
     digest_filters: Optional[ReportDigestFilters] = None
     digest_schedule: Optional[ReportDigestSchedule] = None
+    admin_directive: Optional[AdminDirectiveSettings] = None
+
+
+class AdminDirectiveTestIn(BaseModel):
+    recipient: Optional[str] = None
+
+
+class AdminDirectiveTestOut(BaseModel):
+    ok: bool
+    recipient: str
+    sent: bool
+    overdue_count: int
+    stale_count: int
+    unassigned_count: int
+    message: str
 
 
 class ReportDeliveryStatusOut(BaseModel):
