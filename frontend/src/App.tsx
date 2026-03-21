@@ -11,6 +11,8 @@ import { TeamBoard } from '@/pages/TeamBoard'
 import { Analytics } from '@/pages/Analytics'
 import { TeamStorage } from '@/pages/TeamStorage'
 import { Chat } from '@/pages/Chat'
+import { Help } from '@/pages/Help'
+import { MyTasks } from '@/pages/MyTasks'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -27,6 +29,8 @@ import {
   Moon,
   Sun,
   MessageSquare,
+  ClipboardList,
+  HelpCircle,
 } from 'lucide-react'
 
 function ThemeToggle() {
@@ -92,10 +96,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { to: '/', label: 'Проекты', icon: LayoutDashboard },
+    { to: '/my-tasks', label: 'Мои задачи', icon: ClipboardList },
     { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
     { to: '/team', label: 'Команда', icon: Users },
     { to: '/team-board', label: 'Доска команды', icon: PencilRuler },
     { to: '/storage', label: 'Хранилище', icon: Lock },
+    { to: '/help', label: 'Помощь', icon: HelpCircle },
   ]
 
   useEffect(() => {
@@ -439,6 +445,16 @@ export function App() {
         }
       />
       <Route
+        path="/my-tasks"
+        element={
+          <AuthGuard>
+            <AppLayout>
+              <MyTasks />
+            </AppLayout>
+          </AuthGuard>
+        }
+      />
+      <Route
         path="/analytics"
         element={
           <AuthGuard>
@@ -484,6 +500,16 @@ export function App() {
           <AuthGuard>
             <AppLayout>
               <Chat />
+            </AppLayout>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/help"
+        element={
+          <AuthGuard>
+            <AppLayout>
+              <Help />
             </AppLayout>
           </AuthGuard>
         }
