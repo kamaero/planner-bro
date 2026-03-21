@@ -16,6 +16,7 @@ import type {
   DeadlineStats,
   TaskDependency,
   DepartmentProjectsResponse,
+  CriticalPathResponse,
 } from '@/types'
 
 export function useProjects() {
@@ -49,12 +50,7 @@ export function useGantt(projectId: string) {
 }
 
 export function useCriticalPath(projectId: string) {
-  return useQuery<{
-    project_id: string
-    length: number
-    task_ids: string[]
-    tasks: Array<{ id: string; title: string; status: string; end_date?: string | null }>
-  }>({
+  return useQuery<CriticalPathResponse>({
     queryKey: ['critical-path', projectId],
     queryFn: () => api.getCriticalPath(projectId),
     enabled: !!projectId,
@@ -66,6 +62,13 @@ export function useTasks(projectId: string) {
     queryKey: ['tasks', projectId],
     queryFn: () => api.listTasks(projectId),
     enabled: !!projectId,
+  })
+}
+
+export function useMyTasks() {
+  return useQuery<Task[]>({
+    queryKey: ['tasks', 'my'],
+    queryFn: api.listMyTasks,
   })
 }
 
@@ -199,8 +202,22 @@ export function useTaskDependencies(taskId?: string) {
 export function useAddTaskDependency() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ taskId, predecessorTaskId }: { taskId: string; predecessorTaskId: string }) =>
-      api.addTaskDependency(taskId, predecessorTaskId),
+    mutationFn: ({
+      taskId,
+      predecessorTaskId,
+      dependencyType,
+      lagDays,
+    }: {
+      taskId: string
+      predecessorTaskId: string
+      dependencyType?: 'finish_to_start' | 'start_to_start' | 'finish_to_finish'
+      lagDays?: number
+    }) =>
+      api.addTaskDependency(taskId, {
+        predecessor_task_id: predecessorTaskId,
+        dependency_type: dependencyType,
+        lag_days: lagDays,
+      }),
     onSuccess: (_, { taskId }) => {
       qc.invalidateQueries({ queryKey: ['task-dependencies', taskId] })
       qc.invalidateQueries({ queryKey: ['task-events', taskId] })
@@ -253,8 +270,8 @@ export function useDeleteProjectFile() {
 export function useImportMSProjectTasks() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ projectId, file }: { projectId: string; file: File }) =>
-      api.importMSProjectTasks(projectId, file) as Promise<MSProjectImportResult>,
+    mutationFn: ({ projectId, file, replaceExisting }: { projectId: string; file: File; replaceExisting?: boolean }) =>
+      api.importMSProjectTasks(projectId, file, replaceExisting ?? false) as Promise<MSProjectImportResult>,
     onSuccess: (_, { projectId }) => {
       qc.invalidateQueries({ queryKey: ['tasks', projectId] })
       qc.invalidateQueries({ queryKey: ['gantt', projectId] })
@@ -275,8 +292,15 @@ export function useAIJobs(projectId: string) {
 export function useStartAIProcessing() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ projectId, fileId }: { projectId: string; fileId: string }) =>
-      api.startAIProcessingForFile(projectId, fileId),
+    mutationFn: ({
+      projectId,
+      fileId,
+      promptInstruction,
+    }: {
+      projectId: string
+      fileId: string
+      promptInstruction?: string
+    }) => api.startAIProcessingForFile(projectId, fileId, promptInstruction),
     onSuccess: (_, { projectId }) => {
       qc.invalidateQueries({ queryKey: ['ai-jobs', projectId] })
     },
@@ -286,7 +310,7 @@ export function useStartAIProcessing() {
 export function useAIDrafts(projectId: string, statusFilter = 'pending') {
   return useQuery<AITaskDraft[]>({
     queryKey: ['ai-drafts', projectId, statusFilter],
-    queryFn: () => api.listAIDrafts(projectId, { status_filter: statusFilter }),
+    queryFn: () => api.listAIDrafts(projectId, { status_filter: statusFilter, limit: 5000, offset: 0 }),
     enabled: !!projectId,
     refetchInterval: 5000,
   })
@@ -327,6 +351,17 @@ export function useRejectAIDraft() {
   return useMutation({
     mutationFn: ({ projectId, draftId }: { projectId: string; draftId: string }) =>
       api.rejectAIDraft(projectId, draftId),
+    onSuccess: (_, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['ai-drafts', projectId] })
+    },
+  })
+}
+
+export function useRejectAIDraftsBulk() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, draftIds }: { projectId: string; draftIds: string[] }) =>
+      api.rejectAIDraftsBulk(projectId, draftIds),
     onSuccess: (_, { projectId }) => {
       qc.invalidateQueries({ queryKey: ['ai-drafts', projectId] })
     },
