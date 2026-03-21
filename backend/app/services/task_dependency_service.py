@@ -316,15 +316,19 @@ async def project_critical_path(db: AsyncSession, project_id: str) -> dict[str, 
         else:
             roots.append(task.id)
 
-    def score(task_id: str) -> tuple[int, list[str]]:
+    def score(task_id: str, visiting: frozenset[str] = frozenset()) -> tuple[int, list[str]]:
+        if task_id in visiting:
+            # Cycle detected — stop recursion
+            return 0, []
+        new_visiting = visiting | {task_id}
         childs = children.get(task_id, [])
         if not childs:
             return 1, [task_id]
-        best = (0, [])
+        best: tuple[int, list[str]] = (0, [])
         for child_id in childs:
-            scored = score(child_id)
-            if scored[0] > best[0]:
-                best = scored
+            s = score(child_id, new_visiting)
+            if s[0] > best[0]:
+                best = s
         return best[0] + 1, [task_id] + best[1]
 
     best_path: list[str] = []

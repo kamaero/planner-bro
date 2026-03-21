@@ -98,6 +98,7 @@ class TaskBulkUpdateResult(BaseModel):
     updated: int = 0
     deleted: int = 0
     skipped: int = 0
+    errors: list[dict] = Field(default_factory=list)
 
 
 class TaskOut(TaskBase):

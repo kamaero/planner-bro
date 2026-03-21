@@ -46,6 +46,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.telegram_commands_checker.check_telegram_commands",
         "schedule": 30.0,
     },
+    "email-log-cleanup-daily": {
+        "task": "app.tasks.email_log_cleanup.cleanup_email_logs",
+        "schedule": crontab(hour=3, minute=0),  # daily at 03:00 UTC
+    },
 }
 
 celery_app.conf.timezone = "UTC"
@@ -59,5 +63,6 @@ celery_app.conf.imports = (
     "app.tasks.admin_directive_email_checker",
     "app.tasks.telegram_commands_checker",
     "app.tasks.ai_ingestion",
+    "app.tasks.email_log_cleanup",
 )
 celery_app.autodiscover_tasks(["app.tasks"])
