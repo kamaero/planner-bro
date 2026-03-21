@@ -23,6 +23,21 @@ type TeamOverviewSectionProps = {
   onReloadLoginEvents: () => void
 }
 
+function timeAgo(iso?: string | null): string {
+  if (!iso) return '—'
+  const diff = Date.now() - new Date(iso).getTime()
+  const minutes = Math.floor(diff / 60_000)
+  if (minutes < 2) return 'только что'
+  if (minutes < 60) return `${minutes} мин. назад`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} ч. назад`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days} дн. назад`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months} мес. назад`
+  return `${Math.floor(months / 12)} г. назад`
+}
+
 export function TeamOverviewSection({
   users,
   departmentsCount,
@@ -85,7 +100,10 @@ export function TeamOverviewSection({
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
                           <div className="flex flex-col gap-1">
-                            <span>{formatDateTime(user.last_sign_in_at ?? user.last_login_at)}</span>
+                            <span>{timeAgo(user.last_sign_in_at ?? user.last_login_at)}</span>
+                            <span className="text-[10px] text-muted-foreground/70">
+                              {formatDateTime(user.last_sign_in_at ?? user.last_login_at)}
+                            </span>
                             <span className={`inline-flex w-fit rounded-full border px-2 py-0.5 text-[10px] font-medium ${signInStatus.tone}`}>
                               {signInStatus.label}
                             </span>

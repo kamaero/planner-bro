@@ -18,6 +18,20 @@ function localizeNotificationText(text: string): string {
     .replace(/\bApproaching\b/gi, 'Скоро')
 }
 
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const minutes = Math.floor(diff / 60_000)
+  if (minutes < 2) return 'только что'
+  if (minutes < 60) return `${minutes} мин. назад`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} ч. назад`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days} дн. назад`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months} мес. назад`
+  return `${Math.floor(months / 12)} г. назад`
+}
+
 export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
@@ -95,13 +109,19 @@ export function NotificationBell() {
                     <p className="text-sm font-medium">{localizeNotificationText(n.title)}</p>
                     <p className="text-xs text-foreground/90">{localizeNotificationText(n.body)}</p>
                     <p className="text-[10px] text-foreground/70 mt-1">
-                      {new Date(n.created_at).toLocaleString('ru-RU')}
+                      {timeAgo(n.created_at)}
                     </p>
                   </div>
                   </div>
                 </button>
               ))}
             </div>
+
+            {notifications.length > 0 && (
+              <div className="px-4 py-2 border-t text-xs text-muted-foreground text-center bg-[hsl(var(--card))]">
+                Всего: {notifications.length} уведомлений
+              </div>
+            )}
           </div>
         </>
       )}

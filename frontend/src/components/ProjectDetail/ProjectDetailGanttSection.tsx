@@ -5,17 +5,19 @@ type ProjectDetailGanttSectionProps = {
   tasks: GanttTask[]
   criticalPath?: CriticalPathResponse
   onTaskClick: (task: GanttTask) => void
+  isLoading?: boolean
 }
 
 export function ProjectDetailGanttSection({
   tasks,
   criticalPath,
   onTaskClick,
+  isLoading,
 }: ProjectDetailGanttSectionProps) {
   return (
     <div className="space-y-3">
       <div className="rounded-xl border bg-card p-4 overflow-x-auto">
-        <GanttChart tasks={tasks} onTaskClick={onTaskClick} />
+        <GanttChart tasks={tasks} onTaskClick={onTaskClick} isLoading={isLoading} />
       </div>
       <div className="rounded-xl border bg-card p-4">
         <p className="text-sm font-semibold mb-2">Critical Path</p>

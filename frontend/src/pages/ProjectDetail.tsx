@@ -47,7 +47,7 @@ export function ProjectDetail() {
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const { data: project } = useProject(id!)
-  const { data: ganttData } = useGantt(id!)
+  const { data: ganttData, isLoading: ganttLoading } = useGantt(id!)
   const { data: criticalPath } = useCriticalPath(id!)
   const { data: tasks = [] } = useTasks(id!)
   const { data: members = [] } = useMembers(id!)
@@ -316,6 +316,7 @@ export function ProjectDetail() {
           tasks: ganttData?.tasks ?? [],
           criticalPath,
           onTaskClick: handleGanttTaskClick,
+          isLoading: ganttLoading,
         }}
         taskListSectionProps={{
           toolbarProps: {

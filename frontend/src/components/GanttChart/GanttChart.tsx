@@ -8,6 +8,7 @@ const GANTT_TASK_LIMIT = 150
 interface GanttChartProps {
   tasks: GanttTask[]
   onTaskClick?: (task: GanttTask) => void
+  isLoading?: boolean
 }
 
 function toGanttTasks(tasks: GanttTask[]): Task[] {
@@ -24,8 +25,21 @@ function toGanttTasks(tasks: GanttTask[]): Task[] {
   }))
 }
 
-export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
+export function GanttChart({ tasks, onTaskClick, isLoading }: GanttChartProps) {
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Week)
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2 animate-pulse">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex gap-3 items-center">
+            <div className="h-6 w-40 rounded bg-muted" />
+            <div className="h-6 flex-1 rounded bg-muted" style={{ opacity: 1 - i * 0.15 }} />
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   const displayTasks = tasks.slice(0, GANTT_TASK_LIMIT)
   const ganttTasks = toGanttTasks(displayTasks)
