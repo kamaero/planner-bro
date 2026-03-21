@@ -12,6 +12,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     work_email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
     first_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    middle_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     last_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     position_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -29,6 +30,12 @@ class User(Base):
         default="developer",
         nullable=False,
     )
+    visibility_scope: Mapped[str] = mapped_column(
+        SAEnum("own_tasks_only", "department_scope", "full_scope", name="user_visibility_scope"),
+        default="department_scope",
+        nullable=False,
+    )
+    own_tasks_visibility_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     can_manage_team: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     can_delete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     can_import: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -69,3 +76,4 @@ class User(Base):
         back_populates="users",
         foreign_keys=[department_id],
     )
+    auth_login_events: Mapped[list["AuthLoginEvent"]] = relationship("AuthLoginEvent")

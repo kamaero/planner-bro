@@ -1,6 +1,8 @@
 import uuid
 from datetime import datetime, date, timezone
 from sqlalchemy import String, DateTime, Date, ForeignKey, Integer, Enum as SAEnum, Boolean
+from sqlalchemy import inspect
+from sqlalchemy.orm.attributes import NO_VALUE
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -95,15 +97,24 @@ class Task(Base):
 
     @property
     def assignee_ids(self) -> list[str]:
-        if self.assignee_links:
-            return [link.user_id for link in self.assignee_links]
+        links = inspect(self).attrs.assignee_links.loaded_value
+        if links is not NO_VALUE and links:
+            return [link.user_id for link in links]
         return [self.assigned_to_id] if self.assigned_to_id else []
 
     @property
     def assignees(self) -> list["User"]:
-        if self.assignee_links:
-            return [link.user for link in self.assignee_links if link.user]
+        links = inspect(self).attrs.assignee_links.loaded_value
+        if links is not NO_VALUE and links:
+            return [link.user for link in links if link.user]
         return [self.assignee] if self.assignee else []
+
+    @property
+    def predecessor_ids(self) -> list[str]:
+        links = inspect(self).attrs.predecessor_links.loaded_value
+        if links is not NO_VALUE and links:
+            return [link.predecessor_task_id for link in links]
+        return []
 
 
 class TaskComment(Base):
@@ -158,6 +169,17 @@ class TaskDependency(Base):
     created_by_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    dependency_type: Mapped[str] = mapped_column(
+        SAEnum(
+            "finish_to_start",
+            "start_to_start",
+            "finish_to_finish",
+            name="task_dependency_type",
+        ),
+        nullable=False,
+        default="finish_to_start",
+    )
+    lag_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

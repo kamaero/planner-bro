@@ -33,6 +33,14 @@ class Project(Base):
         nullable=False,
     )
     control_ski: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    planning_mode: Mapped[str] = mapped_column(
+        SAEnum("flexible", "strict", name="project_planning_mode"),
+        default="flexible",
+        nullable=False,
+    )
+    strict_no_past_start_date: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    strict_no_past_end_date: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    strict_child_within_parent_dates: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     launch_basis_text: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     launch_basis_file_id: Mapped[str | None] = mapped_column(
         ForeignKey("project_files.id", ondelete="SET NULL"), nullable=True
