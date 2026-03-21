@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.department import Department
 from app.models.project import Project, ProjectDepartment, ProjectMember
+from app.models.task import Task, TaskAssignee
 from app.models.user import User
 
 
@@ -14,6 +15,32 @@ from app.models.user import User
 class AccessScope:
     user_ids: set[str]
     department_ids: set[str]
+
+
+def _normalize_position_title(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _is_global_assignment_position(position_title: str | None) -> bool:
+    normalized = _normalize_position_title(position_title)
+    if not normalized:
+        return False
+    tokens = ("гип", "главный инженер проектов", "зам", "заместитель")
+    return any(token in normalized for token in tokens)
+
+
+async def _is_department_head(db: AsyncSession, user_id: str) -> bool:
+    hit = (
+        await db.execute(
+            select(Department.id).where(Department.head_user_id == user_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    return bool(hit)
+
+
+async def has_department_level_access(db: AsyncSession, actor: User) -> bool:
+    actor_is_head = await _is_department_head(db, actor.id)
+    return actor.role in ("admin", "manager") or bool(actor.can_manage_team) or actor_is_head
 
 
 async def _collect_subordinate_ids(db: AsyncSession, root_user_id: str) -> set[str]:
@@ -55,10 +82,13 @@ async def _collect_department_tree_ids(db: AsyncSession, seed_department_ids: se
 
 
 async def get_user_access_scope(db: AsyncSession, user: User) -> AccessScope:
-    if user.role == "admin":
+    if user.visibility_scope == "full_scope" or user.role == "admin":
         all_user_ids = set((await db.execute(select(User.id).where(User.is_active == True))).scalars().all())  # noqa: E712
         all_department_ids = set((await db.execute(select(Department.id))).scalars().all())
         return AccessScope(user_ids=all_user_ids, department_ids=all_department_ids)
+
+    if user.visibility_scope == "own_tasks_only":
+        return AccessScope(user_ids={user.id}, department_ids=set())
 
     subordinate_ids = await _collect_subordinate_ids(db, user.id)
 
@@ -101,7 +131,7 @@ async def is_user_in_scope(db: AsyncSession, actor: User, target_user_id: str) -
 
 
 async def can_access_project(db: AsyncSession, actor: User, project_id: str) -> bool:
-    if actor.role == "admin":
+    if actor.role == "admin" or actor.visibility_scope == "full_scope":
         return True
 
     direct_member = (
@@ -122,7 +152,7 @@ async def can_access_project(db: AsyncSession, actor: User, project_id: str) -> 
                 select(ProjectMember.user_id).where(
                     ProjectMember.project_id == project_id,
                     ProjectMember.user_id.in_(scope.user_ids),
-                )
+                ).limit(1)
             )
         ).scalar_one_or_none()
         if member_hit:
@@ -134,13 +164,83 @@ async def can_access_project(db: AsyncSession, actor: User, project_id: str) -> 
                 select(ProjectDepartment.department_id).where(
                     ProjectDepartment.project_id == project_id,
                     ProjectDepartment.department_id.in_(scope.department_ids),
-                )
+                ).limit(1)
             )
         ).scalar_one_or_none()
         if dep_hit:
             return True
 
+    own_task_hit = (
+        await db.execute(
+            select(Task.id).where(
+                Task.project_id == project_id,
+                Task.assigned_to_id == actor.id,
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    if own_task_hit:
+        return True
+    own_multi_task_hit = (
+        await db.execute(
+            select(TaskAssignee.task_id)
+            .join(Task, Task.id == TaskAssignee.task_id)
+            .where(
+                Task.project_id == project_id,
+                TaskAssignee.user_id == actor.id,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if own_multi_task_hit:
+        return True
+
     owner_id = (
         await db.execute(select(Project.owner_id).where(Project.id == project_id))
     ).scalar_one_or_none()
     return bool(owner_id and owner_id in scope.user_ids)
+
+
+async def get_task_assignment_scope_user_ids(db: AsyncSession, actor: User) -> set[str]:
+    if actor.role == "admin" or actor.visibility_scope == "full_scope":
+        return set(
+            (await db.execute(select(User.id).where(User.is_active == True))).scalars().all()  # noqa: E712
+        )
+
+    if _is_global_assignment_position(getattr(actor, "position_title", None)):
+        return set(
+            (
+                await db.execute(
+                    select(User.id).where(
+                        User.is_active == True,  # noqa: E712
+                        User.role != "admin",
+                    )
+                )
+            ).scalars().all()
+        )
+
+    if await has_department_level_access(db, actor):
+        return set(
+            (
+                await db.execute(
+                    select(User.id).where(
+                        User.is_active == True,  # noqa: E712
+                        User.role != "admin",
+                    )
+                )
+            ).scalars().all()
+        )
+
+    scope = await get_user_access_scope(db, actor)
+    if not scope.user_ids:
+        return set()
+    active_scope_ids = set(
+        (
+            await db.execute(
+                select(User.id).where(
+                    User.is_active == True,  # noqa: E712
+                    User.id.in_(scope.user_ids),
+                )
+            )
+        ).scalars().all()
+    )
+    return active_scope_ids
