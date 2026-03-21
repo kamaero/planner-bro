@@ -253,6 +253,7 @@ export interface TaskBulkUpdateResult {
   updated: number
   deleted: number
   skipped: number
+  errors: Array<{ task_id: string; reason: string }>
 }
 
 export interface AIIngestionJob {
@@ -364,4 +365,9 @@ export interface DeadlineStats {
     project_name: string
     shifts: number
   }>
+}
+
+export interface ActivityHeatmapData {
+  days: Record<string, number>
+  total_events: number
 }

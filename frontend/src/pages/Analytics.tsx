@@ -12,7 +12,8 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
-import { Download, AlertTriangle } from 'lucide-react'
+import { Download, AlertTriangle, Activity } from 'lucide-react'
+import { ActivityHeatmap } from '@/components/ActivityHeatmap/ActivityHeatmap'
 import type { Task, Project } from '@/types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -189,6 +190,15 @@ export function Analytics() {
         </div>
       </div>
 
+      {/* Activity Heatmap */}
+      <div className="rounded-xl border bg-card p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Activity className="w-4 h-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Активность команды</h2>
+        </div>
+        <ActivityHeatmap />
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard label="Проекты" value={totalProjects} />
         <MetricCard label="Всего задач" value={totalTasks} />
@@ -361,6 +371,7 @@ export function Analytics() {
                         </tr>
                       ))}
                     </tbody>
+
                   </table>
                 </div>
               </div>
