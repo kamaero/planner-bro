@@ -18,6 +18,8 @@ from app.schemas.notification import (
     ClientErrorReportIn,
     SMTPHealthCheckIn,
     SMTPHealthCheckOut,
+    AdminDirectiveTestIn,
+    AdminDirectiveTestOut,
     ReportDispatchSettingsOut,
     ReportDispatchSettingsUpdateIn,
     ReportDeliveryStatusOut,
@@ -28,6 +30,7 @@ from app.services.report_settings_service import (
     get_report_dispatch_settings,
     update_report_dispatch_settings,
 )
+from app.tasks.admin_directive_email_checker import send_admin_directive_once
 
 router = APIRouter(tags=["notifications"])
 
@@ -240,13 +243,29 @@ async def put_report_settings(
     if not _can_manage_reports(current_user):
         raise HTTPException(status_code=403, detail="Only admin/manager can update report settings")
     updated = await update_report_dispatch_settings(
+        smtp_enabled=data.smtp_enabled,
         telegram_summaries_enabled=data.telegram_summaries_enabled,
         email_analytics_enabled=data.email_analytics_enabled,
         email_analytics_recipients=data.email_analytics_recipients,
+        admin_directive=data.admin_directive.model_dump() if data.admin_directive else None,
         digest_filters=data.digest_filters.model_dump() if data.digest_filters else None,
         digest_schedule=data.digest_schedule.model_dump() if data.digest_schedule else None,
     )
     return ReportDispatchSettingsOut(**updated)
+
+
+@router.post("/notifications/admin-directive/test", response_model=AdminDirectiveTestOut)
+async def run_admin_directive_test(
+    data: AdminDirectiveTestIn,
+    current_user: User = Depends(get_current_user),
+):
+    if not _can_manage_reports(current_user):
+        raise HTTPException(status_code=403, detail="Only admin/manager can run admin directive test")
+    recipient = (data.recipient or current_user.work_email or current_user.email or "").strip().lower()
+    if "@" not in recipient:
+        raise HTTPException(status_code=400, detail="Recipient email is invalid")
+    result = await send_admin_directive_once(force=True, override_recipient=recipient)
+    return AdminDirectiveTestOut(**result)
 
 
 @router.get("/notifications/report-delivery/status", response_model=ReportDeliveryStatusOut)
