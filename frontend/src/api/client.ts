@@ -406,4 +406,10 @@ export const api = {
   getVaultDownloadToken: (fileId: string) =>
     apiClient.get(`/vault/files/${fileId}/token`).then((r) => r.data),
   deleteVaultFile: (fileId: string) => apiClient.delete(`/vault/files/${fileId}`),
+
+  // Analytics
+  getActivityHeatmap: (days?: number) =>
+    apiClient
+      .get('/analytics/activity-heatmap', { params: days ? { days } : {} })
+      .then((r) => r.data),
 }
