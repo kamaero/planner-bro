@@ -5,6 +5,7 @@ import { useThemeStore } from '@/store/themeStore'
 import { api } from '@/api/client'
 import { Login } from '@/pages/Login'
 import { Dashboard } from '@/pages/Dashboard'
+import { MyTasks } from '@/pages/MyTasks'
 import { ProjectDetail } from '@/pages/ProjectDetail'
 import { Team } from '@/pages/Team'
 import { TeamBoard } from '@/pages/TeamBoard'
@@ -12,10 +13,10 @@ import { Analytics } from '@/pages/Analytics'
 import { TeamStorage } from '@/pages/TeamStorage'
 import { Chat } from '@/pages/Chat'
 import { Help } from '@/pages/Help'
-import { MyTasks } from '@/pages/MyTasks'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { formatUserDisplayName } from '@/lib/userName'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useQuery } from '@tanstack/react-query'
 import type { ChatUnreadSummary, User } from '@/types'
@@ -95,6 +96,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const navItems = [
+    ...(user?.visibility_scope === 'own_tasks_only' && user?.own_tasks_visibility_enabled !== false
+      ? [{ to: '/my-tasks', label: 'Мои задачи', icon: ClipboardList }]
+      : []),
     { to: '/', label: 'Проекты', icon: LayoutDashboard },
     { to: '/my-tasks', label: 'Мои задачи', icon: ClipboardList },
     { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
@@ -181,7 +185,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const onlineUserIds = new Set(onlineUsers.map((u) => u.id))
   const teamList = [...teamUsers]
     .filter((u) => u.is_active !== false)
-    .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+    .sort((a, b) => formatUserDisplayName(a).localeCompare(formatUserDisplayName(b), 'ru'))
   const teamChatList = teamList.filter((u) => u.id !== user?.id)
   const unreadDirectMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -312,7 +316,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="mt-4 border-t flex-1 min-h-0 flex flex-col">
           <div className="px-4 py-4 flex items-center gap-3 border-b">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{user?.name}</p>
+              <p className="text-sm font-medium truncate">{formatUserDisplayName(user)}</p>
               <p className="text-xs text-muted-foreground truncate">Участник команды</p>
               <button
                 type="button"
@@ -344,7 +348,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                       <span
                         className={`w-2 h-2 rounded-full shrink-0 ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}
                       />
-                      <span className="truncate">{member.name}</span>
+                      <span className="truncate">{formatUserDisplayName(member)}</span>
                       {(unreadDirectMap.get(member.id) ?? 0) > 0 && (
                         <span className="ml-auto rounded-full bg-primary px-1.5 py-0 text-[10px] text-primary-foreground">
                           {unreadDirectMap.get(member.id)}
@@ -429,17 +433,9 @@ export function App() {
         element={
           <AuthGuard>
             <AppLayout>
-              <Dashboard />
-            </AppLayout>
-          </AuthGuard>
-        }
-      />
-      <Route
-        path="/projects/:id"
-        element={
-          <AuthGuard>
-            <AppLayout>
-              <ProjectDetail />
+              {user?.visibility_scope === 'own_tasks_only' && user?.own_tasks_visibility_enabled !== false
+                ? <Navigate to="/my-tasks" replace />
+                : <Dashboard />}
             </AppLayout>
           </AuthGuard>
         }
@@ -450,6 +446,16 @@ export function App() {
           <AuthGuard>
             <AppLayout>
               <MyTasks />
+            </AppLayout>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/projects/:id"
+        element={
+          <AuthGuard>
+            <AppLayout>
+              <ProjectDetail />
             </AppLayout>
           </AuthGuard>
         }

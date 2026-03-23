@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type { Task } from '@/types'
-import { Clock, AlertCircle } from 'lucide-react'
+import { Clock, AlertCircle, CornerDownRight } from 'lucide-react'
+import { buildTaskNumbering } from '@/lib/taskOrdering'
+import { formatUserDisplayName } from '@/lib/userName'
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
@@ -38,6 +40,7 @@ const PRIORITY_LABELS: Record<string, string> = {
 
 interface TaskTableProps {
   tasks: Task[]
+  allTasks?: Task[]
   onTaskClick: (task: Task) => void
   onStatusChange?: (taskId: string, status: string) => void
   shiftsMap?: Record<string, number>
@@ -46,6 +49,7 @@ interface TaskTableProps {
 
 export function TaskTable({
   tasks,
+  allTasks,
   onTaskClick,
   onStatusChange,
   shiftsMap = {},
@@ -82,6 +86,24 @@ export function TaskTable({
 
   const pyClass = rowSize === 'compact' ? 'py-1.5' : rowSize === 'comfortable' ? 'py-3.5' : 'py-2.5'
   const commentClamp = rowSize === 'compact' ? 'line-clamp-1' : 'line-clamp-2'
+  const sourceTasks = allTasks && allTasks.length > 0 ? allTasks : tasks
+  const taskById = new Map(sourceTasks.map((task) => [task.id, task]))
+  const numberingById = buildTaskNumbering(sourceTasks)
+  const depthById = new Map<string, number>()
+  const computeDepth = (taskId: string): number => {
+    if (depthById.has(taskId)) return depthById.get(taskId) ?? 0
+    let depth = 0
+    const visited = new Set<string>([taskId])
+    let cursor = taskById.get(taskId)?.parent_task_id
+    while (cursor && !visited.has(cursor)) {
+      visited.add(cursor)
+      depth += 1
+      cursor = taskById.get(cursor)?.parent_task_id
+    }
+    const capped = Math.max(0, Math.min(6, depth))
+    depthById.set(taskId, capped)
+    return capped
+  }
 
   if (tasks.length === 0) {
     return (
@@ -93,6 +115,19 @@ export function TaskTable({
 
   return (
     <div className="rounded-lg border">
+      <div className="px-4 py-2.5 border-b bg-muted/20 text-xs text-muted-foreground flex flex-wrap items-center gap-3">
+        <span className="inline-flex items-center gap-1">
+          <CornerDownRight className="w-3.5 h-3.5" />
+          Структура (parent-child)
+        </span>
+        <span className="text-muted-foreground/60">|</span>
+        <span className="inline-flex items-center gap-1">
+          <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+          Блокировка старта (dependency)
+        </span>
+        <span className="text-muted-foreground/60">|</span>
+        <span>Назначение parent-child: откройте задачу и выберите «Родительская задача (структура)»</span>
+      </div>
       <div ref={topRef} className="overflow-x-auto border-b bg-muted/20">
         <div className="h-3 min-w-[1220px]" />
       </div>
@@ -113,6 +148,14 @@ export function TaskTable({
           {tasks.map((task) => {
             const isOverdue = task.end_date && task.end_date < today && task.status !== 'done'
             const shiftCount = shiftsMap[task.id] ?? 0
+            const depth = computeDepth(task.id)
+            const hasParent = Boolean(task.parent_task_id)
+            const predecessorIds = task.predecessor_ids ?? []
+            const hasBlockingDependency = predecessorIds.length > 0
+            const parentTitle = task.parent_task_id ? taskById.get(task.parent_task_id)?.title : null
+            const predecessorTitles = predecessorIds
+              .map((id) => taskById.get(id)?.title || id)
+              .slice(0, 2)
 
             return (
               <tr
@@ -122,11 +165,42 @@ export function TaskTable({
               >
                 {/* Title */}
                 <td className={`px-4 ${pyClass}`}>
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-start gap-2" style={{ paddingLeft: `${depth * 24}px` }}>
+                    {hasParent && (
+                      <span className="mt-0.5 shrink-0 text-muted-foreground/80" title="Вложенная задача в структуре">
+                        <CornerDownRight className="w-3.5 h-3.5" />
+                      </span>
+                    )}
                     <div className="min-w-0">
+                      <div className="text-[10px] text-muted-foreground font-medium mb-0.5">
+                        {numberingById.get(task.id) ?? '—'}
+                      </div>
                       <p className="font-medium whitespace-normal break-words group-hover:text-primary transition-colors">
                         {task.title}
                       </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {hasParent && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded border bg-muted/40 text-muted-foreground">
+                            структура
+                          </span>
+                        )}
+                        {hasBlockingDependency && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">
+                            зависимость
+                          </span>
+                        )}
+                      </div>
+                      {hasParent && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          ↳ Родитель: {parentTitle ?? task.parent_task_id}
+                        </p>
+                      )}
+                      {hasBlockingDependency && (
+                        <p className="text-[11px] text-amber-700 mt-0.5">
+                          ⛓ Зависит от: {predecessorTitles.join(', ')}
+                          {predecessorIds.length > predecessorTitles.length ? ' …' : ''}
+                        </p>
+                      )}
                       {task.next_step && (
                         <p className={`text-xs text-muted-foreground mt-0.5 ${commentClamp}`}>
                           → {task.next_step}
@@ -184,10 +258,10 @@ export function TaskTable({
                 <td className={`px-3 ${pyClass}`}>
                   {task.assignees && task.assignees.length > 0 ? (
                     <span className={`text-sm ${commentClamp} whitespace-normal break-words block`}>
-                      {task.assignees.map((u) => u.name).join(', ')}
+                      {task.assignees.map((u) => formatUserDisplayName(u)).join(', ')}
                     </span>
                   ) : task.assignee ? (
-                    <span className="text-sm">{task.assignee.name}</span>
+                    <span className="text-sm">{formatUserDisplayName(task.assignee)}</span>
                   ) : (
                     <span className="text-muted-foreground text-xs">—</span>
                   )}
@@ -202,6 +276,7 @@ export function TaskTable({
                         {new Date(task.end_date).toLocaleDateString('ru-RU', {
                           day: 'numeric',
                           month: 'short',
+                          year: 'numeric',
                         })}
                       </span>
                     </div>

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import type { Project } from '@/types'
 import { CalendarDays, Users } from 'lucide-react'
+import { formatUserDisplayName } from '@/lib/userName'
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Planning',
@@ -60,7 +61,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
         )}
         <div className="flex items-center gap-1">
           <Users className="w-3 h-3" />
-          <span>{project.owner.name}</span>
+          <span>{formatUserDisplayName(project.owner)}</span>
         </div>
       </div>
     </Link>

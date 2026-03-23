@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import {
   useUpdateTaskStatus,
   useDeleteTask,
@@ -16,9 +17,14 @@ import {
   useTaskDeadlineHistory,
 } from '@/hooks/useProjects'
 import { useUsers } from '@/hooks/useUsers'
+import { useMembers } from '@/hooks/useMembers'
 import type { Task } from '@/types'
 import { CalendarDays, Clock, User, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
+import { humanizeApiError } from '@/lib/errorMessages'
+import { buildTaskHierarchy, buildTaskNumbering } from '@/lib/taskOrdering'
+import { formatUserDisplayName } from '@/lib/userName'
+import { useAuthStore } from '@/store/authStore'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -28,6 +34,11 @@ const PRIORITY_COLORS: Record<string, string> = {
 }
 
 const STATUS_OPTIONS = ['planning', 'tz', 'todo', 'in_progress', 'testing', 'review', 'done'] as const
+const DEPENDENCY_TYPE_LABELS: Record<string, string> = {
+  finish_to_start: 'FS (Окончание-Начало)',
+  start_to_start: 'SS (Начало-Начало)',
+  finish_to_finish: 'FF (Окончание-Окончание)',
+}
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
   tz: 'ТЗ',
@@ -84,11 +95,13 @@ interface TaskDrawerProps {
 }
 
 export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerProps) {
+  const currentUser = useAuthStore((s) => s.user)
   const updateStatus = useUpdateTaskStatus()
   const deleteTask = useDeleteTask()
   const updateTask = useUpdateTask()
   const checkInTask = useTaskCheckIn()
   const { data: projectTasks = [] } = useTasks(projectId)
+  const { data: members = [] } = useMembers(projectId)
   const { data: dependencies = [] } = useTaskDependencies(task?.id)
   const addDependency = useAddTaskDependency()
   const removeDependency = useRemoveTaskDependency()
@@ -114,11 +127,64 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [checkInNextDueDate, setCheckInNextDueDate] = useState('')
   const [needManagerHelp, setNeedManagerHelp] = useState(false)
   const [newDependencyTaskId, setNewDependencyTaskId] = useState('')
+  const [newDependencyType, setNewDependencyType] = useState<'finish_to_start' | 'start_to_start' | 'finish_to_finish'>('finish_to_start')
+  const [newDependencyLagDays, setNewDependencyLagDays] = useState('0')
+  const [selectedParentTaskId, setSelectedParentTaskId] = useState('')
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([])
 
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
   const { data: deadlineHistory = [] } = useTaskDeadlineHistory(task?.id)
+  const canAssignAcrossOrg = useMemo(() => {
+    const position = (currentUser?.position_title ?? '').toLowerCase()
+    const isGlobalPosition =
+      position.includes('гип') ||
+      position.includes('главный инженер проектов') ||
+      position.includes('зам') ||
+      position.includes('заместитель')
+    return (
+      currentUser?.role === 'admin' ||
+      currentUser?.role === 'manager' ||
+      !!currentUser?.can_manage_team ||
+      isGlobalPosition
+    )
+  }, [currentUser?.can_manage_team, currentUser?.position_title, currentUser?.role])
+  const assigneeOptions = useMemo(() => {
+    const baseUsers =
+      canAssignAcrossOrg || members.length === 0
+        ? users
+        : members.map((member) => member.user)
+    const uniqueUsers = new Map<string, (typeof baseUsers)[number]>()
+    for (const user of baseUsers) uniqueUsers.set(user.id, user)
+    for (const user of task?.assignees ?? []) uniqueUsers.set(user.id, user)
+    if (task?.assignee) uniqueUsers.set(task.assignee.id, task.assignee)
+    return Array.from(uniqueUsers.values())
+  }, [canAssignAcrossOrg, members, task?.assignee, task?.assignees, users])
+  const blockedParentIds = useMemo(() => {
+    if (!task?.id) return new Set<string>()
+    const childrenByParent = new Map<string, string[]>()
+    for (const projectTask of projectTasks) {
+      if (!projectTask.parent_task_id) continue
+      const items = childrenByParent.get(projectTask.parent_task_id) ?? []
+      items.push(projectTask.id)
+      childrenByParent.set(projectTask.parent_task_id, items)
+    }
+    const blocked = new Set<string>([task.id])
+    const stack = [task.id]
+    while (stack.length > 0) {
+      const current = stack.pop()
+      if (!current) continue
+      const children = childrenByParent.get(current) ?? []
+      for (const childId of children) {
+        if (blocked.has(childId)) continue
+        blocked.add(childId)
+        stack.push(childId)
+      }
+    }
+    return blocked
+  }, [projectTasks, task?.id])
+  const taskHierarchyOptions = useMemo(() => buildTaskHierarchy(projectTasks), [projectTasks])
+  const taskNumbering = useMemo(() => buildTaskNumbering(projectTasks), [projectTasks])
 
   useEffect(() => {
     if (!task) return
@@ -140,6 +206,9 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     )
     setNeedManagerHelp(false)
     setNewDependencyTaskId('')
+    setNewDependencyType('finish_to_start')
+    setNewDependencyLagDays('0')
+    setSelectedParentTaskId(task.parent_task_id ?? '')
     setSelectedAssigneeIds(task.assignee_ids && task.assignee_ids.length > 0
       ? task.assignee_ids
       : task.assigned_to_id
@@ -152,13 +221,17 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const handlePriorityChange = async (nextPriority: string) => {
     const p = nextPriority as 'low' | 'medium' | 'high' | 'critical'
     setPriority(p)
-    await updateTask.mutateAsync({
-      taskId: task.id,
-      data: {
-        priority: controlSki ? 'critical' : p,
-        control_ski: controlSki,
-      },
-    })
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          priority: controlSki ? 'critical' : p,
+          control_ski: controlSki,
+        },
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось обновить приоритет задачи'))
+    }
   }
 
   const handleControlSkiChange = async (checked: boolean) => {
@@ -166,44 +239,70 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     const nextPriority = nextControl ? 'critical' : priority === 'critical' ? 'medium' : priority
     setControlSki(nextControl)
     setPriority(nextPriority)
-    await updateTask.mutateAsync({
-      taskId: task.id,
-      data: {
-        control_ski: nextControl,
-        priority: nextControl ? 'critical' : nextPriority,
-      },
-    })
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          control_ski: nextControl,
+          priority: nextControl ? 'critical' : nextPriority,
+        },
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось обновить флаг контроля СКИ'))
+    }
   }
 
-  const handleStatusSave = async () => {
+  const handleStatusSave = async (): Promise<boolean> => {
     const parsed = Number.parseInt(progressPercent, 10)
     if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
       window.alert('Прогресс должен быть числом от 0 до 100.')
-      return
+      return false
     }
-    await updateStatus.mutateAsync({
-      taskId: task.id,
-      status,
-      progress_percent: parsed,
-      next_step: nextStep.trim() || null,
-    })
+    try {
+      await updateStatus.mutateAsync({
+        taskId: task.id,
+        status,
+        progress_percent: parsed,
+        next_step: nextStep.trim() || null,
+      })
+      return true
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось обновить статус задачи'))
+      return false
+    }
+  }
+
+  const handleStatusSaveAndClose = async () => {
+    const ok = await handleStatusSave()
+    if (ok) onOpenChange(false)
   }
 
   const handleAssigneeChange = (assigneeIds: string[]) => {
     setSelectedAssigneeIds(assigneeIds)
-    updateTask.mutate({
-      taskId: task.id,
-      data: {
-        assignee_ids: assigneeIds,
-        assigned_to_id: assigneeIds[0] || null,
+    updateTask.mutate(
+      {
+        taskId: task.id,
+        data: {
+          assignee_ids: assigneeIds,
+          assigned_to_id: assigneeIds[0] || null,
+        },
       },
-    })
+      {
+        onError: (error: any) => {
+          window.alert(humanizeApiError(error, 'Не удалось изменить исполнителей'))
+        },
+      }
+    )
   }
 
   const handleDelete = async () => {
     if (window.confirm('Delete this task?')) {
-      await deleteTask.mutateAsync(task.id)
-      onOpenChange(false)
+      try {
+        await deleteTask.mutateAsync(task.id)
+        onOpenChange(false)
+      } catch (error: any) {
+        window.alert(humanizeApiError(error, 'Не удалось удалить задачу'))
+      }
     }
   }
 
@@ -216,34 +315,42 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       return
     }
     // No end_date change — save directly
-    await updateTask.mutateAsync({
-      taskId: task.id,
-      data: {
-        start_date: startDate || null,
-        end_date: endDate || null,
-        repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
-        is_escalation: isEscalation,
-        escalation_for: escalationFor || null,
-        escalation_sla_hours: escalationSlaHours ? parseInt(escalationSlaHours) : 24,
-      },
-    })
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          start_date: startDate || null,
+          end_date: endDate || null,
+          repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
+          is_escalation: isEscalation,
+          escalation_for: escalationFor || null,
+          escalation_sla_hours: escalationSlaHours ? parseInt(escalationSlaHours) : 24,
+        },
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить даты задачи'))
+    }
   }
 
   const handleDeadlineReasonConfirm = async (reason: string) => {
     setShowDeadlineReasonModal(false)
-    await updateTask.mutateAsync({
-      taskId: task.id,
-      data: {
-        start_date: startDate || null,
-        end_date: pendingEndDate || null,
-        repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
-        is_escalation: isEscalation,
-        escalation_for: escalationFor || null,
-        escalation_sla_hours: escalationSlaHours ? parseInt(escalationSlaHours) : 24,
-        deadline_change_reason: reason,
-      },
-    })
-    setPendingEndDate('')
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          start_date: startDate || null,
+          end_date: pendingEndDate || null,
+          repeat_every_days: repeatDays ? parseInt(repeatDays) : null,
+          is_escalation: isEscalation,
+          escalation_for: escalationFor || null,
+          escalation_sla_hours: escalationSlaHours ? parseInt(escalationSlaHours) : 24,
+          deadline_change_reason: reason,
+        },
+      })
+      setPendingEndDate('')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить дедлайн задачи'))
+    }
   }
 
   const handleDeadlineReasonCancel = () => {
@@ -255,8 +362,12 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
 
   const handleAddComment = async () => {
     if (!commentBody.trim()) return
-    await addComment.mutateAsync({ taskId: task.id, body: commentBody.trim() })
-    setCommentBody('')
+    try {
+      await addComment.mutateAsync({ taskId: task.id, body: commentBody.trim() })
+      setCommentBody('')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось добавить комментарий'))
+    }
   }
 
   const handleCheckIn = async () => {
@@ -264,44 +375,95 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       window.alert('Укажите короткий итог по задаче.')
       return
     }
-    await checkInTask.mutateAsync({
-      taskId: task.id,
-      summary: checkInSummary.trim(),
-      blockers: checkInBlockers.trim() || null,
-      next_check_in_due_at: checkInNextDueDate
-        ? new Date(checkInNextDueDate).toISOString()
-        : null,
-      need_manager_help: needManagerHelp,
-    })
-    setCheckInSummary('')
-    setCheckInBlockers('')
-    setNeedManagerHelp(false)
+    try {
+      await checkInTask.mutateAsync({
+        taskId: task.id,
+        summary: checkInSummary.trim(),
+        blockers: checkInBlockers.trim() || null,
+        next_check_in_due_at: checkInNextDueDate
+          ? new Date(checkInNextDueDate).toISOString()
+          : null,
+        need_manager_help: needManagerHelp,
+      })
+      setCheckInSummary('')
+      setCheckInBlockers('')
+      setNeedManagerHelp(false)
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить check-in'))
+    }
   }
 
   const handleAddDependency = async () => {
     if (!newDependencyTaskId) return
-    await addDependency.mutateAsync({
-      taskId: task.id,
-      predecessorTaskId: newDependencyTaskId,
-    })
-    setNewDependencyTaskId('')
+    const lagDays = Number.parseInt(newDependencyLagDays || '0', 10)
+    if (!Number.isFinite(lagDays) || lagDays < 0) {
+      window.alert('Лаг должен быть целым числом 0 или больше.')
+      return
+    }
+    try {
+      await addDependency.mutateAsync({
+        taskId: task.id,
+        predecessorTaskId: newDependencyTaskId,
+        dependencyType: newDependencyType,
+        lagDays,
+      })
+      setNewDependencyTaskId('')
+      setNewDependencyType('finish_to_start')
+      setNewDependencyLagDays('0')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить связь задач'))
+    }
+  }
+
+  const handleSaveParentTask = async () => {
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          parent_task_id: selectedParentTaskId || null,
+        },
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить родительскую задачу'))
+    }
   }
 
   const handleRemoveDependency = async (predecessorTaskId: string) => {
-    await removeDependency.mutateAsync({ taskId: task.id, predecessorTaskId })
+    try {
+      await removeDependency.mutateAsync({ taskId: task.id, predecessorTaskId })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось удалить связь задач'))
+    }
+  }
+
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onOpenChange(false)
+      return
+    }
+    if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return
+    const target = event.target as HTMLElement | null
+    if (!target) return
+    const tagName = target.tagName
+    if (tagName === 'TEXTAREA') return
+    if (target.closest('[data-enter-ignore="true"]')) return
+    event.preventDefault()
+    event.stopPropagation()
+    void handleStatusSaveAndClose()
   }
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-[95vw] max-w-4xl h-[88vh]">
+        <DialogContent className="w-[95vw] max-w-6xl h-[88vh]" onKeyDown={handleDialogKeyDown}>
           <DialogHeader>
             <DialogTitle>{task.title}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 overflow-y-auto pr-1 h-full">
+          <div className="grid gap-4 overflow-y-auto pr-1 h-full lg:grid-cols-2">
             {/* Priority & Status */}
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap lg:col-span-2">
               <span
                 className={`text-xs px-2 py-1 rounded-full font-medium ${PRIORITY_COLORS[controlSki ? 'critical' : priority]}`}
               >
@@ -319,14 +481,12 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 <option value="critical">critical</option>
               </select>
               <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+                <span>Контроль СКИ</span>
+                <Switch
                   checked={controlSki}
-                  onChange={(e) => void handleControlSkiChange(e.target.checked)}
-                  className="h-4 w-4"
+                  onCheckedChange={(checked) => void handleControlSkiChange(checked)}
                   disabled={updateTask.isPending}
                 />
-                Контроль СКИ
               </label>
               <select
                 value={status}
@@ -342,10 +502,18 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               <Button
                 size="sm"
                 variant="outline"
-                onClick={handleStatusSave}
+                onClick={() => void handleStatusSave()}
                 disabled={updateStatus.isPending}
               >
                 {updateStatus.isPending ? 'Сохранение...' : 'Обновить статус'}
+              </Button>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => void handleStatusSaveAndClose()}
+                disabled={updateStatus.isPending}
+              >
+                {updateStatus.isPending ? 'Сохранение...' : 'Обновить и закрыть (Enter)'}
               </Button>
             </div>
 
@@ -373,7 +541,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               <p className="text-sm text-muted-foreground">{task.description}</p>
             )}
 
-            <div className="rounded-lg border p-3 space-y-2">
+            <div className="rounded-lg border p-3 space-y-2" data-enter-ignore="true">
               <p className="text-sm font-medium">Check-in (без смены статуса)</p>
               <p className="text-xs text-muted-foreground">
                 Последний check-in: {task.last_check_in_at ? new Date(task.last_check_in_at).toLocaleString('ru-RU') : 'нет'}
@@ -403,12 +571,11 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 />
               </div>
               <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+                <span>Нужна помощь менеджера</span>
+                <Switch
                   checked={needManagerHelp}
-                  onChange={(e) => setNeedManagerHelp(e.target.checked)}
+                  onCheckedChange={setNeedManagerHelp}
                 />
-                Нужна помощь менеджера
               </label>
               <Button
                 size="sm"
@@ -421,9 +588,40 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
             </div>
 
             <div className="rounded-lg border p-3 space-y-2">
+              <p className="text-sm font-medium">Родительская задача (структура)</p>
+              <p className="text-xs text-muted-foreground">
+                Это только иерархия. Для блокировки старта используйте раздел зависимостей ниже.
+              </p>
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedParentTaskId}
+                  onChange={(e) => setSelectedParentTaskId(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
+                >
+                  <option value="">Без родителя</option>
+                  {taskHierarchyOptions.ordered
+                    .filter((candidate) => !blockedParentIds.has(candidate.id))
+                    .map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(candidate.id) ?? 0)}${taskNumbering.get(candidate.id) ?? ''} ${candidate.title}`}
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSaveParentTask}
+                  disabled={updateTask.isPending}
+                >
+                  Сохранить
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border p-3 space-y-2">
               <p className="text-sm font-medium">Связанные задачи (зависимости)</p>
               <p className="text-xs text-muted-foreground">
-                Текущая задача не стартует, пока не завершатся выбранные предшественники.
+                FS блокирует старт до завершения предшественника. SS/FF синхронизируют старт/финиш.
               </p>
               <div className="flex items-center gap-2">
                 <select
@@ -432,11 +630,11 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   className="text-sm border rounded px-2 py-1 bg-background flex-1"
                 >
                   <option value="">Выберите предшественника</option>
-                  {projectTasks
+                  {taskHierarchyOptions.ordered
                     .filter((t) => t.id !== task.id)
                     .map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.title}
+                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(t.id) ?? 0)}${taskNumbering.get(t.id) ?? ''} ${t.title}`}
                       </option>
                     ))}
                 </select>
@@ -449,6 +647,28 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   Добавить
                 </Button>
               </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={newDependencyType}
+                  onChange={(e) =>
+                    setNewDependencyType(e.target.value as 'finish_to_start' | 'start_to_start' | 'finish_to_finish')
+                  }
+                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
+                >
+                  <option value="finish_to_start">FS (Окончание-Начало)</option>
+                  <option value="start_to_start">SS (Начало-Начало)</option>
+                  <option value="finish_to_finish">FF (Окончание-Окончание)</option>
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={newDependencyLagDays}
+                  onChange={(e) => setNewDependencyLagDays(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-background w-28"
+                  placeholder="Лаг, дни"
+                />
+              </div>
               <div className="space-y-1">
                 {dependencies.length === 0 && (
                   <p className="text-xs text-muted-foreground">Связей пока нет.</p>
@@ -457,7 +677,13 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   const predecessor = projectTasks.find((t) => t.id === dep.predecessor_task_id)
                   return (
                     <div key={`${dep.predecessor_task_id}-${dep.successor_task_id}`} className="flex items-center justify-between text-sm border rounded px-2 py-1">
-                      <span>{predecessor?.title ?? dep.predecessor_task_id}</span>
+                      <span>
+                        {predecessor?.title ?? dep.predecessor_task_id}
+                        <span className="text-xs text-muted-foreground ml-1">
+                          · {DEPENDENCY_TYPE_LABELS[dep.dependency_type] ?? dep.dependency_type}
+                          {dep.lag_days > 0 ? ` · +${dep.lag_days}д` : ''}
+                        </span>
+                      </span>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -487,9 +713,9 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   }
                   className="text-sm border rounded px-2 py-1 bg-background flex-1 min-h-[96px]"
                 >
-                  {users.map((u) => (
+                  {assigneeOptions.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name} ({u.role})
+                      {formatUserDisplayName(u)} ({u.role})
                     </option>
                   ))}
                 </select>
@@ -550,7 +776,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                             <div className="flex items-center justify-between text-muted-foreground">
                               <span>
                                 {new Date(change.created_at).toLocaleDateString('ru-RU')}
-                                {change.changed_by && ` · ${change.changed_by.name}`}
+                                {change.changed_by && ` · ${formatUserDisplayName(change.changed_by)}`}
                               </span>
                               <span>
                                 {new Date(change.old_date).toLocaleDateString('ru-RU')} →{' '}
@@ -573,12 +799,11 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               )}
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
+                  <span>Эскалация на руководителя</span>
+                  <Switch
                     checked={isEscalation}
-                    onChange={(e) => setIsEscalation(e.target.checked)}
+                    onCheckedChange={setIsEscalation}
                   />
-                  Эскалация на руководителя
                 </label>
                 {isEscalation && (
                   <div className="space-y-2">
@@ -616,7 +841,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               </div>
             </div>
 
-            <div className="space-y-2 border-t pt-3">
+            <div className="space-y-2 border-t pt-3" data-enter-ignore="true">
               <p className="text-sm font-medium">Комментарии</p>
               <div className="space-y-2 max-h-32 overflow-auto">
                 {comments.length === 0 && (
@@ -624,7 +849,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 )}
                 {comments.map((c) => (
                   <div key={c.id} className="text-xs rounded border p-2">
-                    <p className="font-medium">{c.author?.name ?? 'Пользователь'}</p>
+                    <p className="font-medium">{formatUserDisplayName(c.author) || 'Пользователь'}</p>
                     <p className="text-muted-foreground">{c.body}</p>
                   </div>
                 ))}
@@ -652,7 +877,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   <div key={e.id} className="text-xs text-muted-foreground">
                     <span>
                       {new Date(e.created_at).toLocaleString('ru')}
-                      {e.actor?.name ? ` · ${e.actor.name}` : ''}
+                      {e.actor ? ` · ${formatUserDisplayName(e.actor)}` : ''}
                       {' · '}
                       {formatTaskEvent(e.event_type, e.payload)}
                     </span>
@@ -665,7 +890,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end pt-2 lg:col-span-2">
               <Button variant="destructive" size="sm" onClick={handleDelete}>
                 <Trash2 className="w-4 h-4 mr-1" />
                 Удалить

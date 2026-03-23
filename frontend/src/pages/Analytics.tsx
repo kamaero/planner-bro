@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Download, AlertTriangle, Activity } from 'lucide-react'
 import { ActivityHeatmap } from '@/components/ActivityHeatmap/ActivityHeatmap'
 import type { Task, Project } from '@/types'
+import { formatUserDisplayName } from '@/lib/userName'
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
@@ -69,7 +70,7 @@ function exportCSV(tasks: Task[], projects: Project[]) {
       t.title,
       STATUS_LABELS[t.status] ?? t.status,
       PRIORITY_LABELS[t.priority] ?? t.priority,
-      t.assignee?.name ?? '',
+      formatUserDisplayName(t.assignee) ?? '',
       t.start_date ?? '',
       t.end_date ?? '',
       String(t.estimated_hours ?? ''),
@@ -143,7 +144,7 @@ export function Analytics() {
   tasks.forEach((t) => {
     if (t.assignee) {
       if (!assigneeCounts[t.assigned_to_id!]) {
-        assigneeCounts[t.assigned_to_id!] = { name: t.assignee.name, count: 0 }
+        assigneeCounts[t.assigned_to_id!] = { name: formatUserDisplayName(t.assignee), count: 0 }
       }
       assigneeCounts[t.assigned_to_id!].count++
     }

@@ -720,7 +720,8 @@ async def update_user_permissions(
             if conflict.scalar_one_or_none():
                 raise HTTPException(status_code=400, detail="Work email already registered")
         payload["work_email"] = normalized_work_email
-
+    if "manager_id" in payload and payload["manager_id"] == user.id:
+        raise HTTPException(status_code=400, detail="User cannot be their own manager")
     if "visibility_scope" in payload:
         payload["visibility_scope"] = _validate_visibility_scope(payload.get("visibility_scope"), current_user)
     if "own_tasks_visibility_enabled" in payload:
@@ -735,7 +736,7 @@ async def update_user_permissions(
         current_id: str | None = new_manager_id
         while current_id:
             if current_id == user.id:
-                raise HTTPException(status_code=400, detail="\u041e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d \u0446\u0438\u043a\u043b \u0432 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438 \u043c\u0435\u043d\u0435\u0434\u0436\u0435\u0440\u043e\u0432")
+                raise HTTPException(status_code=400, detail="Обнаружен цикл в иерархии менеджеров")
             if current_id in visited:
                 break
             visited.add(current_id)

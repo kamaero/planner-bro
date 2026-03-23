@@ -32,7 +32,7 @@ def _fio_short(value: str | None) -> str:
     cleaned = re.sub(r"\s+", " ", value).strip()
     if not cleaned:
         return ""
-    match = re.search(r"([\u0410-\u042f\u0401A-Z][\u0430-\u044f\u0451a-z-]+)\s+([\u0410-\u042f\u0401A-Z])\.?\s*([\u0410-\u042f\u0401A-Z])\.?", cleaned)
+    match = re.search(r"([А-ЯЁA-Z][а-яёa-z-]+)\s+([А-ЯЁA-Z])\.?\s*([А-ЯЁA-Z])\.?", cleaned)
     if match:
         return f"{match.group(1).lower()} {match.group(2).lower()}.{match.group(3).lower()}."
     parts = cleaned.split(" ")
@@ -107,13 +107,13 @@ def _drafts_from_ms_project_file(content: bytes) -> tuple[list[dict], int]:
             title = f"{item.outline_number} {title}"
         extra_parts: list[str] = []
         if item.department:
-            extra_parts.append(f"\u041e\u0442\u0434\u0435\u043b: {item.department}")
+            extra_parts.append(f"Отдел: {item.department}")
         if item.bureau:
-            extra_parts.append(f"\u0411\u044e\u0440\u043e: {item.bureau}")
+            extra_parts.append(f"Бюро: {item.bureau}")
         if item.task_kind:
-            extra_parts.append(f"\u0412\u0438\u0434 \u0437\u0430\u0434\u0430\u0447\u0438: {item.task_kind}")
+            extra_parts.append(f"Вид задачи: {item.task_kind}")
         if item.customer:
-            extra_parts.append(f"\u0417\u0430\u043a\u0430\u0437\u0447\u0438\u043a: {item.customer}")
+            extra_parts.append(f"Заказчик: {item.customer}")
         merged_description = item.description
         if extra_parts:
             prefix = " | ".join(extra_parts)
@@ -240,8 +240,11 @@ async def _async_process_file_for_ai(job_id: str, prompt_instruction: str | None
                 try:
                     drafts, source_skipped_rows = _drafts_from_ms_project_file(raw)
                 except ValueError as exc:
+                    # For explicit .mpp uploads keep clear error; otherwise fallback to generic AI parser.
                     if lower_name.endswith(".mpp"):
                         raise
+                # Some XLSX files are not structured as project-plan tables.
+                # If parser returned nothing, fallback to generic AI text extraction.
                 if lower_name.endswith(".xlsx") and drafts is not None and len(drafts) == 0:
                     drafts = None
 

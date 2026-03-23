@@ -59,6 +59,8 @@ from app.services.project_route_ai_service import (
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
+
+
 @router.get("/", response_model=list[ProjectOut])
 async def list_projects(
     current_user: User = Depends(get_current_user),
@@ -345,6 +347,38 @@ async def reject_ai_drafts_bulk(
         draft_ids=data.draft_ids,
         actor_id=current_user.id,
     )
+
+
+@router.post("/{project_id}/ai-drafts/reject-bulk", response_model=list[AITaskDraftOut])
+async def reject_ai_drafts_bulk(
+    project_id: str,
+    data: AITaskDraftBulkRejectRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_access(project_id, current_user, db)
+    result = await db.execute(
+        select(AITaskDraft)
+        .where(
+            AITaskDraft.project_id == project_id,
+            AITaskDraft.id.in_(data.draft_ids),
+        )
+        .options(selectinload(AITaskDraft.assignee))
+    )
+    drafts = result.scalars().all()
+    draft_map = {d.id: d for d in drafts}
+    rejected: list[AITaskDraft] = []
+    for draft_id in data.draft_ids:
+        draft = draft_map.get(draft_id)
+        if not draft or draft.status != "pending":
+            continue
+        draft.status = "rejected"
+        draft.approved_by_id = current_user.id
+        rejected.append(draft)
+    for file_id in {d.project_file_id for d in rejected}:
+        await _maybe_archive_processed_file(project_id, file_id, current_user.id, db)
+    await db.commit()
+    return rejected
 
 
 @router.post("/{project_id}/ai-drafts/{draft_id}/reject", response_model=AITaskDraftOut)

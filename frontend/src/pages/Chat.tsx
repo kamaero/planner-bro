@@ -6,6 +6,7 @@ import { api } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import type { ChatMessage, ChatUnreadSummary, User } from '@/types'
 import { Button } from '@/components/ui/button'
+import { formatUserDisplayName } from '@/lib/userName'
 
 function cn(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(' ')
@@ -62,7 +63,10 @@ export function Chat() {
   })
 
   const teamList = useMemo(
-    () => users.filter((u) => u.is_active !== false && u.id !== currentUser?.id).sort((a, b) => a.name.localeCompare(b.name, 'ru')),
+    () =>
+      users
+        .filter((u) => u.is_active !== false && u.id !== currentUser?.id)
+        .sort((a, b) => formatUserDisplayName(a).localeCompare(formatUserDisplayName(b), 'ru')),
     [users, currentUser?.id]
   )
 
@@ -107,18 +111,29 @@ export function Chat() {
     messageListRef.current.scrollTop = messageListRef.current.scrollHeight
   }, [messages.length])
 
+  const userById = useMemo(() => {
+    const map = new Map<string, User>()
+    for (const user of users) map.set(user.id, user)
+    return map
+  }, [users])
+
+  const displayUserName = (user?: User | null) => formatUserDisplayName(user) || user?.name || 'Пользователь'
+  const mentionLabel = (user: User) => displayUserName(user)
+  const displaySenderName = (msg: ChatMessage) =>
+    displayUserName(userById.get(msg.sender_id)) || msg.sender_name || 'Пользователь'
+
   const mentionCandidates = useMemo(() => {
     const q = mentionQuery.trim().toLowerCase()
     if (!mentionOpen) return [] as User[]
     if (!q) return teamList.slice(0, 8)
-    return teamList.filter((u) => u.name.toLowerCase().includes(q)).slice(0, 8)
+    return teamList.filter((u) => mentionLabel(u).toLowerCase().includes(q)).slice(0, 8)
   }, [mentionOpen, mentionQuery, teamList])
 
   const openGlobal = () => setSearchParams({ mode: 'global' })
   const openDirect = (user: User) => setSearchParams({ mode: 'direct', peer: user.id })
 
   const insertMention = (user: User) => {
-    insertMentionByName(user.name)
+    insertMentionByName(mentionLabel(user))
   }
 
   const insertMentionByName = (name: string) => {
@@ -235,7 +250,7 @@ export function Chat() {
                 )}
               >
                 <Users className="h-4 w-4" />
-                <span className="truncate">{member.name}</span>
+                <span className="truncate">{displayUserName(member)}</span>
                 {(unreadDirectMap.get(member.id) ?? 0) > 0 && (
                   <span className="ml-auto rounded-full bg-primary px-1.5 py-0 text-[10px] text-primary-foreground">
                     {unreadDirectMap.get(member.id)}
@@ -250,7 +265,7 @@ export function Chat() {
           <div className="mb-3 flex items-center justify-between gap-3 border-b pb-2">
             <div>
               <h1 className="text-base font-semibold">
-                {mode === 'global' ? 'Общий чат команды' : `Личный чат: ${selectedPeer?.name ?? '—'}`}
+                {mode === 'global' ? 'Общий чат команды' : `Личный чат: ${displayUserName(selectedPeer) || '—'}`}
               </h1>
               <p className="text-xs text-muted-foreground">
                 {mode === 'global'
@@ -276,10 +291,10 @@ export function Chat() {
                             type="button"
                             className="font-medium hover:text-foreground"
                             onClick={() => {
-                              if (msg.sender_id !== currentUser?.id) insertMentionByName(msg.sender_name)
+                              if (msg.sender_id !== currentUser?.id) insertMentionByName(displaySenderName(msg))
                             }}
                           >
-                            {msg.sender_name}
+                            {displaySenderName(msg)}
                           </button>
                           <span>· {formatTime(msg.created_at)}</span>
                         </div>
@@ -317,7 +332,7 @@ export function Chat() {
                     onClick={() => insertMention(candidate)}
                     className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-accent"
                   >
-                    @{candidate.name}
+                    @{mentionLabel(candidate)}
                   </button>
                 ))}
               </div>
@@ -326,7 +341,11 @@ export function Chat() {
               ref={textareaRef}
               rows={3}
               value={chatInput}
-              placeholder={mode === 'global' ? 'Написать в общий чат... (используйте @имя)' : `Сообщение для ${selectedPeer?.name ?? 'коллеги'}...`}
+              placeholder={
+                mode === 'global'
+                  ? 'Написать в общий чат... (используйте @имя)'
+                  : `Сообщение для ${displayUserName(selectedPeer) || 'коллеги'}...`
+              }
               onChange={(e) => {
                 const value = e.target.value
                 setChatInput(value)
@@ -376,7 +395,7 @@ export function Chat() {
                     className="rounded border px-1.5 py-0.5 text-xs hover:bg-accent"
                     onClick={() => insertMention(member)}
                   >
-                    @{member.name}
+                    @{mentionLabel(member)}
                   </button>
                 ))}
               </div>
