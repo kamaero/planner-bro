@@ -1,7 +1,43 @@
 import { useState, type FormEvent } from 'react'
 import { humanizeApiError } from '@/lib/errorMessages'
-import type { ProjectEditFormState } from '@/components/ProjectEditDialog/ProjectEditDialog'
-import type { ProjectTaskFormState } from '@/components/ProjectTaskCreateDialog/ProjectTaskCreateDialog'
+
+export interface ProjectTaskFormState {
+  title: string
+  description: string
+  priority: string
+  control_ski: boolean
+  progress_percent: string
+  next_step: string
+  start_date: string
+  end_date: string
+  estimated_hours: string
+  assigned_to_id: string
+  assignee_ids: string[]
+  parent_task_id: string
+  predecessor_task_ids: string[]
+  is_escalation: boolean
+  escalation_for: string
+  escalation_sla_hours: string
+  repeat_every_days: string
+}
+
+export interface ProjectEditFormState {
+  name: string
+  description: string
+  status: string
+  priority: string
+  control_ski: boolean
+  planning_mode: boolean
+  strict_no_past_start_date: boolean
+  strict_no_past_end_date: boolean
+  strict_child_within_parent_dates: boolean
+  launch_basis_text: string
+  launch_basis_file_id: string
+  start_date: string
+  end_date: string
+  owner_id: string
+  completion_checklist: unknown[]
+}
 
 const DEFAULT_TASK_FORM: ProjectTaskFormState = {
   title: '',
