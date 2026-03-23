@@ -44,38 +44,23 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
 # 10.0.2.2 is the Android emulator's host loopback address
 ```
 
-### Production deploy (rsync from local, recommended)
+### Production deploy
 ```bash
-# Full deploy (backend + frontend):
-./scripts/deploy-prod.sh
-
-# Backend only (faster, skip frontend rebuild):
-SKIP_FRONTEND=1 ./scripts/deploy-prod.sh
-
-# Individual helper scripts:
-./scripts/deploy-prod-backend.sh   # rsync backend + restart containers
-./scripts/deploy-frontend-dist.sh  # build locally, rsync dist/ to VPS nginx
-```
-
-### Production deploy (manual, on VPS directly)
-```bash
-# First-time setup — clone the repo (requires deploy key, see below):
-cd /opt
-git clone git@github-planner:kamaero/planner-bro.git planner-bro-git
-
-# Subsequent deploys — SSH in and pull:
-ssh root@95.164.92.165
+# Standard deploy (SSH into VPS, pull, restart):
+ssh planner_bro
 cd /opt/planner-bro
 git pull
 docker compose -f docker-compose.prod.yml up -d --build backend celery_worker celery_beat nginx
 ```
 
-**Deploy key for VPS** (read-only access to the private repo):
-Add this public key to https://github.com/kamaero/planner-bro/settings/keys
+`/opt/planner-bro` is a git repo pointing to `git@github.com:kamaero/planner-bro.git`.
+Only merge to `main` what is ready to deploy — `git pull` on VPS goes straight to production.
+
+**Deploy key for VPS** (read-write access):
+Key name on GitHub: `planner-bro-vps-rw`
 ```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILLfE3OprmuN3OLalz6w3QTUfdtMmkxISQe6Rbcg6lPe planner-bro-vps-deploy
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBINhXzb6pigNidyaK6jnm6vX6nlppbCcHta5ftgdxSj planner-bro-vps-rw
 ```
-The VPS SSH config (`/root/.ssh/config`) already has the `github-planner` alias pointing to this key.
 
 ## Architecture
 
