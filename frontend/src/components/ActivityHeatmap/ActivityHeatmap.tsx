@@ -29,9 +29,8 @@ function buildWeeks(daysData: Record<string, number>): Cell[][] {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  // Start 52 full weeks back, aligned to Sunday
-  const start = new Date(today)
-  start.setDate(today.getDate() - 52 * 7)
+  // Start from Jan 1 2026, aligned to the nearest preceding Sunday
+  const start = new Date(2026, 0, 1)
   start.setDate(start.getDate() - start.getDay())
 
   const weeks: Cell[][] = []
@@ -69,9 +68,11 @@ const CELL_GAP = 2
 export function ActivityHeatmap() {
   const [tooltip, setTooltip] = useState<{ date: string; count: number; x: number; y: number } | null>(null)
 
+  const daysSinceJan2026 = Math.ceil((Date.now() - new Date(2026, 0, 1).getTime()) / 86400000) + 1
+
   const { data, isLoading } = useQuery<ActivityHeatmapData>({
     queryKey: ['activity-heatmap'],
-    queryFn: () => api.getActivityHeatmap(),
+    queryFn: () => api.getActivityHeatmap(daysSinceJan2026),
     staleTime: 5 * 60 * 1000,
   })
 
@@ -98,7 +99,7 @@ export function ActivityHeatmap() {
       {/* Legend row */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <span className="text-sm text-muted-foreground">
-          {totalEvents.toLocaleString('ru-RU')} событий за последний год
+          {totalEvents.toLocaleString('ru-RU')} событий с января 2026
         </span>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span>Меньше</span>
