@@ -55,7 +55,7 @@ async def create_dep(db: AsyncSession, task_id: str, data: dict) -> dict:
         status=data.get("status", "waiting"),
     )
     db.add(dep)
-    await db.flush()
+    await db.commit()
     await db.refresh(dep)
     return _to_dict(dep)
 
@@ -72,7 +72,7 @@ async def update_dep(db: AsyncSession, dep_id: str, data: dict) -> dict | None:
     if "due_date" in data:
         dep.due_date = _parse_date(data["due_date"])
     dep.updated_at = datetime.now(timezone.utc)
-    await db.flush()
+    await db.commit()
     await db.refresh(dep)
     return _to_dict(dep)
 
@@ -84,5 +84,5 @@ async def delete_dep(db: AsyncSession, dep_id: str) -> bool:
     if not dep:
         return False
     await db.delete(dep)
-    await db.flush()
+    await db.commit()
     return True

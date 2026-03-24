@@ -914,7 +914,7 @@ async def create_external_contractor(
         raise HTTPException(status_code=422, detail="name is required")
     c = ExternalContractor(name=name)
     db.add(c)
-    await db.flush()
+    await db.commit()
     await db.refresh(c)
     return {"id": c.id, "name": c.name}
 
@@ -931,7 +931,7 @@ async def delete_external_contractor(
     )).scalar_one_or_none()
     if c:
         await db.delete(c)
-        await db.flush()
+        await db.commit()
 
 
 @router.get("/workload")
