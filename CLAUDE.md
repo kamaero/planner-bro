@@ -216,6 +216,14 @@ Migration chain (`backend/alembic/versions/`):
 | 0017 | `task_assignees.py` | many-to-many assignees (`task_assignees`) + migration from `assigned_to_id` |
 | 0018 | `task_status_planning.py` | adds `planning` value to `task_status` enum (default task status) |
 | 0019 | `email_dispatch_logs.py` | `email_dispatch_logs` table for SMTP activity monitor in sidebar |
+| 0020–0033 | *(service-layer refactor batch)* | Various schema additions from codex branch refactor |
+| 0034 | `dependency_graph.py` | Dependency graph visualisation support fields |
+| 0035 | `time_tracking.py` | `estimated_hours`, `actual_hours` on tasks; `time_entries` table |
+| 0036 | `custom_fields.py` | `project_custom_fields` + `task_custom_field_values` tables |
+| 0037 | `task_external_deps.py` | `task_external_deps` table; `ext_dep_status` enum (waiting/testing/received/overdue) |
+| 0038 | `external_contractors.py` | `external_contractors` table (id, name, created_at) |
+
+**FastAPI route ordering gotcha**: static paths (e.g. `/workload`, `/external-contractors`) MUST be defined **before** any parameterised catch-all route (e.g. `/{user_id}`) in the same router. Otherwise FastAPI matches the static segment as a path parameter. A warning comment has been added above the `/{user_id}` catch-all in `users.py`.
 
 Alembic runs automatically on container start via the `command:` in `docker-compose.yml`.
 
