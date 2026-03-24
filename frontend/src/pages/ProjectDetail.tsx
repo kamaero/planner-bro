@@ -927,7 +927,7 @@ export function ProjectDetail() {
           disabled={analyzeProject.isPending}
           title="AI-анализ проекта"
         >
-          <BrainCircuit className="w-4 h-4 mr-1" />
+          <BrainCircuit className="w-4 h-4 shrink-0 mr-1" />
           {analyzeProject.isPending ? 'Анализ...' : 'AI Анализ'}
         </Button>
 
