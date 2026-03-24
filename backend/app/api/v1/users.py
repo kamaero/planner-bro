@@ -965,6 +965,7 @@ async def list_online_users(
     return [{"id": row.id, "name": row.name} for row in result.all()]
 
 
+# !! KEEP THIS LAST among GET routes — any GET "/{path}" added below will be shadowed by this !!
 @router.get("/{user_id}", response_model=UserOut)
 async def get_user(
     user_id: str,
