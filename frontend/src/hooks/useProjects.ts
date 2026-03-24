@@ -410,6 +410,9 @@ export function useBulkUpdateTasks() {
         control_ski?: boolean
         assigned_to_id?: string | null
         delete?: boolean
+        end_date_shift_days?: number
+        deadline_change_reason?: string
+        target_project_id?: string
       }
     }) => api.bulkUpdateTasks(projectId, data) as Promise<TaskBulkUpdateResult>,
     onSuccess: (_, { projectId }) => {
