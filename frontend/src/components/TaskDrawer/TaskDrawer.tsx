@@ -912,7 +912,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
             </div>
 
             {/* External deps / contractors */}
-            <div className="border-t pt-3">
+            <div className="border-t pt-3" data-enter-ignore="true">
               <ExternalDepsPanel taskId={task.id} />
             </div>
 
