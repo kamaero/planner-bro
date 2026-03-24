@@ -696,6 +696,35 @@ export interface ExternalDep {
   created_at: string
 }
 
+export interface ExternalContractor {
+  id: string
+  name: string
+}
+
+export function useExternalContractors() {
+  return useQuery<ExternalContractor[]>({
+    queryKey: ['external-contractors'],
+    queryFn: () => api.listExternalContractors(),
+    staleTime: 60_000,
+  })
+}
+
+export function useCreateExternalContractor() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => api.createExternalContractor(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['external-contractors'] }),
+  })
+}
+
+export function useDeleteExternalContractor() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteExternalContractor(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['external-contractors'] }),
+  })
+}
+
 export function useExternalDeps(taskId: string) {
   return useQuery<ExternalDep[]>({
     queryKey: ['external-deps', taskId],

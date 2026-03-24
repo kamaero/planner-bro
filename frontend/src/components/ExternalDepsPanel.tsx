@@ -1,18 +1,19 @@
 /**
  * ExternalDepsPanel — shown in TaskDrawer.
- * Manage external contractor dependencies (blockers) for a task.
+ * Pick a contractor from the global list, set status and optional due date.
  */
 import { useState } from 'react'
 import { Plus, Trash2, Pencil, Check, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   useExternalDeps,
   useCreateExternalDep,
   useUpdateExternalDep,
   useDeleteExternalDep,
+  useExternalContractors,
   type ExternalDep,
 } from '@/hooks/useProjects'
+import { humanizeApiError } from '@/lib/errorMessages'
 
 const STATUS_LABELS: Record<string, string> = {
   waiting:  'Ждём',
@@ -30,23 +31,13 @@ const STATUS_COLORS: Record<string, string> = {
 
 const STATUSES = ['waiting', 'testing', 'received', 'overdue'] as const
 
-interface Props {
-  taskId: string
-}
+interface Props { taskId: string }
 
 interface DraftDep {
   contractor_name: string
-  description: string
   due_date: string
   status: string
 }
-
-const emptyDraft = (): DraftDep => ({
-  contractor_name: '',
-  description: '',
-  due_date: '',
-  status: 'waiting',
-})
 
 function DepForm({
   initial,
@@ -60,32 +51,31 @@ function DepForm({
   saving: boolean
 }) {
   const [d, setD] = useState<DraftDep>(initial)
-  const set = (k: keyof DraftDep, v: string) => setD((prev) => ({ ...prev, [k]: v }))
+  const { data: contractors = [] } = useExternalContractors()
 
   return (
     <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
-      <Input
-        className="h-8 text-sm"
-        placeholder="Подрядчик / компания *"
+      <select
         value={d.contractor_name}
-        onChange={(e) => set('contractor_name', e.target.value)}
-      />
-      <Input
-        className="h-8 text-sm"
-        placeholder="Что ожидаем"
-        value={d.description}
-        onChange={(e) => set('description', e.target.value)}
-      />
+        onChange={(e) => setD((p) => ({ ...p, contractor_name: e.target.value }))}
+        className="w-full h-8 text-sm border rounded px-2 bg-background"
+      >
+        <option value="">— выберите подрядчика —</option>
+        {contractors.map((c) => (
+          <option key={c.id} value={c.name}>{c.name}</option>
+        ))}
+      </select>
       <div className="flex gap-2">
         <input
           type="date"
           value={d.due_date}
-          onChange={(e) => set('due_date', e.target.value)}
+          onChange={(e) => setD((p) => ({ ...p, due_date: e.target.value }))}
           className="flex-1 h-8 text-sm border rounded px-2 bg-background"
+          placeholder="Срок"
         />
         <select
           value={d.status}
-          onChange={(e) => set('status', e.target.value)}
+          onChange={(e) => setD((p) => ({ ...p, status: e.target.value }))}
           className="h-8 text-sm border rounded px-2 bg-background"
         >
           {STATUSES.map((s) => (
@@ -98,10 +88,9 @@ function DepForm({
           <X className="w-3.5 h-3.5" />
         </Button>
         <Button
-          size="sm"
-          className="h-7"
+          size="sm" className="h-7"
           onClick={() => onSave(d)}
-          disabled={!d.contractor_name.trim() || saving}
+          disabled={!d.contractor_name || saving}
         >
           <Check className="w-3.5 h-3.5 mr-1" />
           {saving ? 'Сохранение...' : 'Сохранить'}
@@ -111,40 +100,27 @@ function DepForm({
   )
 }
 
-function DepRow({
-  dep,
-  taskId,
-}: {
-  dep: ExternalDep
-  taskId: string
-}) {
+function DepRow({ dep, taskId }: { dep: ExternalDep; taskId: string }) {
   const [editing, setEditing] = useState(false)
   const updateDep = useUpdateExternalDep()
   const deleteDep = useDeleteExternalDep()
 
   const handleSave = async (d: DraftDep) => {
-    await updateDep.mutateAsync({
-      taskId,
-      depId: dep.id,
-      data: {
-        contractor_name: d.contractor_name,
-        description: d.description || null,
-        due_date: d.due_date || null,
-        status: d.status,
-      },
-    })
-    setEditing(false)
+    try {
+      await updateDep.mutateAsync({
+        taskId, depId: dep.id,
+        data: { contractor_name: d.contractor_name, due_date: d.due_date || null, status: d.status },
+      })
+      setEditing(false)
+    } catch (err: any) {
+      window.alert(humanizeApiError(err, 'Не удалось обновить'))
+    }
   }
 
   if (editing) {
     return (
       <DepForm
-        initial={{
-          contractor_name: dep.contractor_name,
-          description: dep.description ?? '',
-          due_date: dep.due_date ?? '',
-          status: dep.status,
-        }}
+        initial={{ contractor_name: dep.contractor_name, due_date: dep.due_date ?? '', status: dep.status }}
         onSave={handleSave}
         onCancel={() => setEditing(false)}
         saving={updateDep.isPending}
@@ -153,37 +129,28 @@ function DepRow({
   }
 
   return (
-    <div className="flex items-start gap-2 rounded-lg border bg-card px-3 py-2">
-      <div className="flex-1 min-w-0 space-y-0.5">
+    <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2">
+      <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium">{dep.contractor_name}</span>
           <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLORS[dep.status]}`}>
             {STATUS_LABELS[dep.status] ?? dep.status}
           </span>
+          {dep.due_date && (
+            <span className="text-xs text-muted-foreground">
+              до {new Date(dep.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}
+            </span>
+          )}
         </div>
-        {dep.description && (
-          <p className="text-xs text-muted-foreground">{dep.description}</p>
-        )}
-        {dep.due_date && (
-          <p className="text-xs text-muted-foreground">
-            Срок: {new Date(dep.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}
-          </p>
-        )}
       </div>
       <div className="flex gap-1 shrink-0">
-        <Button
-          variant="ghost" size="sm"
-          className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-          onClick={() => setEditing(true)}
-        >
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+          onClick={() => setEditing(true)}>
           <Pencil className="w-3 h-3" />
         </Button>
-        <Button
-          variant="ghost" size="sm"
-          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
           onClick={() => deleteDep.mutate({ taskId, depId: dep.id })}
-          disabled={deleteDep.isPending}
-        >
+          disabled={deleteDep.isPending}>
           <Trash2 className="w-3 h-3" />
         </Button>
       </div>
@@ -197,16 +164,15 @@ export function ExternalDepsPanel({ taskId }: Props) {
   const [adding, setAdding] = useState(false)
 
   const handleCreate = async (d: DraftDep) => {
-    await createDep.mutateAsync({
-      taskId,
-      data: {
-        contractor_name: d.contractor_name,
-        description: d.description || null,
-        due_date: d.due_date || null,
-        status: d.status,
-      },
-    })
-    setAdding(false)
+    try {
+      await createDep.mutateAsync({
+        taskId,
+        data: { contractor_name: d.contractor_name, due_date: d.due_date || null, status: d.status },
+      })
+      setAdding(false)
+    } catch (err: any) {
+      window.alert(humanizeApiError(err, 'Не удалось добавить подрядчика'))
+    }
   }
 
   return (
@@ -216,11 +182,8 @@ export function ExternalDepsPanel({ taskId }: Props) {
           Внешние исполнители
         </p>
         {!adding && (
-          <Button
-            variant="ghost" size="sm"
-            className="h-6 text-xs px-2 text-muted-foreground"
-            onClick={() => setAdding(true)}
-          >
+          <Button variant="ghost" size="sm" className="h-6 text-xs px-2 text-muted-foreground"
+            onClick={() => setAdding(true)}>
             <Plus className="w-3 h-3 mr-1" />
             Добавить
           </Button>
@@ -232,12 +195,10 @@ export function ExternalDepsPanel({ taskId }: Props) {
       )}
 
       <div className="space-y-2">
-        {deps.map((dep) => (
-          <DepRow key={dep.id} dep={dep} taskId={taskId} />
-        ))}
+        {deps.map((dep) => <DepRow key={dep.id} dep={dep} taskId={taskId} />)}
         {adding && (
           <DepForm
-            initial={emptyDraft()}
+            initial={{ contractor_name: '', due_date: '', status: 'waiting' }}
             onSave={handleCreate}
             onCancel={() => setAdding(false)}
             saving={createDep.isPending}

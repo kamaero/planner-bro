@@ -459,6 +459,14 @@ export const api = {
       })
       .then((r) => r.data),
 
+  // Global external contractor list
+  listExternalContractors: () =>
+    apiClient.get('/users/external-contractors').then((r) => r.data),
+  createExternalContractor: (name: string) =>
+    apiClient.post('/users/external-contractors', { name }).then((r) => r.data),
+  deleteExternalContractor: (id: string) =>
+    apiClient.delete(`/users/external-contractors/${id}`),
+
   // External dependencies (contractors / blockers)
   listExternalDeps: (taskId: string) =>
     apiClient.get(`/tasks/${taskId}/external-deps`).then((r) => r.data),
