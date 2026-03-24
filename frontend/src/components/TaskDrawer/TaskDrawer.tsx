@@ -18,6 +18,7 @@ import {
 } from '@/hooks/useProjects'
 import { useUsers } from '@/hooks/useUsers'
 import { useMembers } from '@/hooks/useMembers'
+import { CustomFieldsPanel } from '@/components/CustomFieldsPanel'
 import type { Task } from '@/types'
 import { CalendarDays, Clock, User, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
@@ -902,6 +903,11 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Custom fields */}
+            <div className="border-t pt-3">
+              <CustomFieldsPanel taskId={task.id} projectId={task.project_id} />
             </div>
 
             <div className="space-y-2 border-t pt-3" data-enter-ignore="true">

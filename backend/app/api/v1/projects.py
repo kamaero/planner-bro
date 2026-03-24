@@ -57,6 +57,12 @@ from app.services.project_route_ai_service import (
     reject_ai_drafts_bulk_flow,
 )
 from app.services.retrospective_service import generate_retrospective, get_retrospective
+from app.services.custom_fields_service import (
+    list_custom_fields,
+    create_custom_field,
+    update_custom_field,
+    delete_custom_field,
+)
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
@@ -476,3 +482,56 @@ async def list_project_deadline_history(
 ):
     await require_project_access(project_id, current_user, db)
     return await list_project_deadline_history_query(db, project_id=project_id)
+
+# ── Custom field definitions ──────────────────────────────────────────────────
+
+@router.get("/{project_id}/custom-fields")
+async def list_project_custom_fields(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_project_access(project_id, current_user, db)
+    return await list_custom_fields(db, project_id)
+
+
+@router.post("/{project_id}/custom-fields", status_code=201)
+async def create_project_custom_field(
+    project_id: str,
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_project_access(project_id, current_user, db, require_manager=True)
+    return await create_custom_field(
+        db,
+        project_id=project_id,
+        name=data.get("name", ""),
+        field_type=data.get("field_type", "text"),
+        options=data.get("options"),
+        required=bool(data.get("required", False)),
+        sort_order=int(data.get("sort_order", 0)),
+    )
+
+
+@router.put("/{project_id}/custom-fields/{field_id}")
+async def update_project_custom_field(
+    project_id: str,
+    field_id: str,
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_project_access(project_id, current_user, db, require_manager=True)
+    return await update_custom_field(db, field_id=field_id, project_id=project_id, data=data)
+
+
+@router.delete("/{project_id}/custom-fields/{field_id}", status_code=204)
+async def delete_project_custom_field(
+    project_id: str,
+    field_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_project_access(project_id, current_user, db, require_manager=True)
+    await delete_custom_field(db, field_id=field_id, project_id=project_id)

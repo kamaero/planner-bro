@@ -32,6 +32,7 @@ import { api } from '@/api/client'
 import { GanttChart } from '@/components/GanttChart/GanttChart'
 import { DependencyGraphView } from '@/components/DependencyGraphView'
 import { TimeTrackingPanel } from '@/components/TimeTrackingPanel'
+import { CustomFieldsManager } from '@/components/CustomFieldsManager'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
 import { MembersPanel } from '@/components/MembersPanel/MembersPanel'
 import { TaskTable } from '@/components/TaskTable/TaskTable'
@@ -1163,6 +1164,9 @@ export function ProjectDetail() {
                       Чтобы завершить проект, отметьте все пункты чеклиста.
                     </p>
                   )}
+              </div>
+              <div className="lg:col-span-2 border-t pt-3">
+                <CustomFieldsManager projectId={id!} canManage={canManage} />
               </div>
               <Button type="submit" className="w-full lg:col-span-2" disabled={updateProject.isPending}>
                 {updateProject.isPending ? 'Сохранение...' : 'Сохранить изменения'}

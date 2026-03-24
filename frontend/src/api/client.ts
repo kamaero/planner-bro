@@ -436,4 +436,18 @@ export const api = {
     apiClient.get(`/projects/${projectId}/retrospective`).then((r) => r.data),
   generateProjectRetrospective: (projectId: string) =>
     apiClient.post(`/projects/${projectId}/retrospective`).then((r) => r.data),
+
+  // Custom fields
+  listCustomFields: (projectId: string) =>
+    apiClient.get(`/projects/${projectId}/custom-fields`).then((r) => r.data),
+  createCustomField: (projectId: string, data: object) =>
+    apiClient.post(`/projects/${projectId}/custom-fields`, data).then((r) => r.data),
+  updateCustomField: (projectId: string, fieldId: string, data: object) =>
+    apiClient.put(`/projects/${projectId}/custom-fields/${fieldId}`, data).then((r) => r.data),
+  deleteCustomField: (projectId: string, fieldId: string) =>
+    apiClient.delete(`/projects/${projectId}/custom-fields/${fieldId}`),
+  getTaskCustomValues: (taskId: string) =>
+    apiClient.get(`/tasks/${taskId}/custom-values`).then((r) => r.data),
+  saveTaskCustomValues: (taskId: string, values: Record<string, string | null>) =>
+    apiClient.put(`/tasks/${taskId}/custom-values`, values).then((r) => r.data),
 }

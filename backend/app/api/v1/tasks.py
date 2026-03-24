@@ -63,6 +63,7 @@ from app.services.task_dependency_service import (
 )
 from app.services.dependency_graph_service import get_dependency_graph
 from app.services.time_tracking_service import get_project_time_summary
+from app.services.custom_fields_service import get_task_custom_values, save_task_custom_values
 
 router = APIRouter(tags=["tasks"])
 
@@ -354,3 +355,29 @@ async def list_task_deadline_history(
     task = await get_task_or_404(db, task_id)
     await _require_project_visibility(task.project_id, current_user, db)
     return await _list_task_deadline_history(db, task_id)
+
+
+# ── Custom field values ───────────────────────────────────────────────────────
+
+@router.get("/tasks/{task_id}/custom-values")
+async def get_custom_values(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    task = await get_task_or_404(db, task_id)
+    await _require_project_visibility(task.project_id, current_user, db)
+    return await get_task_custom_values(db, task_id)
+
+
+@router.put("/tasks/{task_id}/custom-values")
+async def save_custom_values(
+    task_id: str,
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    task = await get_task_or_404(db, task_id)
+    await _require_task_editor(task_id, current_user, db)
+    # data is {field_id: value_string}
+    return await save_task_custom_values(db, task_id=task_id, values=data)

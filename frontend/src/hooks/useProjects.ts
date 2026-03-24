@@ -557,6 +557,70 @@ export function useProjectRetrospective(projectId?: string) {
   })
 }
 
+// ── Custom fields ─────────────────────────────────────────────────────────────
+
+export interface CustomFieldDef {
+  id: string
+  project_id: string
+  name: string
+  field_type: 'text' | 'number' | 'date' | 'select'
+  options: string[] | null
+  required: boolean
+  sort_order: number
+}
+
+export function useCustomFields(projectId?: string) {
+  return useQuery<CustomFieldDef[]>({
+    queryKey: ['custom-fields', projectId],
+    queryFn: () => api.listCustomFields(projectId!),
+    enabled: !!projectId,
+  })
+}
+
+export function useCreateCustomField() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, data }: { projectId: string; data: object }) =>
+      api.createCustomField(projectId, data),
+    onSuccess: (_, { projectId }) => qc.invalidateQueries({ queryKey: ['custom-fields', projectId] }),
+  })
+}
+
+export function useUpdateCustomField() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, fieldId, data }: { projectId: string; fieldId: string; data: object }) =>
+      api.updateCustomField(projectId, fieldId, data),
+    onSuccess: (_, { projectId }) => qc.invalidateQueries({ queryKey: ['custom-fields', projectId] }),
+  })
+}
+
+export function useDeleteCustomField() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, fieldId }: { projectId: string; fieldId: string }) =>
+      api.deleteCustomField(projectId, fieldId),
+    onSuccess: (_, { projectId }) => qc.invalidateQueries({ queryKey: ['custom-fields', projectId] }),
+  })
+}
+
+export function useTaskCustomValues(taskId?: string) {
+  return useQuery<Record<string, string | null>>({
+    queryKey: ['custom-values', taskId],
+    queryFn: () => api.getTaskCustomValues(taskId!),
+    enabled: !!taskId,
+  })
+}
+
+export function useSaveTaskCustomValues() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, values }: { taskId: string; values: Record<string, string | null> }) =>
+      api.saveTaskCustomValues(taskId, values),
+    onSuccess: (_, { taskId }) => qc.invalidateQueries({ queryKey: ['custom-values', taskId] }),
+  })
+}
+
 export function useGenerateRetrospective() {
   const qc = useQueryClient()
   return useMutation<RetrospectiveResult, Error, string>({

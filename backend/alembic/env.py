@@ -24,6 +24,7 @@ from app.models import (  # noqa
     AITaskDraft,
 )
 from app.models.project_retrospective import ProjectRetrospective  # noqa
+from app.models.custom_fields import ProjectCustomField, TaskCustomValue  # noqa
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL_SYNC)
