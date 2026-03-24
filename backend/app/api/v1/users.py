@@ -886,6 +886,54 @@ async def global_search(
     }
 
 
+# ---------------------------------------------------------------------------
+# External contractors (global list) — must be before /{user_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/external-contractors")
+async def list_external_contractors(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.external_contractor import ExternalContractor
+    rows = (await db.execute(
+        select(ExternalContractor).order_by(ExternalContractor.name)
+    )).scalars().all()
+    return [{"id": r.id, "name": r.name} for r in rows]
+
+
+@router.post("/external-contractors", status_code=201)
+async def create_external_contractor(
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.external_contractor import ExternalContractor
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name is required")
+    c = ExternalContractor(name=name)
+    db.add(c)
+    await db.flush()
+    await db.refresh(c)
+    return {"id": c.id, "name": c.name}
+
+
+@router.delete("/external-contractors/{contractor_id}", status_code=204)
+async def delete_external_contractor(
+    contractor_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.external_contractor import ExternalContractor
+    c = (await db.execute(
+        select(ExternalContractor).where(ExternalContractor.id == contractor_id)
+    )).scalar_one_or_none()
+    if c:
+        await db.delete(c)
+        await db.flush()
+
+
 @router.get("/workload")
 async def get_workload_calendar(
     start_date: date = Query(...),
@@ -1074,51 +1122,5 @@ async def get_org_tree(
     }
 
 
-# ---------------------------------------------------------------------------
-# External contractors (global list)
-# ---------------------------------------------------------------------------
-
-@router.get("/external-contractors")
-async def list_external_contractors(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    from app.models.external_contractor import ExternalContractor
-    rows = (await db.execute(
-        select(ExternalContractor).order_by(ExternalContractor.name)
-    )).scalars().all()
-    return [{"id": r.id, "name": r.name} for r in rows]
-
-
-@router.post("/external-contractors", status_code=201)
-async def create_external_contractor(
-    data: dict,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    from app.models.external_contractor import ExternalContractor
-    name = (data.get("name") or "").strip()
-    if not name:
-        raise HTTPException(status_code=422, detail="name is required")
-    c = ExternalContractor(name=name)
-    db.add(c)
-    await db.flush()
-    await db.refresh(c)
-    return {"id": c.id, "name": c.name}
-
-
-@router.delete("/external-contractors/{contractor_id}", status_code=204)
-async def delete_external_contractor(
-    contractor_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    from app.models.external_contractor import ExternalContractor
-    c = (await db.execute(
-        select(ExternalContractor).where(ExternalContractor.id == contractor_id)
-    )).scalar_one_or_none()
-    if c:
-        await db.delete(c)
-        await db.flush()
 
 
