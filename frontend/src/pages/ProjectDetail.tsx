@@ -24,6 +24,8 @@ import { ProjectDetailGanttSection } from '@/components/ProjectDetail/ProjectDet
 import { ProjectDetailFilesSection } from '@/components/ProjectDetail/ProjectDetailFilesSection'
 import { ProjectEditDialog } from '@/components/ProjectDetail/ProjectEditDialog'
 import type { ProjectEditFormState } from '@/components/ProjectDetail/ProjectEditDialog'
+import { ProjectTaskCreateDialog } from '@/components/ProjectDetail/ProjectTaskCreateDialog'
+import type { TaskCreateFormState } from '@/components/ProjectDetail/ProjectTaskCreateDialog'
 import { DependencyGraphView } from '@/components/DependencyGraphView'
 import { TimeTrackingPanel } from '@/components/TimeTrackingPanel'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
@@ -32,17 +34,14 @@ import { TaskTable } from '@/components/TaskTable/TaskTable'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
 import { humanizeApiError } from '@/lib/errorMessages'
 import { buildTaskHierarchy, parseTaskOrderFromTitle } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
 import type { Task, GanttTask, ProjectFile } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { useMyPermissions } from '@/hooks/useMyPermissions'
-import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp, BrainCircuit, X, GitBranch, Clock } from 'lucide-react'
+import { ArrowLeft, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp, BrainCircuit, X, GitBranch, Clock } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -123,7 +122,7 @@ export function ProjectDetail() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
-  const [taskForm, setTaskForm] = useState({
+  const [taskForm, setTaskForm] = useState<TaskCreateFormState>({
     title: '',
     description: '',
     priority: 'medium',
@@ -872,212 +871,16 @@ export function ProjectDetail() {
           </Button>
         )}
 
-        <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <Plus className="w-4 h-4 mr-1" />
-              Добавить задачу
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="w-[95vw] max-w-5xl max-h-[88vh]">
-            <DialogHeader>
-              <DialogTitle>Создать задачу</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleCreateTask} className="grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-y-auto max-h-[72vh] pr-1">
-              <div className="space-y-1 lg:col-span-2">
-                <Label>Название</Label>
-                <Input
-                  value={taskForm.title}
-                  onChange={(e) => setTaskForm((f) => ({ ...f, title: e.target.value }))}
-                  required
-                  placeholder="Название задачи"
-                />
-              </div>
-              <div className="space-y-1 lg:col-span-2">
-                <Label>Описание</Label>
-                <Input
-                  value={taskForm.description}
-                  onChange={(e) => setTaskForm((f) => ({ ...f, description: e.target.value }))}
-                  placeholder="Необязательно"
-                />
-              </div>
-              <div className="space-y-1 lg:col-span-2">
-                <Label>Приоритет</Label>
-                <div className="flex items-center gap-3">
-                  <select
-                    value={taskForm.control_ski ? 'critical' : taskForm.priority}
-                    onChange={(e) => setTaskForm((f) => ({ ...f, priority: e.target.value }))}
-                    className="w-full border rounded px-3 py-2 text-sm bg-background"
-                    disabled={taskForm.control_ski}
-                  >
-                    <option value="low">Низкий</option>
-                    <option value="medium">Средний</option>
-                    <option value="high">Высокий</option>
-                    <option value="critical">Критический</option>
-                  </select>
-                  <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-                    <span>Контроль СКИ</span>
-                    <Switch
-                      checked={taskForm.control_ski}
-                      onCheckedChange={(checked) =>
-                        setTaskForm((f) => ({
-                          ...f,
-                          control_ski: checked,
-                          priority: checked ? 'critical' : f.priority,
-                        }))
-                      }
-                    />
-                  </label>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>Прогресс, %</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={taskForm.progress_percent}
-                    onChange={(e) => setTaskForm((f) => ({ ...f, progress_percent: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Следующий шаг</Label>
-                  <Input
-                    value={taskForm.next_step}
-                    onChange={(e) => setTaskForm((f) => ({ ...f, next_step: e.target.value }))}
-                    placeholder="Необязательно"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1 lg:col-span-2">
-                <Label>Исполнитель</Label>
-                <select
-                  multiple
-                  value={taskForm.assignee_ids}
-                  onChange={(e) => {
-                    const values = Array.from(e.target.selectedOptions).map((option) => option.value)
-                    setTaskForm((f) => ({ ...f, assignee_ids: values, assigned_to_id: values[0] ?? '' }))
-                  }}
-                  className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[112px]"
-                >
-                  {projectAssigneeOptions.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {formatUserDisplayName(u)} ({u.role})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground">Можно выбрать нескольких исполнителей (Ctrl/Cmd + клик).</p>
-              </div>
-              <div className="space-y-1 lg:col-span-2">
-                <Label>Родительская задача (структура)</Label>
-                <select
-                  value={taskForm.parent_task_id}
-                  onChange={(e) => setTaskForm((f) => ({ ...f, parent_task_id: e.target.value }))}
-                  className="w-full border rounded px-3 py-2 text-sm bg-background"
-                >
-                  <option value="">Без родителя</option>
-                  {taskHierarchyOptions.ordered.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {`${'· '.repeat(taskHierarchyOptions.depthById.get(t.id) ?? 0)}${t.title}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label>Зависит от (блокировка старта)</Label>
-                <select
-                  multiple
-                  value={taskForm.predecessor_task_ids}
-                  onChange={(e) => {
-                    const values = Array.from(e.target.selectedOptions).map((option) => option.value)
-                    setTaskForm((f) => ({ ...f, predecessor_task_ids: values }))
-                  }}
-                  className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[112px]"
-                >
-                  {taskHierarchyOptions.ordered.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {`${'· '.repeat(taskHierarchyOptions.depthById.get(t.id) ?? 0)}${t.title}`}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground">
-                  Эти задачи должны быть в статусе "Выполнено", прежде чем новая задача перейдет в работу.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>Дата начала</Label>
-                  <Input
-                    type="date"
-                    value={taskForm.start_date}
-                    onChange={(e) => setTaskForm((f) => ({ ...f, start_date: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Дедлайн</Label>
-                  <Input
-                    type="date"
-                    value={taskForm.end_date}
-                    onChange={(e) => setTaskForm((f) => ({ ...f, end_date: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label>Оценка часов</Label>
-                <Input
-                  type="number"
-                  value={taskForm.estimated_hours}
-                  onChange={(e) => setTaskForm((f) => ({ ...f, estimated_hours: e.target.value }))}
-                  placeholder="например, 8"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Повторять каждые (дней)</Label>
-                <Input
-                  type="number"
-                  value={taskForm.repeat_every_days}
-                  onChange={(e) => setTaskForm((f) => ({ ...f, repeat_every_days: e.target.value }))}
-                  placeholder="например, 7"
-                />
-              </div>
-              <label className="flex items-center gap-2 text-sm lg:col-span-2">
-                <input
-                  type="checkbox"
-                  checked={taskForm.is_escalation}
-                  onChange={(e) => setTaskForm((f) => ({ ...f, is_escalation: e.target.checked }))}
-                />
-                Эскалация на руководителя
-              </label>
-              {taskForm.is_escalation && (
-                <div className="space-y-1 lg:col-span-2">
-                  <Label>Причина эскалации</Label>
-                  <Input
-                    value={taskForm.escalation_for}
-                    onChange={(e) => setTaskForm((f) => ({ ...f, escalation_for: e.target.value }))}
-                    placeholder="Что заблокировано и какое решение нужно"
-                  />
-                  <Label className="pt-2">SLA реакции (часы)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={taskForm.escalation_sla_hours}
-                    onChange={(e) =>
-                      setTaskForm((f) => ({
-                        ...f,
-                        escalation_sla_hours: e.target.value,
-                      }))
-                    }
-                    placeholder="24"
-                  />
-                </div>
-              )}
-              <Button type="submit" className="w-full lg:col-span-2" disabled={createTask.isPending}>
-                {createTask.isPending ? 'Создание...' : 'Создать задачу'}
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <ProjectTaskCreateDialog
+          open={taskDialogOpen}
+          onOpenChange={setTaskDialogOpen}
+          taskForm={taskForm}
+          setTaskForm={setTaskForm}
+          onSubmit={handleCreateTask}
+          isPending={createTask.isPending}
+          assigneeOptions={projectAssigneeOptions}
+          hierarchyOptions={taskHierarchyOptions}
+        />
       </div>
 
       <div className="rounded-lg border bg-card p-4 mb-6">
