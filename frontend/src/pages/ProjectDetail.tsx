@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   useProject,
   useGantt,
@@ -26,6 +26,7 @@ import { ProjectEditDialog } from '@/components/ProjectDetail/ProjectEditDialog'
 import type { ProjectEditFormState } from '@/components/ProjectDetail/ProjectEditDialog'
 import { ProjectTaskCreateDialog } from '@/components/ProjectDetail/ProjectTaskCreateDialog'
 import type { TaskCreateFormState } from '@/components/ProjectDetail/ProjectTaskCreateDialog'
+import { ProjectDetailHeader } from '@/components/ProjectDetail/ProjectDetailHeader'
 import { DependencyGraphView } from '@/components/DependencyGraphView'
 import { TimeTrackingPanel } from '@/components/TimeTrackingPanel'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
@@ -41,7 +42,7 @@ import { formatUserDisplayName } from '@/lib/userName'
 import type { Task, GanttTask, ProjectFile } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { useMyPermissions } from '@/hooks/useMyPermissions'
-import { ArrowLeft, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp, BrainCircuit, X, GitBranch, Clock } from 'lucide-react'
+import { Download, ChevronDown, ChevronUp, BrainCircuit, X } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -760,128 +761,44 @@ export function ProjectDetail() {
   return (
     <div className="p-6">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex items-center gap-2 flex-1">
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: project.color }} />
-          <h1 className="text-2xl font-bold">{project.name}</h1>
-          <Badge variant="secondary">{project.status}</Badge>
-          <Badge variant="outline">
-            {project.planning_mode === 'strict' ? 'strict' : 'flexible'}
-          </Badge>
-          <Badge variant="outline" className={PRIORITY_COLORS[project.control_ski ? 'critical' : project.priority]}>
-            {project.control_ski ? 'critical · СКИ' : project.priority}
-          </Badge>
-          {(project.launch_basis_text || launchBasisFile) && (
-            <Badge variant="outline">Основание запуска</Badge>
-          )}
-        </div>
-
-        <div className="flex gap-1">
-          <Button
-            variant={view === 'gantt' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setView('gantt')}
-          >
-            <BarChart2 className="w-4 h-4 mr-1" />
-            Gantt
-          </Button>
-          <Button
-            variant={view === 'list' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setView('list')}
-          >
-            <List className="w-4 h-4 mr-1" />
-            List
-          </Button>
-          <Button
-            variant={view === 'members' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setView('members')}
-          >
-            <Users className="w-4 h-4 mr-1" />
-            Members
-          </Button>
-          <Button
-            variant={view === 'files' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setView('files')}
-          >
-            <Paperclip className="w-4 h-4 mr-1" />
-            Files
-          </Button>
-          <Button
-            variant={view === 'graph' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setView('graph')}
-          >
-            <GitBranch className="w-4 h-4 mr-1" />
-            Граф
-          </Button>
-          <Button
-            variant={view === 'time' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setView('time')}
-          >
-            <Clock className="w-4 h-4 mr-1" />
-            Время
-          </Button>
-        </div>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleAiAnalysis}
-          disabled={analyzeProject.isPending}
-          title="AI-анализ проекта"
-        >
-          <BrainCircuit className="w-4 h-4 shrink-0 mr-1" />
-          {analyzeProject.isPending ? 'Анализ...' : 'AI Анализ'}
-        </Button>
-
-        <Button variant="outline" size="sm" disabled={!canManage} onClick={() => setEditOpen(true)}>
-          <Pencil className="w-4 h-4 mr-1" />
-          Редактировать
-        </Button>
-        <ProjectEditDialog
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          editForm={editForm}
-          setEditForm={setEditForm}
-          onSubmit={handleUpdateProject}
-          isPending={updateProject.isPending}
-          users={users}
-          files={files}
-          projectId={id!}
-          canManage={canManage}
-          canTransferOwnership={canTransferOwnership}
-        />
-
-        {canManage && canDelete && (
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleDeleteProject}
-            disabled={deleteProject.isPending}
-          >
-            <Trash2 className="w-4 h-4 mr-1" />
-            {deleteProject.isPending ? 'Удаление...' : 'Удалить проект'}
-          </Button>
-        )}
-
-        <ProjectTaskCreateDialog
-          open={taskDialogOpen}
-          onOpenChange={setTaskDialogOpen}
-          taskForm={taskForm}
-          setTaskForm={setTaskForm}
-          onSubmit={handleCreateTask}
-          isPending={createTask.isPending}
-          assigneeOptions={projectAssigneeOptions}
-          hierarchyOptions={taskHierarchyOptions}
-        />
-      </div>
+      <ProjectDetailHeader
+        project={project}
+        hasLaunchBasis={!!(project.launch_basis_text || launchBasisFile)}
+        priorityColorClass={PRIORITY_COLORS[project.control_ski ? 'critical' : project.priority]}
+        view={view}
+        onViewChange={setView}
+        onAiAnalysis={handleAiAnalysis}
+        aiAnalysisPending={analyzeProject.isPending}
+        canManage={canManage}
+        onEditClick={() => setEditOpen(true)}
+        canDelete={canManage && canDelete}
+        onDeleteClick={handleDeleteProject}
+        deletePending={deleteProject.isPending}
+        onAddTaskClick={() => setTaskDialogOpen(true)}
+      />
+      <ProjectEditDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        editForm={editForm}
+        setEditForm={setEditForm}
+        onSubmit={handleUpdateProject}
+        isPending={updateProject.isPending}
+        users={users}
+        files={files}
+        projectId={id!}
+        canManage={canManage}
+        canTransferOwnership={canTransferOwnership}
+      />
+      <ProjectTaskCreateDialog
+        open={taskDialogOpen}
+        onOpenChange={setTaskDialogOpen}
+        taskForm={taskForm}
+        setTaskForm={setTaskForm}
+        onSubmit={handleCreateTask}
+        isPending={createTask.isPending}
+        assigneeOptions={projectAssigneeOptions}
+        hierarchyOptions={taskHierarchyOptions}
+      />
 
       <div className="rounded-lg border bg-card p-4 mb-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
