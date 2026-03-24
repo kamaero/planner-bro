@@ -156,7 +156,7 @@ async def sync_task_assignees(
 
 
 async def serialize_assignee_ids(task: Task, db: AsyncSession) -> list[str]:
-    from sqlalchemy.orm import inspect as sa_inspect
+    from sqlalchemy import inspect as sa_inspect
     from sqlalchemy.orm.base import NO_VALUE
 
     insp = sa_inspect(task)
