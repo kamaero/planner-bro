@@ -7,8 +7,8 @@ Create Date: 2026-03-24
 from alembic import op
 import sqlalchemy as sa
 
-revision = '0037'
-down_revision = '0036'
+revision = '0037_task_external_deps'
+down_revision = '0036_custom_fields'
 branch_labels = None
 depends_on = None
 
