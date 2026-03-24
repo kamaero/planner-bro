@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { useAuthStore } from '@/store/authStore'
+import { useMyPermissions } from '@/hooks/useMyPermissions'
 import { useVaultFiles, useUploadVaultFile, useDeleteVaultFile, useVaultDownloadToken } from '@/hooks/useVault'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -72,7 +73,8 @@ function FileRow({
 
 export function TeamStorage() {
   const { user } = useAuthStore()
-  const canDelete = user?.role === 'admin' || user?.can_delete === true
+  const { permissions } = useMyPermissions()
+  const canDelete = permissions.actions.delete_vault_files
 
   const [activeFolder, setActiveFolder] = useState<string>('')
   const [search, setSearch] = useState('')

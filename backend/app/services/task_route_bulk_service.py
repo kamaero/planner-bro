@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from fastapi import HTTPException
 
+from app.models.deadline_change import DeadlineChange
+from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskAssignee
 from app.models.user import User
 from app.services.task_access_service import (
@@ -47,6 +51,21 @@ async def _notify_task_updated(db: AsyncSession, task: Task, actor_id: str | Non
     await notify_task_updated(db, task, actor_id=actor_id)
 
 
+async def _require_target_project_manager(target_project_id: str, current_user: User, db: AsyncSession) -> None:
+    """Check user is manager/owner in target project (or admin)."""
+    if current_user.role == "admin":
+        return
+    result = await db.execute(
+        select(ProjectMember).where(
+            ProjectMember.project_id == target_project_id,
+            ProjectMember.user_id == current_user.id,
+            ProjectMember.role.in_(["owner", "manager"]),
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=403, detail="Нет прав менеджера в целевом проекте")
+
+
 async def apply_bulk_task_update_flow(
     db: AsyncSession,
     *,
@@ -60,9 +79,24 @@ async def apply_bulk_task_update_flow(
     await _require_project_manager(project_id, current_user, db)
 
     task_ids = _normalize_bulk_task_ids(data_payload["task_ids"])
-    payload, delete_requested, assignee_ids = _parse_bulk_payload(data_payload)
+    payload, delete_requested, assignee_ids, end_date_shift_days, deadline_change_reason, target_project_id = (
+        _parse_bulk_payload(data_payload)
+    )
+
     if delete_requested:
         _require_delete_permission(current_user)
+
+    if end_date_shift_days is not None and not deadline_change_reason:
+        raise HTTPException(status_code=422, detail="Укажите причину изменения дедлайна")
+
+    if target_project_id is not None:
+        if target_project_id == project_id:
+            raise HTTPException(status_code=400, detail="Целевой проект совпадает с текущим")
+        # verify target project exists
+        tgt = await db.get(Project, target_project_id)
+        if tgt is None:
+            raise HTTPException(status_code=404, detail="Целевой проект не найден")
+        await _require_target_project_manager(target_project_id, current_user, db)
 
     if "status" in payload:
         _validate_task_status(payload["status"])
@@ -111,10 +145,48 @@ async def apply_bulk_task_update_flow(
         await db.commit()
         return result
 
+    # --- move tasks between projects ---
+    if target_project_id is not None:
+        task_id_set = {task.id for task in tasks}
+        for task in tasks:
+            # detach subtask from parent if parent is in original project (not being moved)
+            if task.parent_task_id and task.parent_task_id not in task_id_set:
+                task.parent_task_id = None
+            task.project_id = target_project_id
+            await log_task_event(
+                db, task.id, current_user.id, "task_moved_bulk",
+                f"project:{project_id}->{target_project_id}", None,
+            )
+            result["updated"] += 1
+        await db.commit()
+        return result
+
+    # --- regular field updates (status / priority / assignee / control_ski / etc.) ---
     for task in tasks:
         old_status = task.status
         old_assignee = task.assigned_to_id
         changed = False
+
+        # deadline shift
+        if end_date_shift_days is not None and task.end_date is not None:
+            old_end_date = task.end_date
+            task.end_date = old_end_date + timedelta(days=end_date_shift_days)
+            db.add(
+                DeadlineChange(
+                    entity_type="task",
+                    entity_id=task.id,
+                    changed_by_id=current_user.id,
+                    old_date=old_end_date,
+                    new_date=task.end_date,
+                    reason=deadline_change_reason,
+                )
+            )
+            await log_task_event(
+                db, task.id, current_user.id, "date_changed",
+                f"end:{old_end_date}->{task.end_date}",
+                deadline_change_reason,
+            )
+            changed = True
 
         if "status" in payload:
             try:

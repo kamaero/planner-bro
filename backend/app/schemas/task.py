@@ -91,6 +91,11 @@ class TaskBulkUpdateRequest(BaseModel):
     assigned_to_id: Optional[str] = None
     assignee_ids: Optional[list[str]] = None
     delete: bool = False
+    # deadline shift
+    end_date_shift_days: Optional[int] = None
+    deadline_change_reason: Optional[str] = None
+    # move to another project
+    target_project_id: Optional[str] = None
 
 
 class TaskBulkUpdateResult(BaseModel):

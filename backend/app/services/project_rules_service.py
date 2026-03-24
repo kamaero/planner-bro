@@ -187,14 +187,14 @@ def apply_control_ski(payload: dict, existing_priority: str | None = None, exist
 
 
 def require_import_permission(user: User) -> None:
-    if user.role == "admin":
-        return
-    if not user.can_import:
-        raise HTTPException(status_code=403, detail="No permission to import tasks/files")
+    """Kept for backwards compatibility — delegates to permission_service."""
+    from app.services.permission_service import can_import
+    if not can_import(user):
+        raise HTTPException(status_code=403, detail="Нет права на импорт")
 
 
 def require_delete_permission(user: User) -> None:
-    if user.role == "admin":
-        return
-    if not user.can_delete:
-        raise HTTPException(status_code=403, detail="No permission to delete")
+    """Kept for backwards compatibility — delegates to permission_service."""
+    from app.services.permission_service import can_delete
+    if not can_delete(user):
+        raise HTTPException(status_code=403, detail="Нет права на удаление")

@@ -75,12 +75,13 @@ def _short_name(last_name: str, first_name: str, middle_name: str) -> str:
 
 
 def _can_manage_team(user: User) -> bool:
-    return user.role == "admin" or bool(user.can_manage_team)
+    from app.services.permission_service import can_manage_team
+    return can_manage_team(user)
 
 
 def _require_team_manager(user: User) -> None:
     if not _can_manage_team(user):
-        raise HTTPException(status_code=403, detail="No permission to manage team accounts")
+        raise HTTPException(status_code=403, detail="Нет права на управление командой")
 
 
 def _can_manage_subordinate(actor: User, target: User) -> bool:
@@ -162,6 +163,16 @@ def _generate_temporary_password(length: int = 14) -> str:
 @router.get("/me", response_model=UserProfile)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.get("/me/permissions")
+async def get_my_permissions(current_user: User = Depends(get_current_user)):
+    """Return the full capabilities matrix for the current user.
+
+    Frontend and mobile use this to show/hide actions and UI sections.
+    """
+    from app.services.permission_service import capabilities
+    return capabilities(current_user)
 
 
 @router.post("/me/change-password")

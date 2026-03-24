@@ -68,6 +68,7 @@ class CriticalTaskDigestItem:
     project_id: str
     project_name: str
     assignee_name: str
+    assigned_to_id: str | None
     end_date: date | None
     priority: str
     control_ski: bool
@@ -374,6 +375,7 @@ async def collect_analytics_digest(
                 project_id=task.project_id,
                 project_name=project_name_by_id.get(task.project_id, "Проект"),
                 assignee_name=active_users.get(task.assigned_to_id or "", "не назначен"),
+                assigned_to_id=task.assigned_to_id,
                 end_date=task.end_date,
                 priority=task.priority,
                 control_ski=task.control_ski,
@@ -498,8 +500,24 @@ def format_telegram_critical_digest(digest: AnalyticsDigest, compact: bool = Fal
     )
 
 
+_ROLE_SUBJECT_MAP = {
+    "Контур директора": "Директорский дайджест",
+    "Контур отдела и команды": "Дайджест отдела",
+    "Персональный контур": "Ваш дайджест",
+    "Полный контур": "Полный дайджест",
+}
+
+
 def format_email_digest_subject(digest: AnalyticsDigest) -> str:
-    return f"PlannerBro аналитика · {digest.now_local.strftime('%d.%m.%Y %H:%M')}"
+    label = _ROLE_SUBJECT_MAP.get(digest.audience_label, "Аналитический дайджест")
+    date_str = digest.now_local.strftime("%d.%m.%Y")
+    alerts = []
+    if digest.overdue_projects_count:
+        alerts.append(f"просрочено проектов: {digest.overdue_projects_count}")
+    if digest.overdue_critical_count:
+        alerts.append(f"крит. задач: {digest.overdue_critical_count}")
+    suffix = f" · ⚠ {', '.join(alerts)}" if alerts else ""
+    return f"PlannerBro · {label} · {date_str}{suffix}"
 
 
 def format_email_digest_text(
@@ -557,91 +575,296 @@ def format_email_digest_text(
     return "\n".join(lines)
 
 
+def _priority_chip(priority: str) -> str:
+    colors = {
+        "critical": ("#7f1d1d", "#fef2f2"),
+        "high": ("#92400e", "#fffbeb"),
+        "medium": ("#1e40af", "#eff6ff"),
+        "low": ("#374151", "#f3f4f6"),
+    }
+    labels = {"critical": "КРИТ", "high": "ВЫСОК", "medium": "СРЕДН", "low": "НИЗК"}
+    fg, bg = colors.get(priority, ("#374151", "#f3f4f6"))
+    label = labels.get(priority, priority.upper())
+    return (
+        f'<span style="display:inline-block;padding:2px 7px;border-radius:4px;'
+        f'font-size:10px;font-weight:700;letter-spacing:.5px;'
+        f'background:{bg};color:{fg};">{label}</span>'
+    )
+
+
+def _status_chip(status: str) -> str:
+    colors = {
+        "В работе": ("#065f46", "#d1fae5"),
+        "Планирование": ("#1e40af", "#dbeafe"),
+        "ТЗ": ("#5b21b6", "#ede9fe"),
+        "Тестирование": ("#0369a1", "#e0f2fe"),
+        "На паузе": ("#78350f", "#fef3c7"),
+        "Завершен": ("#374151", "#f3f4f6"),
+    }
+    fg, bg = colors.get(status, ("#374151", "#f3f4f6"))
+    return (
+        f'<span style="display:inline-block;padding:2px 8px;border-radius:4px;'
+        f'font-size:11px;font-weight:600;background:{bg};color:{fg};">'
+        f'{escape_html(status)}</span>'
+    )
+
+
+def _progress_bar(done: int, total: int) -> str:
+    pct = int(done / total * 100) if total else 0
+    bar_color = "#22c55e" if pct >= 80 else "#f59e0b" if pct >= 40 else "#ef4444"
+    return (
+        f'<div style="font-size:11px;color:#6b7280;margin-bottom:3px;">'
+        f'{done}/{total} задач ({pct}%)</div>'
+        f'<div style="background:#e5e7eb;border-radius:4px;height:6px;width:120px;">'
+        f'<div style="background:{bar_color};border-radius:4px;height:6px;width:{pct}%;"></div>'
+        f'</div>'
+    )
+
+
+def _kpi_card(label: str, value: int, color: str = "#111827", width: str = "25%") -> str:
+    return (
+        f'<td style="width:{width};padding:6px;">'
+        f'<div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;">'
+        f'<div style="font-size:11px;color:#6b7280;margin-bottom:4px;">{label}</div>'
+        f'<div style="font-size:26px;font-weight:700;color:{color};">{value}</div>'
+        f'</div></td>'
+    )
+
+
+def _cta_btn(href: str, label: str, bg: str = "#6d28d9", fg: str = "#ffffff") -> str:
+    return (
+        f'<a href="{href}" style="display:inline-block;padding:7px 13px;border-radius:7px;'
+        f'background:{bg};color:{fg};text-decoration:none;font-size:12px;font-weight:600;'
+        f'margin-right:6px;">{label}</a>'
+    )
+
+
+def _role_header_text(audience_label: str) -> str:
+    texts = {
+        "Контур директора": "Полный срез системы — проекты, критические задачи, риски.",
+        "Контур отдела и команды": "Срез по вашему отделу и подчинённым — проекты и задачи в зоне ответственности.",
+        "Персональный контур": "Ваши назначенные задачи и проекты — то, что требует вашего внимания.",
+        "Полный контур": "Системный дайджест — полный контур всех проектов и задач.",
+    }
+    return texts.get(audience_label, "Аналитический дайджест PlannerBro.")
+
+
+def _role_badge(audience_label: str) -> str:
+    badges = {
+        "Контур директора": ("ДИРЕКТОР", "#1e3a5f", "#dbeafe"),
+        "Контур отдела и команды": ("РУКОВОДИТЕЛЬ", "#3b0764", "#f3e8ff"),
+        "Персональный контур": ("ИСПОЛНИТЕЛЬ", "#052e16", "#dcfce7"),
+        "Полный контур": ("СИСТЕМА", "#1c1917", "#f5f5f4"),
+    }
+    label, fg, bg = badges.get(audience_label, ("—", "#374151", "#f3f4f6"))
+    return (
+        f'<span style="display:inline-block;padding:3px 10px;border-radius:5px;'
+        f'font-size:11px;font-weight:700;letter-spacing:.8px;'
+        f'background:{bg};color:{fg};">{label}</span>'
+    )
+
+
 def format_email_digest_html(
     digest: AnalyticsDigest,
     compact: bool = False,
     include_projects: bool = True,
     include_critical: bool = True,
+    viewer_user_id: str | None = None,
 ) -> str:
-    projects_rows = "".join(
-        [
-            "<tr>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\">{escape_html(p.name)}</td>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\">{escape_html(p.status)}</td>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\">{p.done_tasks}/{p.total_tasks}</td>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\">{p.overdue_tasks}</td>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\">{escape_html(p.owner_name)}</td>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\"><a href=\"{_project_url(p.id)}\" style=\"color:#6d28d9;text-decoration:none;\">Открыть</a></td>"
-            "</tr>"
-            for p in digest.top_projects[: (5 if compact else 10)]
-        ]
-    ) if include_projects else ""
-
-    task_rows = "".join(
-        [
-            "<tr>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\">{escape_html(t.title)}</td>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\">{escape_html(t.project_name)}</td>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\">{escape_html(t.assignee_name)}</td>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\">{escape_html(t.end_date.isoformat() if t.end_date else 'без дедлайна')}</td>"
-            f"<td style=\"padding:10px;border-bottom:1px solid #e5e7eb;\"><a href=\"{_task_url(t.project_id, t.id)}\" style=\"color:#6d28d9;text-decoration:none;\">Открыть</a></td>"
-            "</tr>"
-            for t in digest.focus_tasks[: (8 if compact else 15)]
-        ]
-    ) if include_critical else ""
+    from app.services.email_actions import action_url
 
     links = _quick_action_links()
-    stats_cells: list[str] = []
+    today = digest.now_local.date()
+    limit_projects = 5 if compact else 10
+    limit_tasks = 8 if compact else 15
+
+    # ── KPI cards ──────────────────────────────────────────────────────────────
+    kpi_cells: list[str] = []
     if include_projects:
-        stats_cells.extend([
-            f"<td style=\"width:25%;padding:10px;border:1px solid #e5e7eb;border-radius:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Активные проекты</div><div style=\"font-size:24px;font-weight:700;\">{digest.active_projects_count}</div></td>",
-            f"<td style=\"width:25%;padding:10px 10px 10px 14px;\"><div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Просроченные проекты</div><div style=\"font-size:24px;font-weight:700;color:#b91c1c;\">{digest.overdue_projects_count}</div></div></td>",
-        ])
+        kpi_cells.append(_kpi_card("Активные проекты", digest.active_projects_count))
+        kpi_cells.append(
+            _kpi_card(
+                "Просрочено проектов",
+                digest.overdue_projects_count,
+                color="#b91c1c" if digest.overdue_projects_count else "#111827",
+            )
+        )
     if include_critical:
-        stats_cells.extend([
-            f"<td style=\"width:25%;padding:10px;\"><div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Критические/СКИ</div><div style=\"font-size:24px;font-weight:700;color:#7c3aed;\">{digest.critical_tasks_count}</div></div></td>",
-            f"<td style=\"width:25%;padding:10px;\"><div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:10px;\"><div style=\"font-size:12px;color:#6b7280;\">Эскалации</div><div style=\"font-size:24px;font-weight:700;color:#ea580c;\">{digest.escalations_count}</div></div></td>",
-        ])
+        kpi_cells.append(
+            _kpi_card("Критических / СКИ", digest.critical_tasks_count, color="#7c3aed")
+        )
+        kpi_cells.append(
+            _kpi_card(
+                "Эскалаций",
+                digest.escalations_count,
+                color="#ea580c" if digest.escalations_count else "#111827",
+            )
+        )
 
-    projects_block = (
-        "<tr><td style=\"padding:0 24px 20px;\">"
-        "<div style=\"font-size:16px;font-weight:700;margin-bottom:8px;\">Прогресс по проектам</div>"
-        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;\">"
-        "<tr style=\"background:#f9fafb;\"><th align=\"left\" style=\"padding:10px;\">Проект</th><th align=\"left\" style=\"padding:10px;\">Статус</th><th align=\"left\" style=\"padding:10px;\">Задачи</th><th align=\"left\" style=\"padding:10px;\">Просрочено</th><th align=\"left\" style=\"padding:10px;\">Ответственный</th><th align=\"left\" style=\"padding:10px;\">Ссылка</th></tr>"
-        f"{projects_rows or '<tr><td colspan=\"6\" style=\"padding:12px;\">Нет данных</td></tr>'}"
-        "</table>"
-        "</td></tr>"
-    ) if include_projects else ""
+    kpi_row = (
+        '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+        + "".join(kpi_cells)
+        + "</tr></table>"
+    )
 
-    critical_block = (
-        "<tr><td style=\"padding:0 24px 24px;\">"
-        "<div style=\"font-size:16px;font-weight:700;margin-bottom:8px;\">Фокус-задачи</div>"
-        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;\">"
-        "<tr style=\"background:#f9fafb;\"><th align=\"left\" style=\"padding:10px;\">Задача</th><th align=\"left\" style=\"padding:10px;\">Проект</th><th align=\"left\" style=\"padding:10px;\">Ответственный</th><th align=\"left\" style=\"padding:10px;\">Дедлайн</th><th align=\"left\" style=\"padding:10px;\">Ссылка</th></tr>"
-        f"{task_rows or '<tr><td colspan=\"5\" style=\"padding:12px;\">Нет данных</td></tr>'}"
-        "</table>"
-        "</td></tr>"
-    ) if include_critical else ""
+    # ── Projects table ─────────────────────────────────────────────────────────
+    def _project_row(p: ProjectDigestItem) -> str:
+        is_overdue = bool(p.end_date and p.end_date < today)
+        row_bg = '#fff5f5' if is_overdue else '#ffffff'
+        deadline_cell = (
+            f'<span style="color:#b91c1c;font-weight:600;">'
+            f'{"⚠ " + p.end_date.strftime("%d.%m") if p.end_date else "—"}</span>'
+            if is_overdue
+            else (p.end_date.strftime("%d.%m.%Y") if p.end_date else "—")
+        )
+        return (
+            f'<tr style="background:{row_bg};">'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;max-width:200px;">'
+            f'<a href="{_project_url(p.id)}" style="color:#111827;font-weight:600;text-decoration:none;">'
+            f'{escape_html(p.name)}</a></td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;">{_status_chip(p.status)}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;">{_progress_bar(p.done_tasks, p.total_tasks)}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;">{escape_html(p.owner_name)}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;">{deadline_cell}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;">'
+            + _cta_btn(_project_url(p.id), "Открыть →", bg="#111827")
+            + "</td></tr>"
+        )
+
+    projects_block = ""
+    if include_projects:
+        rows = "".join(_project_row(p) for p in digest.top_projects[:limit_projects])
+        projects_block = (
+            '<tr><td style="padding:0 24px 24px;">'
+            '<div style="font-size:15px;font-weight:700;color:#111827;margin-bottom:10px;">Проекты</div>'
+            '<table width="100%" cellpadding="0" cellspacing="0" '
+            'style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;font-size:13px;">'
+            '<tr style="background:#f9fafb;">'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;">Проект</th>'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;">Статус</th>'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;">Прогресс</th>'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;">Ответственный</th>'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;">Дедлайн</th>'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;"></th>'
+            "</tr>"
+            + (rows or '<tr><td colspan="6" style="padding:14px;color:#9ca3af;">Нет активных проектов</td></tr>')
+            + "</table></td></tr>"
+        )
+
+    # ── Tasks table ────────────────────────────────────────────────────────────
+    def _task_row(t: CriticalTaskDigestItem) -> str:
+        is_overdue = bool(t.end_date and t.end_date < today)
+        row_bg = "#fff5f5" if is_overdue else "#ffffff"
+        if t.end_date:
+            if is_overdue:
+                delta = (today - t.end_date).days
+                deadline_str = f'<span style="color:#b91c1c;font-weight:600;">⚠ просрочено {delta} дн.</span>'
+            else:
+                delta = (t.end_date - today).days
+                color = "#d97706" if delta <= 2 else "#374151"
+                deadline_str = f'<span style="color:{color};">{t.end_date.strftime("%d.%m.%Y")}</span>'
+        else:
+            deadline_str = '<span style="color:#9ca3af;">без дедлайна</span>'
+
+        # Action buttons
+        btn_open = _cta_btn(_task_url(t.project_id, t.id), "Открыть", bg="#111827")
+        action_btns = btn_open
+
+        if viewer_user_id:
+            if not t.assigned_to_id:
+                url = action_url("take_task", t.id, viewer_user_id)
+                action_btns += _cta_btn(url, "Взять в работу", bg="#059669")
+            elif t.assigned_to_id == viewer_user_id:
+                url = action_url("checkin", t.id, viewer_user_id)
+                action_btns += _cta_btn(url, "Check-in ✓", bg="#0369a1")
+            if is_overdue and not t.is_escalation:
+                url = action_url("escalate", t.id, viewer_user_id)
+                action_btns += _cta_btn(url, "Эскалировать", bg="#dc2626")
+
+        badges = _priority_chip(t.priority)
+        if t.control_ski:
+            badges += ' <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;background:#fef3c7;color:#78350f;">СКИ</span>'
+        if t.is_escalation:
+            badges += ' <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;background:#fee2e2;color:#991b1b;">ESC</span>'
+
+        return (
+            f'<tr style="background:{row_bg};">'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;max-width:180px;">'
+            f'<div style="font-weight:600;font-size:13px;">{escape_html(t.title)}</div>'
+            f'<div style="margin-top:3px;">{badges}</div></td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280;">{escape_html(t.project_name)}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;">{escape_html(t.assignee_name)}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;">{deadline_str}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;white-space:nowrap;">{action_btns}</td>'
+            "</tr>"
+        )
+
+    critical_block = ""
+    if include_critical:
+        rows = "".join(_task_row(t) for t in digest.focus_tasks[:limit_tasks])
+        critical_block = (
+            '<tr><td style="padding:0 24px 24px;">'
+            '<div style="font-size:15px;font-weight:700;color:#111827;margin-bottom:10px;">Критические задачи и фокус</div>'
+            '<table width="100%" cellpadding="0" cellspacing="0" '
+            'style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;font-size:13px;">'
+            '<tr style="background:#f9fafb;">'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;">Задача</th>'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;">Проект</th>'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;">Исполнитель</th>'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;">Дедлайн</th>'
+            '<th align="left" style="padding:10px 12px;color:#6b7280;font-weight:600;">Действия</th>'
+            "</tr>"
+            + (rows or '<tr><td colspan="5" style="padding:14px;color:#9ca3af;">Нет критических задач</td></tr>')
+            + "</table></td></tr>"
+        )
+
+    # ── Assemble ───────────────────────────────────────────────────────────────
+    role_badge_html = _role_badge(digest.audience_label)
+    role_hint = _role_header_text(digest.audience_label)
 
     return (
-        "<html><body style=\"margin:0;background:#f6f7fb;font-family:Segoe UI,Arial,sans-serif;color:#111827;\">"
-        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"padding:24px 0;\"><tr><td align=\"center\">"
-        "<table width=\"840\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;\">"
-        "<tr><td style=\"padding:22px 24px;background:linear-gradient(120deg,#f5f3ff,#eef2ff);border-bottom:1px solid #e5e7eb;\">"
-        "<div style=\"font-size:22px;font-weight:700;color:#111827;\">PlannerBro · Аналитический дайджест</div>"
-        f"<div style=\"margin-top:6px;color:#374151;\">{escape_html(digest.audience_label)} · {digest.now_local.strftime('%d.%m.%Y %H:%M')} ({escape_html(digest.timezone_name)})</div>"
-        "<div style=\"margin-top:14px;\">"
-        f"<a href=\"{links['dashboard']}\" style=\"display:inline-block;padding:8px 14px;border-radius:8px;background:#6d28d9;color:#fff;text-decoration:none;margin-right:8px;\">Открыть дэшборд</a>"
-        f"<a href=\"{links['projects']}\" style=\"display:inline-block;padding:8px 14px;border-radius:8px;background:#0f172a;color:#fff;text-decoration:none;margin-right:8px;\">Проекты</a>"
-        f"<a href=\"{links['analytics']}\" style=\"display:inline-block;padding:8px 14px;border-radius:8px;background:#1f2937;color:#fff;text-decoration:none;\">Аналитика</a>"
-        "</div>"
-        "</td></tr>"
-        "<tr><td style=\"padding:20px 24px;\">"
-        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>"
-        + "".join(stats_cells)
-        + "</tr></table>"
-        "</td></tr>"
-        f"{projects_block}"
-        f"{critical_block}"
-        "</table></td></tr></table></body></html>"
+        '<!doctype html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1"></head>'
+        '<body style="margin:0;padding:0;background:#f3f4f6;'
+        'font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;color:#111827;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"'
+        ' style="padding:24px 12px;background:#f3f4f6;">'
+        '<tr><td align="center">'
+        '<table role="presentation" width="680" cellpadding="0" cellspacing="0"'
+        ' style="max-width:680px;width:100%;background:#ffffff;'
+        'border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;">'
+
+        # Header
+        '<tr><td style="padding:24px 28px;background:#111827;">'
+        f'<div style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-.3px;">'
+        f'PlannerBro</div>'
+        f'<div style="margin-top:6px;color:#9ca3af;font-size:13px;">'
+        f'{digest.now_local.strftime("%d.%m.%Y %H:%M")} · {escape_html(digest.timezone_name)}</div>'
+        f'<div style="margin-top:10px;">{role_badge_html}</div>'
+        f'<div style="margin-top:8px;color:#d1d5db;font-size:13px;">{escape_html(role_hint)}</div>'
+        # CTA buttons in header
+        f'<div style="margin-top:16px;">'
+        + _cta_btn(links["dashboard"], "Дэшборд", bg="#6d28d9")
+        + _cta_btn(links["projects"], "Проекты", bg="#374151")
+        + _cta_btn(links["analytics"], "Аналитика", bg="#374151")
+        + "</div></td></tr>"
+
+        # KPI
+        + '<tr><td style="padding:20px 24px 8px;">' + kpi_row + "</td></tr>"
+
+        # Divider
+        + '<tr><td style="padding:0 24px 16px;">'
+        '<div style="height:1px;background:#f3f4f6;"></div></td></tr>'
+
+        # Projects + Tasks blocks
+        + projects_block
+        + critical_block
+
+        # Footer
+        + '<tr><td style="padding:16px 28px;background:#f9fafb;border-top:1px solid #e5e7eb;">'
+        '<div style="font-size:11px;color:#9ca3af;">'
+        'Это автоматическое сообщение PlannerBro. Не отвечайте на это письмо.'
+        '</div></td></tr>'
+
+        + "</table></td></tr></table></body></html>"
     )

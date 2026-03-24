@@ -100,6 +100,8 @@ class AdminDirectiveSettings(BaseModel):
 
 class ReportDispatchSettingsOut(BaseModel):
     smtp_enabled: bool
+    email_test_mode: bool = False
+    email_test_recipient: str = ""
     telegram_summaries_enabled: bool
     email_analytics_enabled: bool
     email_analytics_recipients: str
@@ -110,6 +112,8 @@ class ReportDispatchSettingsOut(BaseModel):
 
 class ReportDispatchSettingsUpdateIn(BaseModel):
     smtp_enabled: bool
+    email_test_mode: Optional[bool] = None
+    email_test_recipient: Optional[str] = None
     telegram_summaries_enabled: bool
     email_analytics_enabled: bool
     email_analytics_recipients: str = ""
@@ -132,12 +136,23 @@ class AdminDirectiveTestOut(BaseModel):
     message: str
 
 
+class SourceDeliveryStats(BaseModel):
+    source: str
+    sent: int
+    failed: int
+    skipped: int
+    error_rate: float  # percentage (0–100)
+    last_sent_at: Optional[datetime] = None
+    last_error: Optional[str] = None
+
+
 class ReportDeliveryStatusOut(BaseModel):
     generated_at: datetime
     window_hours: int
     email_sent: int
     email_failed: int
     email_skipped: int
+    source_stats: list[SourceDeliveryStats] = []
     telegram_sent: int
     telegram_failed: int
     last_email_sent_at: Optional[datetime] = None

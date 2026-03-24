@@ -8,6 +8,7 @@ from app.models.project import Project, ProjectMember
 from app.models.task import Task
 from app.models.user import User
 from app.services.notification_service import send_management_gap_report
+from app.services.task_lock_service import acquire_task_run_lock
 from app.tasks.celery_app import celery_app
 
 
@@ -18,6 +19,9 @@ def check_management_gaps():
 
 async def _async_check_management_gaps():
     if not settings.MANAGEMENT_AUDIT_ENABLED:
+        return
+    # Daily task — lock for 23 hours to prevent duplicate runs.
+    if not await acquire_task_run_lock("check_management_gaps", ttl_seconds=23 * 3600):
         return
 
     async with AsyncSessionLocal() as db:

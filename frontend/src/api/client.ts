@@ -79,6 +79,7 @@ export const api = {
 
   // Users
   getMe: () => apiClient.get('/users/me').then((r) => r.data),
+  getMyPermissions: () => apiClient.get('/users/me/permissions').then((r) => r.data),
   createUser: (
     data: {
       email: string
@@ -412,4 +413,8 @@ export const api = {
     apiClient
       .get('/analytics/activity-heatmap', { params: days ? { days } : {} })
       .then((r) => r.data),
+
+  // AI Project Manager
+  analyzeProject: (projectId: string) =>
+    apiClient.post(`/projects/${projectId}/ai-analysis`).then((r) => r.data),
 }

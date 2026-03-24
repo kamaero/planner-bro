@@ -80,17 +80,17 @@ async def require_project_manager(project_id: str, user: User, db: AsyncSession)
 
 
 def require_bulk_permission(user: User) -> None:
-    if user.role == "admin":
-        return
-    if not user.can_bulk_edit:
-        raise HTTPException(status_code=403, detail="No permission for bulk operations")
+    """Kept for backwards compatibility — delegates to permission_service."""
+    from app.services.permission_service import can_bulk_edit
+    if not can_bulk_edit(user):
+        raise HTTPException(status_code=403, detail="Нет права на массовое редактирование")
 
 
 def require_delete_permission(user: User) -> None:
-    if user.role == "admin":
-        return
-    if not user.can_delete:
-        raise HTTPException(status_code=403, detail="No permission to delete tasks")
+    """Kept for backwards compatibility — delegates to permission_service."""
+    from app.services.permission_service import can_delete
+    if not can_delete(user):
+        raise HTTPException(status_code=403, detail="Нет права на удаление задач")
 
 
 async def require_project_exists(project_id: str, db: AsyncSession) -> None:

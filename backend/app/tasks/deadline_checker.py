@@ -7,6 +7,7 @@ from app.models.task import Task, TaskDependency, TaskEvent
 from app.models.deadline_change import DeadlineChange
 from app.models.user import User
 from app.services.notification_service import notify_deadline
+from app.services.task_lock_service import acquire_task_run_lock
 
 
 @celery_app.task(name="app.tasks.deadline_checker.check_deadlines")
@@ -15,6 +16,9 @@ def check_deadlines():
 
 
 async def _async_check_deadlines():
+    # Lock TTL slightly less than the beat interval (1 hour) to prevent overlapping runs.
+    if not await acquire_task_run_lock("check_deadlines", ttl_seconds=55 * 60):
+        return
     today = date.today()
     warning_days = {1, 3}
 

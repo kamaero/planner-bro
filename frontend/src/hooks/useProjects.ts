@@ -478,3 +478,13 @@ export function useDeadlineStats() {
     queryFn: () => api.getDeadlineStats(),
   })
 }
+
+export function useAnalyzeProject() {
+  return useMutation<
+    { project_id: string; project_name: string; analysis: string; stats: Record<string, number>; generated_at: string },
+    Error,
+    string
+  >({
+    mutationFn: (projectId: string) => api.analyzeProject(projectId),
+  })
+}

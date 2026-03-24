@@ -9,6 +9,7 @@ from app.models.task import Task
 from app.models.user import User
 from app.services.check_in_policy import compute_next_check_in_due_at
 from app.services.notification_service import notify_team_status_reminder
+from app.services.task_lock_service import acquire_task_run_lock
 from app.tasks.celery_app import celery_app
 
 
@@ -19,6 +20,9 @@ def check_status_update_reminders():
 
 async def _async_check_status_update_reminders():
     if not settings.TEAM_STATUS_REMINDER_ENABLED:
+        return
+    # Daily task — lock for 23 hours to prevent duplicate runs.
+    if not await acquire_task_run_lock("check_status_update_reminders", ttl_seconds=23 * 3600):
         return
 
     now = datetime.now(timezone.utc)

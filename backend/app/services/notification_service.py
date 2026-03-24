@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from datetime import datetime, timezone, timedelta
 import logging
 import html
@@ -14,7 +15,11 @@ from app.core.firebase import send_push_to_multiple
 from app.services.websocket_manager import ws_manager
 from app.services import events as ev
 from app.services.system_activity_service import log_system_activity
-from app.services.report_settings_service import get_smtp_enabled
+from app.services.report_settings_service import (
+    get_smtp_enabled,
+    get_email_test_mode,
+    get_email_test_recipient,
+)
 import aiosmtplib
 from email.mime.text import MIMEText
 from app.core.config import settings
@@ -140,6 +145,27 @@ async def _was_task_assigned_email_sent_recently(
     return existing is not None
 
 
+async def _was_deadline_missed_email_sent_recently(
+    db: AsyncSession,
+    recipient: str,
+    task_id: str,
+    window_hours: int = 24,
+) -> bool:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))
+    existing = (
+        await db.execute(
+            select(EmailDispatchLog.id).where(
+                EmailDispatchLog.source == "deadline_missed",
+                EmailDispatchLog.status == "sent",
+                EmailDispatchLog.recipient == recipient,
+                EmailDispatchLog.created_at >= cutoff,
+                EmailDispatchLog.payload["task_id"].astext == task_id,
+            )
+        )
+    ).scalar_one_or_none()
+    return existing is not None
+
+
 async def _send_email_to_recipients(
     db: AsyncSession,
     recipients: list[str],
@@ -151,6 +177,27 @@ async def _send_email_to_recipients(
 ) -> None:
     if not recipients:
         return
+    # Test mode: redirect all mail to a single address for safe rehearsal
+    test_mode = await get_email_test_mode()
+    if test_mode:
+        test_recipient = await get_email_test_recipient()
+        if test_recipient and "@" in test_recipient:
+            recipients = [test_recipient]
+            subject = f"[TEST] {subject}"
+        else:
+            # Test mode on but no recipient configured — skip silently
+            for email in recipients:
+                await _record_email_dispatch(
+                    db,
+                    recipient=email,
+                    subject=subject,
+                    status="skipped",
+                    source=source,
+                    error_text="Test mode enabled but EMAIL_TEST_RECIPIENT not set",
+                    payload=payload,
+                )
+            await db.commit()
+            return
     if not await get_smtp_enabled():
         for email in recipients:
             await _record_email_dispatch(
@@ -505,14 +552,31 @@ async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
         send_push_to_multiple(tokens, title, body, data)
 
     if days_until <= 0:
-        await _send_email_to_members(
-            db,
-            member_ids,
-            title,
-            body,
-            source=type_,
-            payload=data,
+        # Send email only to direct assignee(s) + project owner — not to all members.
+        # Deduplicate: skip if already sent for this task in the last 24 hours.
+        owner_id = (
+            await db.execute(select(Project.owner_id).where(Project.id == task.project_id))
+        ).scalar_one_or_none()
+        email_target_ids = list(
+            dict.fromkeys(uid for uid in [task.assigned_to_id, owner_id] if uid)
         )
+        if email_target_ids:
+            result = await db.execute(select(User).where(User.id.in_(email_target_ids)))
+            now = datetime.now(timezone.utc)
+            for user in result.scalars().all():
+                target_email = _preferred_email(user, now)
+                if not target_email:
+                    continue
+                if await _was_deadline_missed_email_sent_recently(db, target_email, task.id):
+                    continue
+                await _send_email_to_recipients(
+                    db,
+                    recipients=[target_email],
+                    subject=title,
+                    body=body,
+                    source="deadline_missed",
+                    payload=data,
+                )
 
     await ws_manager.broadcast_to_project(task.project_id, ev.DEADLINE_WARNING, data)
 
@@ -700,6 +764,28 @@ async def send_management_gap_report(
     if not missing_project_managers and not missing_task_managers:
         return
 
+    # Deduplicate: skip if same content (same set of IDs) was already emailed in the last 24h
+    fingerprint = hashlib.md5(
+        (
+            "|".join(sorted(pid for pid, _ in missing_project_managers))
+            + "##"
+            + "|".join(sorted(tid for tid, _, _ in missing_task_managers))
+        ).encode()
+    ).hexdigest()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    already_sent = (
+        await db.execute(
+            select(EmailDispatchLog.id).where(
+                EmailDispatchLog.source == "management_gap_report",
+                EmailDispatchLog.status == "sent",
+                EmailDispatchLog.created_at >= cutoff,
+                EmailDispatchLog.payload["fingerprint"].astext == fingerprint,
+            )
+        )
+    ).scalar_one_or_none()
+    if already_sent:
+        return
+
     lines = [
         "Автоаудит PlannerBro: обнаружены объекты без менеджера/админа.",
         "",
@@ -723,5 +809,6 @@ async def send_management_gap_report(
         payload={
             "missing_project_managers": len(missing_project_managers),
             "missing_task_managers": len(missing_task_managers),
+            "fingerprint": fingerprint,
         },
     )

@@ -52,10 +52,9 @@ def _vault_key() -> str:
 
 
 def _require_delete_permission(user: User) -> None:
-    if user.role == "admin":
-        return
-    if not user.can_delete:
-        raise HTTPException(status_code=403, detail="No permission to delete vault files")
+    from app.services.permission_service import can_delete
+    if not can_delete(user):
+        raise HTTPException(status_code=403, detail="Нет права на удаление файлов хранилища")
 
 
 # ---------------------------------------------------------------------------

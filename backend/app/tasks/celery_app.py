@@ -50,9 +50,32 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.email_log_cleanup.cleanup_email_logs",
         "schedule": crontab(hour=3, minute=0),  # daily at 03:00 UTC
     },
+    "ai-risk-scan-daily": {
+        "task": "app.tasks.ai_risk_scan_checker.run_ai_risk_scan",
+        "schedule": crontab(hour=8, minute=0),  # daily at 08:00 UTC
+    },
+    "ai-weekly-digest-monday": {
+        "task": "app.tasks.ai_weekly_digest_checker.send_weekly_ai_digest",
+        "schedule": crontab(hour=8, minute=0, day_of_week=1),  # Monday 08:00 UTC
+    },
 }
 
 celery_app.conf.timezone = "UTC"
+
+# ── Reliability settings ───────────────────────────────────────────────────────
+# Ack tasks AFTER execution so a worker crash causes re-delivery, not silent loss.
+celery_app.conf.task_acks_late = True
+# Reject (not ack) if the worker process dies unexpectedly — broker re-queues the task.
+celery_app.conf.task_reject_on_worker_lost = True
+# Process one task at a time per worker thread to avoid starvation under load.
+celery_app.conf.worker_prefetch_multiplier = 1
+# Use JSON for portability and debuggability.
+celery_app.conf.task_serializer = "json"
+celery_app.conf.result_serializer = "json"
+celery_app.conf.accept_content = ["json"]
+# Don't keep task results forever; they are only used for debugging.
+celery_app.conf.result_expires = 3600  # 1 hour
+
 celery_app.conf.imports = (
     "app.tasks.deadline_checker",
     "app.tasks.escalation_sla_checker",
@@ -64,5 +87,7 @@ celery_app.conf.imports = (
     "app.tasks.telegram_commands_checker",
     "app.tasks.ai_ingestion",
     "app.tasks.email_log_cleanup",
+    "app.tasks.ai_risk_scan_checker",
+    "app.tasks.ai_weekly_digest_checker",
 )
 celery_app.autodiscover_tasks(["app.tasks"])

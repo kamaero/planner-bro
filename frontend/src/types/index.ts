@@ -1,3 +1,24 @@
+export interface UserPermissions {
+  role: string
+  can_delete: boolean
+  can_import: boolean
+  can_bulk_edit: boolean
+  can_manage_team: boolean
+  visibility_scope: string
+  actions: {
+    create_project: boolean
+    delete_project: boolean
+    import_tasks: boolean
+    bulk_edit_tasks: boolean
+    manage_team: boolean
+    manage_departments: boolean
+    access_vault: boolean
+    upload_vault_files: boolean
+    delete_vault_files: boolean
+    manage_report_settings: boolean
+  }
+}
+
 export interface User {
   id: string
   email: string
@@ -227,6 +248,8 @@ export interface SystemActivityLog {
 
 export interface ReportDispatchSettings {
   smtp_enabled: boolean
+  email_test_mode?: boolean
+  email_test_recipient?: string
   telegram_summaries_enabled: boolean
   email_analytics_enabled: boolean
   email_analytics_recipients: string

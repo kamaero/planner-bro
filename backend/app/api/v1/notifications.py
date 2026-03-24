@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -250,6 +251,8 @@ async def put_report_settings(
         admin_directive=data.admin_directive.model_dump() if data.admin_directive else None,
         digest_filters=data.digest_filters.model_dump() if data.digest_filters else None,
         digest_schedule=data.digest_schedule.model_dump() if data.digest_schedule else None,
+        email_test_mode=data.email_test_mode,
+        email_test_recipient=data.email_test_recipient,
     )
     return ReportDispatchSettingsOut(**updated)
 
@@ -279,22 +282,54 @@ async def get_report_delivery_status(
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
+    # Fetch all email dispatch logs in the window
     email_rows = (
         await db.execute(
-            select(EmailDispatchLog.status, EmailDispatchLog.created_at)
-            .where(
-                EmailDispatchLog.created_at >= cutoff,
-                EmailDispatchLog.source.ilike("analytics_email_digest%"),
+            select(
+                EmailDispatchLog.source,
+                EmailDispatchLog.status,
+                EmailDispatchLog.created_at,
+                EmailDispatchLog.error_text,
             )
+            .where(EmailDispatchLog.created_at >= cutoff)
             .order_by(EmailDispatchLog.created_at.desc())
         )
     ).all()
 
-    email_sent = sum(1 for status, _ in email_rows if status == "sent")
-    email_failed = sum(1 for status, _ in email_rows if status == "failed")
-    email_skipped = sum(1 for status, _ in email_rows if status == "skipped")
-    last_email_sent_at = next((created_at for status, created_at in email_rows if status == "sent"), None)
+    # Aggregate totals
+    email_sent = sum(1 for _, status, _, _ in email_rows if status == "sent")
+    email_failed = sum(1 for _, status, _, _ in email_rows if status == "failed")
+    email_skipped = sum(1 for _, status, _, _ in email_rows if status == "skipped")
+    last_email_sent_at = next(
+        (created_at for _, status, created_at, _ in email_rows if status == "sent"), None
+    )
 
+    # Per-source breakdown
+    by_source: dict[str, dict] = defaultdict(lambda: {"sent": 0, "failed": 0, "skipped": 0, "last_sent_at": None, "last_error": None})
+    for source, status, created_at, error_text in email_rows:
+        entry = by_source[source]
+        entry[status] = entry.get(status, 0) + 1
+        if status == "sent" and entry["last_sent_at"] is None:
+            entry["last_sent_at"] = created_at
+        if status == "failed" and error_text and entry["last_error"] is None:
+            entry["last_error"] = error_text[:200]
+
+    source_stats = [
+        {
+            "source": source,
+            "sent": data["sent"],
+            "failed": data["failed"],
+            "skipped": data["skipped"],
+            "error_rate": round(
+                data["failed"] / max(1, data["sent"] + data["failed"]) * 100, 1
+            ),
+            "last_sent_at": data["last_sent_at"],
+            "last_error": data["last_error"],
+        }
+        for source, data in sorted(by_source.items())
+    ]
+
+    # Telegram summary from system activity log
     telegram_rows = (
         await db.execute(
             select(SystemActivityLog.level, SystemActivityLog.message, SystemActivityLog.created_at)
@@ -323,6 +358,7 @@ async def get_report_delivery_status(
         email_sent=email_sent,
         email_failed=email_failed,
         email_skipped=email_skipped,
+        source_stats=source_stats,
         telegram_sent=telegram_sent,
         telegram_failed=telegram_failed,
         last_email_sent_at=last_email_sent_at,

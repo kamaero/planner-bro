@@ -156,6 +156,7 @@ async def _async_send_email_analytics_digest(compact: bool = False, force: bool 
                     compact=compact,
                     include_projects=include_projects,
                     include_critical=include_critical,
+                    viewer_user_id=spec.user.id if spec.user else None,
                 )
                 await _send_email_to_recipients(
                     db,

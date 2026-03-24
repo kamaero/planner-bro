@@ -110,6 +110,8 @@ export function Team() {
   const [ownPasswordForm, setOwnPasswordForm] = useState({ current_password: '', new_password: '' })
   const [reportSettings, setReportSettings] = useState<ReportDispatchSettings>({
     smtp_enabled: true,
+    email_test_mode: false,
+    email_test_recipient: '',
     telegram_summaries_enabled: true,
     email_analytics_enabled: true,
     email_analytics_recipients: '',
@@ -658,6 +660,8 @@ export function Team() {
         : undefined
       const saved = await api.updateReportDispatchSettings({
         smtp_enabled: reportSettings.smtp_enabled,
+        email_test_mode: reportSettings.email_test_mode,
+        email_test_recipient: reportSettings.email_test_recipient,
         telegram_summaries_enabled: reportSettings.telegram_summaries_enabled,
         email_analytics_enabled: reportSettings.email_analytics_enabled,
         email_analytics_recipients: reportSettings.email_analytics_recipients,
@@ -1538,6 +1542,34 @@ export function Team() {
                   <p className="text-xs text-amber-700">
                     SMTP выключен: письма не отправляются для всех сценариев (уведомления, сброс пароля, дайджесты).
                   </p>
+                )}
+
+                <label className="flex items-center justify-between gap-3 text-sm font-medium">
+                  <span>Тест-режим (все письма → один адрес)</span>
+                  <Switch
+                    checked={reportSettings.email_test_mode ?? false}
+                    onCheckedChange={(checked) =>
+                      setReportSettings((prev) => ({ ...prev, email_test_mode: checked }))
+                    }
+                    disabled={reportSettingsLoading || reportSettingsSaving}
+                  />
+                </label>
+                {reportSettings.email_test_mode && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-blue-700">
+                      Тест-режим включён: все исходящие письма (любые сценарии) будут перенаправлены на один адрес.
+                    </p>
+                    <input
+                      type="email"
+                      className="w-full rounded border px-2 py-1 text-sm"
+                      placeholder="aerokamero@gmail.com"
+                      value={reportSettings.email_test_recipient ?? ''}
+                      onChange={(e) =>
+                        setReportSettings((prev) => ({ ...prev, email_test_recipient: e.target.value }))
+                      }
+                      disabled={reportSettingsLoading || reportSettingsSaving}
+                    />
+                  </div>
                 )}
 
                 <label className="flex items-center justify-between gap-3 text-sm">

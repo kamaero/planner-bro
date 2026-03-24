@@ -13,6 +13,8 @@ from app.services.telegram_service import get_summaries_enabled, set_summaries_e
 EMAIL_ANALYTICS_ENABLED_KEY = "analytics:email:enabled"
 EMAIL_ANALYTICS_RECIPIENTS_KEY = "analytics:email:recipients"
 SMTP_ENABLED_KEY = "smtp:enabled"
+EMAIL_TEST_MODE_KEY = "email:test:mode"
+EMAIL_TEST_RECIPIENT_KEY = "email:test:recipient"
 ADMIN_DIRECTIVE_KEY = "analytics:admin:directive"
 REPORT_DIGEST_FILTERS_KEY = "analytics:digest:filters"
 REPORT_DISPATCH_SCHEDULE_KEY = "analytics:digest:schedule"
@@ -103,6 +105,32 @@ async def get_smtp_enabled() -> bool:
 async def set_smtp_enabled(enabled: bool) -> None:
     redis = _redis()
     await redis.set(SMTP_ENABLED_KEY, "1" if enabled else "0")
+
+
+async def get_email_test_mode() -> bool:
+    redis = _redis()
+    value = await redis.get(EMAIL_TEST_MODE_KEY)
+    if value is None:
+        return bool(settings.EMAIL_TEST_MODE)
+    return value == "1"
+
+
+async def set_email_test_mode(enabled: bool) -> None:
+    redis = _redis()
+    await redis.set(EMAIL_TEST_MODE_KEY, "1" if enabled else "0")
+
+
+async def get_email_test_recipient() -> str:
+    redis = _redis()
+    value = await redis.get(EMAIL_TEST_RECIPIENT_KEY)
+    if value is None:
+        return (settings.EMAIL_TEST_RECIPIENT or "").strip()
+    return (value or "").strip()
+
+
+async def set_email_test_recipient(email: str) -> None:
+    redis = _redis()
+    await redis.set(EMAIL_TEST_RECIPIENT_KEY, email.strip())
 
 
 async def get_admin_directive_settings() -> dict[str, Any]:
@@ -456,11 +484,15 @@ async def get_report_dispatch_settings() -> dict[str, Any]:
     email_enabled = await get_email_analytics_enabled()
     email_recipients = await get_email_analytics_recipients()
     smtp_enabled = await get_smtp_enabled()
+    test_mode = await get_email_test_mode()
+    test_recipient = await get_email_test_recipient()
     admin_directive = await get_admin_directive_settings()
     digest_filters = await get_report_digest_filters()
     digest_schedule = await get_report_dispatch_schedule()
     return {
         "smtp_enabled": smtp_enabled,
+        "email_test_mode": test_mode,
+        "email_test_recipient": test_recipient,
         "telegram_summaries_enabled": telegram_enabled,
         "email_analytics_enabled": email_enabled,
         "email_analytics_recipients": email_recipients,
@@ -478,6 +510,8 @@ async def update_report_dispatch_settings(
     admin_directive: dict[str, Any] | None = None,
     digest_filters: dict[str, Any] | None = None,
     digest_schedule: dict[str, Any] | None = None,
+    email_test_mode: bool | None = None,
+    email_test_recipient: str | None = None,
 ) -> dict[str, Any]:
     await set_smtp_enabled(smtp_enabled)
     await set_summaries_enabled(telegram_summaries_enabled)
@@ -489,4 +523,8 @@ async def update_report_dispatch_settings(
         await set_report_digest_filters(digest_filters)
     if digest_schedule is not None:
         await set_report_dispatch_schedule(digest_schedule)
+    if email_test_mode is not None:
+        await set_email_test_mode(email_test_mode)
+    if email_test_recipient is not None:
+        await set_email_test_recipient(email_test_recipient)
     return await get_report_dispatch_settings()

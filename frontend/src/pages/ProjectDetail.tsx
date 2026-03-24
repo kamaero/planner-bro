@@ -22,6 +22,8 @@ import {
   useRejectAIDraft,
   useRejectAIDraftsBulk,
   useProjectDeadlineHistory,
+  useProjects,
+  useAnalyzeProject,
 } from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
 import { useUsers } from '@/hooks/useUsers'
@@ -42,7 +44,8 @@ import { buildTaskHierarchy, parseTaskOrderFromTitle } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
 import type { Task, GanttTask, ProjectFile } from '@/types'
 import { useAuthStore } from '@/store/authStore'
-import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
+import { useMyPermissions } from '@/hooks/useMyPermissions'
+import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp, BrainCircuit, X } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -107,6 +110,7 @@ export function ProjectDetail() {
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const { data: project } = useProject(id!)
+  const { data: allProjects = [] } = useProjects()
   const { data: ganttData } = useGantt(id!)
   const { data: criticalPath } = useCriticalPath(id!)
   const { data: tasks = [] } = useTasks(id!)
@@ -121,6 +125,7 @@ export function ProjectDetail() {
   const deleteProject = useDeleteProject()
   const updateTaskStatus = useUpdateTaskStatus()
   const bulkUpdateTasks = useBulkUpdateTasks()
+  const analyzeProject = useAnalyzeProject()
   const uploadProjectFile = useUploadProjectFile()
   const importMSProjectTasks = useImportMSProjectTasks()
   const deleteProjectFile = useDeleteProjectFile()
@@ -129,6 +134,7 @@ export function ProjectDetail() {
   const rejectAIDraft = useRejectAIDraft()
   const rejectAIDraftsBulk = useRejectAIDraftsBulk()
   const currentUser = useAuthStore((s) => s.user)
+  const { permissions } = useMyPermissions()
 
   const [view, setView] = useState<'gantt' | 'list' | 'members' | 'files'>('list')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
@@ -183,6 +189,11 @@ export function ProjectDetail() {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkAssignee, setBulkAssignee] = useState('keep')
   const [bulkPriority, setBulkPriority] = useState('keep')
+  const [bulkShiftDays, setBulkShiftDays] = useState('')
+  const [bulkShiftReason, setBulkShiftReason] = useState('')
+  const [bulkMoveProjectId, setBulkMoveProjectId] = useState('')
+  const [aiAnalysisResult, setAiAnalysisResult] = useState<{ analysis: string; stats: Record<string, number>; generated_at: string } | null>(null)
+  const [showAiAnalysis, setShowAiAnalysis] = useState(false)
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([])
   const [aiPromptInstruction, setAIPromptInstruction] = useState('')
   const [showProjectDeadlineModal, setShowProjectDeadlineModal] = useState(false)
@@ -198,9 +209,9 @@ export function ProjectDetail() {
   const memberRole = members.find((m) => m.user.id === currentUser?.id)?.role
   const canManage = currentUser?.role === 'admin' || memberRole === 'owner' || memberRole === 'manager'
   const canTransferOwnership = currentUser?.role === 'admin' || memberRole === 'owner'
-  const canDelete = currentUser?.role === 'admin' || !!currentUser?.can_delete
-  const canImport = currentUser?.role === 'admin' || !!currentUser?.can_import
-  const canBulkEdit = currentUser?.role === 'admin' || !!currentUser?.can_bulk_edit
+  const canDelete = permissions.actions.delete_project
+  const canImport = permissions.actions.import_tasks
+  const canBulkEdit = permissions.actions.bulk_edit_tasks
   const canAssignAcrossOrg = useMemo(() => {
     const position = (currentUser?.position_title ?? '').toLowerCase()
     const isGlobalPosition =
@@ -498,6 +509,62 @@ export function ProjectDetail() {
       setSelectedTaskIds([])
     } catch (error: any) {
       window.alert(humanizeApiError(error, 'Не удалось удалить выбранные задачи'))
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const handleBulkShiftDeadline = async () => {
+    const days = parseInt(bulkShiftDays, 10)
+    if (!canManage || !canBulkEdit || selectedTaskIds.length === 0) return
+    if (!days || days === 0) return window.alert('Укажите количество дней (не ноль)')
+    if (!bulkShiftReason.trim()) return window.alert('Укажите причину изменения дедлайна')
+    setBulkBusy(true)
+    try {
+      await bulkUpdateTasks.mutateAsync({
+        projectId: id!,
+        data: {
+          task_ids: selectedTaskIds,
+          end_date_shift_days: days,
+          deadline_change_reason: bulkShiftReason.trim(),
+        },
+      })
+      setSelectedTaskIds([])
+      setBulkShiftDays('')
+      setBulkShiftReason('')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сдвинуть дедлайны'))
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const handleAiAnalysis = async () => {
+    try {
+      const result = await analyzeProject.mutateAsync(id!)
+      setAiAnalysisResult({ analysis: result.analysis, stats: result.stats, generated_at: result.generated_at })
+      setShowAiAnalysis(true)
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось запустить AI-анализ. Проверьте настройки DEEPSEEK_API_KEY.'))
+    }
+  }
+
+  const handleBulkMoveToProject = async () => {
+    if (!canManage || !canBulkEdit || selectedTaskIds.length === 0 || !bulkMoveProjectId) return
+    if (!window.confirm(`Перенести ${selectedTaskIds.length} задач(и) в другой проект?`)) return
+    setBulkBusy(true)
+    try {
+      await bulkUpdateTasks.mutateAsync({
+        projectId: id!,
+        data: {
+          task_ids: selectedTaskIds,
+          target_project_id: bulkMoveProjectId,
+        },
+      })
+      setSelectedTaskIds([])
+      setBulkMoveProjectId('')
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось перенести задачи'))
     } finally {
       setBulkBusy(false)
     }
@@ -852,6 +919,17 @@ export function ProjectDetail() {
             Files
           </Button>
         </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleAiAnalysis}
+          disabled={analyzeProject.isPending}
+          title="AI-анализ проекта"
+        >
+          <BrainCircuit className="w-4 h-4 mr-1" />
+          {analyzeProject.isPending ? 'Анализ...' : 'AI Анализ'}
+        </Button>
 
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
           <DialogTrigger asChild>
@@ -1570,6 +1648,53 @@ export function ProjectDetail() {
                   >
                     Применить приоритет
                   </Button>
+                  {/* Deadline shift */}
+                  <input
+                    type="number"
+                    placeholder="Дней (±)"
+                    value={bulkShiftDays}
+                    onChange={(e) => setBulkShiftDays(e.target.value)}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                    className="border rounded px-2 py-1 text-sm bg-background w-24"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Причина сдвига"
+                    value={bulkShiftReason}
+                    onChange={(e) => setBulkShiftReason(e.target.value)}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                    className="border rounded px-2 py-1 text-sm bg-background w-40"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleBulkShiftDeadline}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy || !bulkShiftDays || !bulkShiftReason.trim()}
+                  >
+                    Сдвинуть дедлайн
+                  </Button>
+                  {/* Move to project */}
+                  <select
+                    value={bulkMoveProjectId}
+                    onChange={(e) => setBulkMoveProjectId(e.target.value)}
+                    className="border rounded px-2 py-1 text-sm bg-background"
+                    disabled={selectedTaskIds.length === 0 || bulkBusy}
+                  >
+                    <option value="">Перенести в проект...</option>
+                    {allProjects
+                      .filter((p) => p.id !== id)
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleBulkMoveToProject}
+                    disabled={selectedTaskIds.length === 0 || bulkBusy || !bulkMoveProjectId}
+                  >
+                    Перенести
+                  </Button>
                 </>
               )}
             </div>
@@ -1861,6 +1986,41 @@ export function ProjectDetail() {
         onConfirm={handleProjectDeadlineConfirm}
         onCancel={handleProjectDeadlineCancel}
       />
+
+      {/* AI Analysis modal */}
+      {showAiAnalysis && aiAnalysisResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-card rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div className="flex items-center gap-2">
+                <BrainCircuit className="w-5 h-5 text-primary" />
+                <span className="font-semibold">AI-анализ проекта</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex gap-3 text-xs text-muted-foreground">
+                  <span>Задач: {aiAnalysisResult.stats.total_tasks}</span>
+                  <span>Выполнено: {aiAnalysisResult.stats.done_percent}%</span>
+                  {aiAnalysisResult.stats.overdue_count > 0 && (
+                    <span className="text-destructive">Просрочено: {aiAnalysisResult.stats.overdue_count}</span>
+                  )}
+                  {aiAnalysisResult.stats.stale_count > 0 && (
+                    <span className="text-yellow-600">Зависших: {aiAnalysisResult.stats.stale_count}</span>
+                  )}
+                </div>
+                <button onClick={() => setShowAiAnalysis(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto px-5 py-4 flex-1">
+              <pre className="whitespace-pre-wrap text-sm font-sans leading-relaxed">{aiAnalysisResult.analysis}</pre>
+            </div>
+            <div className="px-5 py-3 border-t text-xs text-muted-foreground">
+              Сгенерировано: {new Date(aiAnalysisResult.generated_at).toLocaleString('ru-RU')}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

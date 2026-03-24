@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.models.task import Task
 from app.services.notification_service import notify_escalation_sla_breached
+from app.services.task_lock_service import acquire_task_run_lock
 from app.tasks.celery_app import celery_app
 
 
@@ -15,6 +16,9 @@ def check_escalation_sla():
 
 
 async def _async_check_escalation_sla():
+    # Lock TTL slightly less than the beat interval (10 min).
+    if not await acquire_task_run_lock("check_escalation_sla", ttl_seconds=9 * 60):
+        return
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
         result = await db.execute(
