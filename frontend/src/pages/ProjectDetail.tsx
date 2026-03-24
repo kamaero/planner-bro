@@ -30,7 +30,7 @@ import {
 import { useMembers } from '@/hooks/useMembers'
 import { useUsers } from '@/hooks/useUsers'
 import { api } from '@/api/client'
-import { GanttChart } from '@/components/GanttChart/GanttChart'
+import { ProjectDetailGanttSection } from '@/components/ProjectDetail/ProjectDetailGanttSection'
 import { DependencyGraphView } from '@/components/DependencyGraphView'
 import { TimeTrackingPanel } from '@/components/TimeTrackingPanel'
 import { CustomFieldsManager } from '@/components/CustomFieldsManager'
@@ -1479,28 +1479,11 @@ export function ProjectDetail() {
 
       {/* Content */}
       {view === 'gantt' ? (
-        <div className="space-y-3">
-          <div className="rounded-xl border bg-card p-4 overflow-x-auto">
-            <GanttChart
-              tasks={ganttData?.tasks ?? []}
-              onTaskClick={handleGanttTaskClick}
-            />
-          </div>
-          <div className="rounded-xl border bg-card p-4">
-            <p className="text-sm font-semibold mb-2">Critical Path</p>
-            {!criticalPath || criticalPath.task_ids.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Нет зависимостей для расчёта.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {criticalPath.tasks.map((t) => (
-                  <span key={t.id} className="text-xs px-2 py-1 rounded border bg-background">
-                    {t.title}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <ProjectDetailGanttSection
+          ganttTasks={ganttData?.tasks ?? []}
+          criticalPath={criticalPath}
+          onTaskClick={handleGanttTaskClick}
+        />
       ) : view === 'list' ? (
         <div className="space-y-3">
           <div className="rounded-lg border bg-card p-3 space-y-3">
