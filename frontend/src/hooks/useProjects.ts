@@ -681,3 +681,51 @@ export function useWorkload(startDate: string, endDate: string, departmentId?: s
     staleTime: 60_000,
   })
 }
+
+// ---------------------------------------------------------------------------
+// External dependencies (contractors / blockers)
+// ---------------------------------------------------------------------------
+
+export interface ExternalDep {
+  id: string
+  task_id: string
+  contractor_name: string
+  description: string | null
+  due_date: string | null
+  status: 'waiting' | 'testing' | 'received' | 'overdue'
+  created_at: string
+}
+
+export function useExternalDeps(taskId: string) {
+  return useQuery<ExternalDep[]>({
+    queryKey: ['external-deps', taskId],
+    queryFn: () => api.listExternalDeps(taskId),
+  })
+}
+
+export function useCreateExternalDep() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, data }: { taskId: string; data: object }) =>
+      api.createExternalDep(taskId, data),
+    onSuccess: (_, { taskId }) => qc.invalidateQueries({ queryKey: ['external-deps', taskId] }),
+  })
+}
+
+export function useUpdateExternalDep() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, depId, data }: { taskId: string; depId: string; data: object }) =>
+      api.updateExternalDep(taskId, depId, data),
+    onSuccess: (_, { taskId }) => qc.invalidateQueries({ queryKey: ['external-deps', taskId] }),
+  })
+}
+
+export function useDeleteExternalDep() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, depId }: { taskId: string; depId: string }) =>
+      api.deleteExternalDep(taskId, depId),
+    onSuccess: (_, { taskId }) => qc.invalidateQueries({ queryKey: ['external-deps', taskId] }),
+  })
+}

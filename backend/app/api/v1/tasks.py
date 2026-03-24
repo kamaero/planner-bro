@@ -381,3 +381,61 @@ async def save_custom_values(
     await _require_task_editor(task_id, current_user, db)
     # data is {field_id: value_string}
     return await save_task_custom_values(db, task_id=task_id, values=data)
+
+
+# ── External dependencies (contractors / blockers) ────────────────────────────
+
+@router.get("/tasks/{task_id}/external-deps")
+async def list_external_deps(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.external_dep_service import list_deps
+    task = await get_task_or_404(db, task_id)
+    await _require_project_visibility(task.project_id, current_user, db)
+    return await list_deps(db, task_id)
+
+
+@router.post("/tasks/{task_id}/external-deps", status_code=201)
+async def create_external_dep(
+    task_id: str,
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.external_dep_service import create_dep
+    task = await get_task_or_404(db, task_id)
+    await _require_task_editor(task_id, current_user, db)
+    return await create_dep(db, task_id, data)
+
+
+@router.put("/tasks/{task_id}/external-deps/{dep_id}")
+async def update_external_dep(
+    task_id: str,
+    dep_id: str,
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.external_dep_service import update_dep
+    from fastapi import HTTPException
+    task = await get_task_or_404(db, task_id)
+    await _require_task_editor(task_id, current_user, db)
+    result = await update_dep(db, dep_id, data)
+    if not result:
+        raise HTTPException(status_code=404, detail="External dep not found")
+    return result
+
+
+@router.delete("/tasks/{task_id}/external-deps/{dep_id}", status_code=204)
+async def delete_external_dep(
+    task_id: str,
+    dep_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.external_dep_service import delete_dep
+    task = await get_task_or_404(db, task_id)
+    await _require_task_editor(task_id, current_user, db)
+    await delete_dep(db, dep_id)

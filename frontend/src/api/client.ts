@@ -458,4 +458,14 @@ export const api = {
         params: { start_date: startDate, end_date: endDate, department_id: departmentId },
       })
       .then((r) => r.data),
+
+  // External dependencies (contractors / blockers)
+  listExternalDeps: (taskId: string) =>
+    apiClient.get(`/tasks/${taskId}/external-deps`).then((r) => r.data),
+  createExternalDep: (taskId: string, data: object) =>
+    apiClient.post(`/tasks/${taskId}/external-deps`, data).then((r) => r.data),
+  updateExternalDep: (taskId: string, depId: string, data: object) =>
+    apiClient.put(`/tasks/${taskId}/external-deps/${depId}`, data).then((r) => r.data),
+  deleteExternalDep: (taskId: string, depId: string) =>
+    apiClient.delete(`/tasks/${taskId}/external-deps/${depId}`),
 }
