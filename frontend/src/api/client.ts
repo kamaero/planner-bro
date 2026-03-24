@@ -450,4 +450,12 @@ export const api = {
     apiClient.get(`/tasks/${taskId}/custom-values`).then((r) => r.data),
   saveTaskCustomValues: (taskId: string, values: Record<string, string | null>) =>
     apiClient.put(`/tasks/${taskId}/custom-values`, values).then((r) => r.data),
+
+  // Workload calendar
+  getWorkload: (startDate: string, endDate: string, departmentId?: string) =>
+    apiClient
+      .get('/users/workload', {
+        params: { start_date: startDate, end_date: endDate, department_id: departmentId },
+      })
+      .then((r) => r.data),
 }

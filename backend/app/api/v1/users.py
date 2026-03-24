@@ -1,7 +1,7 @@
 import secrets
 import string
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1058,3 +1058,22 @@ async def get_org_tree(
             for u in users
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Workload calendar
+# ---------------------------------------------------------------------------
+
+@router.get("/workload")
+async def get_workload_calendar(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    department_id: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.workload_service import get_workload
+    if (end_date - start_date).days > 90:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Date range must not exceed 90 days")
+    return await get_workload(db, start_date, end_date, department_id)

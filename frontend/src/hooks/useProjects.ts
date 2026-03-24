@@ -640,3 +640,44 @@ export function useAnalyzeProject() {
     mutationFn: (projectId: string) => api.analyzeProject(projectId),
   })
 }
+
+// ---------------------------------------------------------------------------
+// Workload calendar
+// ---------------------------------------------------------------------------
+
+export interface WorkloadTask {
+  id: string
+  title: string
+  project_id: string
+  project_name: string
+  priority: string
+  status: string
+}
+
+export interface WorkloadDay {
+  hours: number
+  tasks: WorkloadTask[]
+}
+
+export interface WorkloadUser {
+  id: string
+  name: string
+  department_id: string | null
+  department_name: string | null
+  days: Record<string, WorkloadDay>
+}
+
+export interface WorkloadData {
+  dates: string[]
+  daily_capacity: number
+  users: WorkloadUser[]
+  departments: { id: string; name: string }[]
+}
+
+export function useWorkload(startDate: string, endDate: string, departmentId?: string) {
+  return useQuery<WorkloadData>({
+    queryKey: ['workload', startDate, endDate, departmentId],
+    queryFn: () => api.getWorkload(startDate, endDate, departmentId),
+    staleTime: 60_000,
+  })
+}
