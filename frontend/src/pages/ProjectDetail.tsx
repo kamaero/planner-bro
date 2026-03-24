@@ -22,9 +22,10 @@ import { useUsers } from '@/hooks/useUsers'
 import { api } from '@/api/client'
 import { ProjectDetailGanttSection } from '@/components/ProjectDetail/ProjectDetailGanttSection'
 import { ProjectDetailFilesSection } from '@/components/ProjectDetail/ProjectDetailFilesSection'
+import { ProjectEditDialog } from '@/components/ProjectDetail/ProjectEditDialog'
+import type { ProjectEditFormState } from '@/components/ProjectDetail/ProjectEditDialog'
 import { DependencyGraphView } from '@/components/DependencyGraphView'
 import { TimeTrackingPanel } from '@/components/TimeTrackingPanel'
-import { CustomFieldsManager } from '@/components/CustomFieldsManager'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
 import { MembersPanel } from '@/components/MembersPanel/MembersPanel'
 import { TaskTable } from '@/components/TaskTable/TaskTable'
@@ -78,14 +79,6 @@ const TASK_PRIORITY_ORDER: Record<string, number> = {
   low: 3,
 }
 
-const PROJECT_STATUS_OPTIONS = [
-  { value: 'planning', label: 'Планирование' },
-  { value: 'tz', label: 'ТЗ' },
-  { value: 'active', label: 'Активный' },
-  { value: 'testing', label: 'Тестирование' },
-  { value: 'on_hold', label: 'Пауза' },
-  { value: 'completed', label: 'Завершён' },
-]
 
 const DEFAULT_DOD_CHECKLIST = [
   { id: 'scope_approved', label: 'Результаты проекта согласованы', done: false },
@@ -149,7 +142,7 @@ export function ProjectDetail() {
     escalation_sla_hours: '24',
     repeat_every_days: '',
   })
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = useState<ProjectEditFormState>({
     name: '',
     description: '',
     status: 'planning',
@@ -849,227 +842,23 @@ export function ProjectDetail() {
           {analyzeProject.isPending ? 'Анализ...' : 'AI Анализ'}
         </Button>
 
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm" disabled={!canManage}>
-              <Pencil className="w-4 h-4 mr-1" />
-              Редактировать
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="w-[95vw] max-w-5xl max-h-[88vh]">
-            <DialogHeader>
-              <DialogTitle>Редактировать проект</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleUpdateProject} className="grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-y-auto max-h-[72vh] pr-1">
-              <div className="space-y-1">
-                <Label>Название</Label>
-                <Input
-                  value={editForm.name}
-                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Описание</Label>
-                <Input
-                  value={editForm.description}
-                  onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label>Статус</Label>
-                  <select
-                    value={editForm.status}
-                    onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))}
-                    className="w-full border rounded px-2 py-2 bg-background text-sm"
-                  >
-                    {PROJECT_STATUS_OPTIONS.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Режим планирования</Label>
-                  <select
-                    value={editForm.planning_mode}
-                    onChange={(e) =>
-                      setEditForm((f) => ({
-                        ...f,
-                        planning_mode: e.target.value as 'flexible' | 'strict',
-                      }))
-                    }
-                    className="w-full border rounded px-2 py-2 bg-background text-sm"
-                  >
-                    <option value="flexible">Гибкий</option>
-                    <option value="strict">Строгий</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <Label>Приоритет</Label>
-                  <div className="flex items-center gap-3">
-                    <select
-                      value={editForm.control_ski ? 'critical' : editForm.priority}
-                      onChange={(e) => setEditForm((f) => ({ ...f, priority: e.target.value }))}
-                      className="w-full border rounded px-2 py-2 bg-background text-sm"
-                      disabled={editForm.control_ski}
-                    >
-                      <option value="low">Низкий</option>
-                      <option value="medium">Средний</option>
-                      <option value="high">Высокий</option>
-                      <option value="critical">Критический</option>
-                    </select>
-                    <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-                      <span>Контроль СКИ</span>
-                      <Switch
-                        checked={editForm.control_ski}
-                        onCheckedChange={(checked) =>
-                          setEditForm((f) => ({
-                            ...f,
-                            control_ski: checked,
-                            priority: checked ? 'critical' : f.priority,
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Ответственный</Label>
-                  <select
-                    value={editForm.owner_id}
-                    onChange={(e) => setEditForm((f) => ({ ...f, owner_id: e.target.value }))}
-                    className="w-full border rounded px-2 py-2 bg-background text-sm"
-                    disabled={!canTransferOwnership}
-                  >
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {formatUserDisplayName(u)} ({u.role})
-                      </option>
-                    ))}
-                  </select>
-                  {!canTransferOwnership && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Только владелец проекта или администратор может менять ответственного.
-                    </p>
-                  )}
-                </div>
-              </div>
-              {editForm.planning_mode === 'strict' && (
-                <div className="rounded border bg-muted/20 p-3 space-y-2 lg:col-span-2">
-                  <p className="text-sm font-medium">Правила строгого режима</p>
-                  <label className="flex items-center justify-between gap-2 text-sm">
-                    <span>Запрет даты начала в прошлом</span>
-                    <Switch
-                      checked={editForm.strict_no_past_start_date}
-                      onCheckedChange={(checked) =>
-                        setEditForm((f) => ({ ...f, strict_no_past_start_date: checked }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-2 text-sm">
-                    <span>Запрет дедлайна в прошлом</span>
-                    <Switch
-                      checked={editForm.strict_no_past_end_date}
-                      onCheckedChange={(checked) =>
-                        setEditForm((f) => ({ ...f, strict_no_past_end_date: checked }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-2 text-sm">
-                    <span>Дочерняя задача в диапазоне дат родителя</span>
-                    <Switch
-                      checked={editForm.strict_child_within_parent_dates}
-                      onCheckedChange={(checked) =>
-                        setEditForm((f) => ({ ...f, strict_child_within_parent_dates: checked }))
-                      }
-                    />
-                  </label>
-                </div>
-              )}
-
-              <div className="space-y-1 lg:col-span-2">
-                <Label>Основание запуска</Label>
-                <Input
-                  value={editForm.launch_basis_text}
-                  onChange={(e) => setEditForm((f) => ({ ...f, launch_basis_text: e.target.value }))}
-                  placeholder="Напр.: Приказ #111222333 24.02.2026"
-                />
-              </div>
-
-              <div className="space-y-1 lg:col-span-2">
-                <Label>Файл основания запуска</Label>
-                <select
-                  value={editForm.launch_basis_file_id}
-                  onChange={(e) => setEditForm((f) => ({ ...f, launch_basis_file_id: e.target.value }))}
-                  className="w-full border rounded px-2 py-2 bg-background text-sm"
-                >
-                  <option value="">—</option>
-                  {files.map((file) => (
-                    <option key={file.id} value={file.id}>
-                      {file.filename}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label>Дата начала</Label>
-                  <Input
-                    type="date"
-                    value={editForm.start_date}
-                    onChange={(e) => setEditForm((f) => ({ ...f, start_date: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Дата окончания</Label>
-                  <Input
-                    type="date"
-                    value={editForm.end_date}
-                    onChange={(e) => setEditForm((f) => ({ ...f, end_date: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2 rounded-lg border p-3 lg:col-span-2">
-                <Label className="text-sm font-semibold">Definition of Done (обязательный чеклист)</Label>
-                <div className="space-y-2">
-                  {editForm.completion_checklist.map((item) => (
-                    <label key={item.id} className="flex items-start gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={item.done}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({
-                            ...prev,
-                            completion_checklist: prev.completion_checklist.map((current) =>
-                              current.id === item.id ? { ...current, done: e.target.checked } : current
-                            ),
-                          }))
-                        }
-                      />
-                      <span>{item.label}</span>
-                    </label>
-                  ))}
-                </div>
-                {editForm.status === 'completed' &&
-                  editForm.completion_checklist.some((i) => !i.done) && (
-                    <p className="text-xs text-red-600">
-                      Чтобы завершить проект, отметьте все пункты чеклиста.
-                    </p>
-                  )}
-              </div>
-              <div className="lg:col-span-2 border-t pt-3">
-                <CustomFieldsManager projectId={id!} canManage={canManage} />
-              </div>
-              <Button type="submit" className="w-full lg:col-span-2" disabled={updateProject.isPending}>
-                {updateProject.isPending ? 'Сохранение...' : 'Сохранить изменения'}
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <Button variant="outline" size="sm" disabled={!canManage} onClick={() => setEditOpen(true)}>
+          <Pencil className="w-4 h-4 mr-1" />
+          Редактировать
+        </Button>
+        <ProjectEditDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          editForm={editForm}
+          setEditForm={setEditForm}
+          onSubmit={handleUpdateProject}
+          isPending={updateProject.isPending}
+          users={users}
+          files={files}
+          projectId={id!}
+          canManage={canManage}
+          canTransferOwnership={canTransferOwnership}
+        />
 
         {canManage && canDelete && (
           <Button
