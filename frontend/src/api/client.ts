@@ -422,4 +422,8 @@ export const api = {
   // AI Project Manager
   analyzeProject: (projectId: string) =>
     apiClient.post(`/projects/${projectId}/ai-analysis`).then((r) => r.data),
+
+  // Dependency graph
+  getDependencyGraph: (projectId: string) =>
+    apiClient.get(`/projects/${projectId}/dependency-graph`).then((r) => r.data),
 }

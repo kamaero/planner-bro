@@ -61,6 +61,7 @@ from app.services.task_route_dependency_service import (
 from app.services.task_dependency_service import (
     project_critical_path,
 )
+from app.services.dependency_graph_service import get_dependency_graph
 
 router = APIRouter(tags=["tasks"])
 
@@ -267,6 +268,17 @@ async def escalation_inbox(
     db: AsyncSession = Depends(get_db),
 ):
     return await list_escalations_for_assignee(db, current_user.id)
+
+
+@router.get("/projects/{project_id}/dependency-graph")
+async def dependency_graph(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_exists(project_id, db)
+    await _require_project_visibility(project_id, current_user, db)
+    return await get_dependency_graph(db, project_id)
 
 
 @router.get("/projects/{project_id}/critical-path")

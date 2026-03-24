@@ -482,6 +482,38 @@ export function useDeadlineStats() {
   })
 }
 
+export interface DependencyGraphNode {
+  id: string
+  title: string
+  status: string
+  priority: string
+  end_date: string | null
+  assignee_name: string | null
+  parent_task_id: string | null
+  is_overdue: boolean
+  is_critical: boolean
+}
+
+export interface DependencyGraphEdge {
+  predecessor_id: string
+  successor_id: string
+  dependency_type: string
+  lag_days: number
+}
+
+export interface DependencyGraph {
+  nodes: DependencyGraphNode[]
+  edges: DependencyGraphEdge[]
+}
+
+export function useDependencyGraph(projectId?: string) {
+  return useQuery<DependencyGraph>({
+    queryKey: ['dependency-graph', projectId],
+    queryFn: () => api.getDependencyGraph(projectId!),
+    enabled: !!projectId,
+  })
+}
+
 export function useAnalyzeProject() {
   return useMutation<
     { project_id: string; project_name: string; analysis: string; stats: Record<string, number>; generated_at: string },
