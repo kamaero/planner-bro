@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -37,12 +38,20 @@ async def list_deps(db: AsyncSession, task_id: str) -> list[dict]:
     return [_to_dict(r) for r in rows]
 
 
+def _parse_date(value: Any) -> date | None:
+    if not value:
+        return None
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))
+
+
 async def create_dep(db: AsyncSession, task_id: str, data: dict) -> dict:
     dep = TaskExternalDep(
         task_id=task_id,
         contractor_name=data["contractor_name"],
         description=data.get("description"),
-        due_date=data.get("due_date"),
+        due_date=_parse_date(data.get("due_date")),
         status=data.get("status", "waiting"),
     )
     db.add(dep)
@@ -57,9 +66,11 @@ async def update_dep(db: AsyncSession, dep_id: str, data: dict) -> dict | None:
     ).scalar_one_or_none()
     if not dep:
         return None
-    for field in ("contractor_name", "description", "due_date", "status"):
+    for field in ("contractor_name", "description", "status"):
         if field in data:
             setattr(dep, field, data[field])
+    if "due_date" in data:
+        dep.due_date = _parse_date(data["due_date"])
     dep.updated_at = datetime.now(timezone.utc)
     await db.flush()
     await db.refresh(dep)
