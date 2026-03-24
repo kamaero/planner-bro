@@ -467,6 +467,10 @@ export const api = {
   deleteExternalContractor: (id: string) =>
     apiClient.delete(`/users/external-contractors/${id}`),
 
+  // External deps — project-level batch fetch
+  getProjectExternalDeps: (projectId: string) =>
+    apiClient.get(`/projects/${projectId}/external-deps`).then((r) => r.data),
+
   // External dependencies (contractors / blockers)
   listExternalDeps: (taskId: string) =>
     apiClient.get(`/tasks/${taskId}/external-deps`).then((r) => r.data),

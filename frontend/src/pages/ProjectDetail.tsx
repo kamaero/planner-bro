@@ -25,6 +25,7 @@ import {
   useProjects,
   useAnalyzeProject,
   useDependencyGraph,
+  useProjectExternalDeps,
 } from '@/hooks/useProjects'
 import { useMembers } from '@/hooks/useMembers'
 import { useUsers } from '@/hooks/useUsers'
@@ -142,6 +143,7 @@ export function ProjectDetail() {
 
   const [view, setView] = useState<'gantt' | 'list' | 'members' | 'files' | 'graph' | 'time'>('list')
   const { data: depGraph } = useDependencyGraph(view === 'graph' ? id : undefined)
+  const { data: projectExternalDeps = {} } = useProjectExternalDeps(id!)
   const showTime = view === 'time'
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -1735,6 +1737,7 @@ export function ProjectDetail() {
             }}
             shiftsMap={shiftsMap}
             rowSize={taskRowSize}
+            externalDepsMap={projectExternalDeps}
           />
         </div>
       ) : view === 'members' ? (

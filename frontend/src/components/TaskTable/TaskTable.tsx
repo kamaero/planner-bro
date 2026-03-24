@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { Task } from '@/types'
 import { Clock, AlertCircle, CornerDownRight } from 'lucide-react'
+import type { ExternalDep } from '@/hooks/useProjects'
 import { buildTaskNumbering } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
 
@@ -38,6 +39,17 @@ const PRIORITY_LABELS: Record<string, string> = {
   critical: 'Критический',
 }
 
+const EXT_STATUS_COLORS: Record<string, string> = {
+  waiting:  'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  testing:  'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  received: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+  overdue:  'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+}
+
+const EXT_STATUS_LABELS: Record<string, string> = {
+  waiting: 'Ждём', testing: 'Тест', received: 'Получено', overdue: 'Просрочено',
+}
+
 interface TaskTableProps {
   tasks: Task[]
   allTasks?: Task[]
@@ -45,6 +57,7 @@ interface TaskTableProps {
   onStatusChange?: (taskId: string, status: string) => void
   shiftsMap?: Record<string, number>
   rowSize?: 'compact' | 'normal' | 'comfortable'
+  externalDepsMap?: Record<string, ExternalDep[]>
 }
 
 export function TaskTable({
@@ -54,6 +67,7 @@ export function TaskTable({
   onStatusChange,
   shiftsMap = {},
   rowSize = 'normal',
+  externalDepsMap = {},
 }: TaskTableProps) {
   const today = new Date().toISOString().slice(0, 10)
   const topRef = useRef<HTMLDivElement | null>(null)
@@ -142,6 +156,7 @@ export function TaskTable({
             <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap">Исполнитель</th>
             <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap">Дедлайн</th>
             <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap">Прогресс</th>
+            <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap">Подрядчики</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -305,6 +320,21 @@ export function TaskTable({
                     <span className="text-xs text-muted-foreground tabular-nums w-7 text-right">
                       {task.progress_percent}%
                     </span>
+                  </div>
+                </td>
+
+                {/* External contractors */}
+                <td className={`px-3 ${pyClass}`}>
+                  <div className="flex flex-wrap gap-1 min-w-[120px]">
+                    {(externalDepsMap[task.id] ?? []).map((dep) => (
+                      <span
+                        key={dep.id}
+                        className={`text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${EXT_STATUS_COLORS[dep.status] ?? EXT_STATUS_COLORS.waiting}`}
+                        title={`${dep.contractor_name} — ${EXT_STATUS_LABELS[dep.status] ?? dep.status}${dep.due_date ? ` (до ${dep.due_date})` : ''}`}
+                      >
+                        {dep.contractor_name}
+                      </span>
+                    ))}
                   </div>
                 </td>
               </tr>

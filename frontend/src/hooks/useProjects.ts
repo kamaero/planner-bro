@@ -701,6 +701,14 @@ export interface ExternalContractor {
   name: string
 }
 
+export function useProjectExternalDeps(projectId: string) {
+  return useQuery<Record<string, ExternalDep[]>>({
+    queryKey: ['project-external-deps', projectId],
+    queryFn: () => api.getProjectExternalDeps(projectId),
+    staleTime: 30_000,
+  })
+}
+
 export function useExternalContractors() {
   return useQuery<ExternalContractor[]>({
     queryKey: ['external-contractors'],

@@ -294,6 +294,18 @@ async def project_time_summary(
     return await get_project_time_summary(db, project_id)
 
 
+@router.get("/projects/{project_id}/external-deps")
+async def project_external_deps(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.external_dep_service import list_deps_for_project
+    await _require_project_exists(project_id, db)
+    await _require_project_visibility(project_id, current_user, db)
+    return await list_deps_for_project(db, project_id)
+
+
 @router.get("/projects/{project_id}/critical-path")
 async def critical_path(
     project_id: str,

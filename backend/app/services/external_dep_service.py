@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.task_external_dep import TaskExternalDep
+from app.models.task import Task
 
 
 def _effective_status(dep: TaskExternalDep) -> str:
@@ -86,3 +87,19 @@ async def delete_dep(db: AsyncSession, dep_id: str) -> bool:
     await db.delete(dep)
     await db.commit()
     return True
+
+
+async def list_deps_for_project(db: AsyncSession, project_id: str) -> dict[str, list[dict]]:
+    """Return {task_id: [dep_dict, ...]} for all tasks in the project."""
+    rows = (
+        await db.execute(
+            select(TaskExternalDep)
+            .join(Task, Task.id == TaskExternalDep.task_id)
+            .where(Task.project_id == project_id)
+            .order_by(TaskExternalDep.created_at)
+        )
+    ).scalars().all()
+    result: dict[str, list[dict]] = {}
+    for dep in rows:
+        result.setdefault(dep.task_id, []).append(_to_dict(dep))
+    return result
