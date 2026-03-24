@@ -540,6 +540,33 @@ export function useDependencyGraph(projectId?: string) {
   })
 }
 
+export interface RetrospectiveResult {
+  project_id: string
+  project_name: string
+  content: string
+  stats: Record<string, number>
+  generated_at: string
+}
+
+export function useProjectRetrospective(projectId?: string) {
+  return useQuery<RetrospectiveResult | null>({
+    queryKey: ['retrospective', projectId],
+    queryFn: () => api.getProjectRetrospective(projectId!),
+    enabled: !!projectId,
+    retry: false,
+  })
+}
+
+export function useGenerateRetrospective() {
+  const qc = useQueryClient()
+  return useMutation<RetrospectiveResult, Error, string>({
+    mutationFn: (projectId: string) => api.generateProjectRetrospective(projectId),
+    onSuccess: (_, projectId) => {
+      qc.invalidateQueries({ queryKey: ['retrospective', projectId] })
+    },
+  })
+}
+
 export function useAnalyzeProject() {
   return useMutation<
     { project_id: string; project_name: string; analysis: string; stats: Record<string, number>; generated_at: string },

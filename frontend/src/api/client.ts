@@ -430,4 +430,10 @@ export const api = {
   // Time tracking
   getProjectTimeSummary: (projectId: string) =>
     apiClient.get(`/projects/${projectId}/time-summary`).then((r) => r.data),
+
+  // Retrospective
+  getProjectRetrospective: (projectId: string) =>
+    apiClient.get(`/projects/${projectId}/retrospective`).then((r) => r.data),
+  generateProjectRetrospective: (projectId: string) =>
+    apiClient.post(`/projects/${projectId}/retrospective`).then((r) => r.data),
 }

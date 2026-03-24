@@ -23,6 +23,7 @@ from app.models import (  # noqa
     AIIngestionJob,
     AITaskDraft,
 )
+from app.models.project_retrospective import ProjectRetrospective  # noqa
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL_SYNC)

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useAllTasks, useDeadlineStats } from '@/hooks/useProjects'
+import { useAllTasks, useDeadlineStats, useProjectRetrospective, useGenerateRetrospective } from '@/hooks/useProjects'
 import {
   BarChart,
   Bar,
@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
-import { Download, AlertTriangle, Activity } from 'lucide-react'
+import { Download, AlertTriangle, Activity, ScrollText, RefreshCw } from 'lucide-react'
 import { ActivityHeatmap } from '@/components/ActivityHeatmap/ActivityHeatmap'
 import type { Task, Project } from '@/types'
 import { formatUserDisplayName } from '@/lib/userName'
@@ -92,6 +92,9 @@ export function Analytics() {
   const [reportFrom, setReportFrom] = useState('')
   const [reportTo, setReportTo] = useState('')
   const [reportProject, setReportProject] = useState('all')
+  const [retroProjectId, setRetroProjectId] = useState('')
+  const { data: retroData } = useProjectRetrospective(retroProjectId || undefined)
+  const generateRetro = useGenerateRetrospective()
 
   const today = new Date().toISOString().slice(0, 10)
 
@@ -406,6 +409,77 @@ export function Analytics() {
             Нет данных о переносах дедлайнов.
           </div>
         )}
+      </div>
+
+      {/* ── Retrospective ── */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <ScrollText className="w-4 h-4 text-primary" />
+          <h2 className="text-base font-semibold">Ретроспектива проекта</h2>
+        </div>
+        <div className="rounded-xl border bg-card p-5 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            AI анализирует завершённый проект: выполнение задач, учёт времени, нагрузку команды, сдвиги дедлайнов — и формирует структурированный отчёт.
+          </p>
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex-1 min-w-48">
+              <label className="text-xs text-muted-foreground mb-1 block">Проект</label>
+              <select
+                value={retroProjectId}
+                onChange={(e) => setRetroProjectId(e.target.value)}
+                className="w-full text-sm border rounded px-2 py-1.5 bg-background"
+              >
+                <option value="">— выберите проект —</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!retroProjectId || generateRetro.isPending}
+              onClick={async () => {
+                if (!retroProjectId) return
+                try {
+                  await generateRetro.mutateAsync(retroProjectId)
+                } catch (err: any) {
+                  window.alert(err?.response?.data?.detail ?? 'Ошибка генерации ретроспективы')
+                }
+              }}
+            >
+              <RefreshCw className={`w-4 h-4 mr-1 ${generateRetro.isPending ? 'animate-spin' : ''}`} />
+              {generateRetro.isPending ? 'Генерация...' : retroData ? 'Обновить' : 'Сформировать'}
+            </Button>
+          </div>
+
+          {retroData && (
+            <div className="space-y-3">
+              {/* Stats row */}
+              <div className="flex flex-wrap gap-4 text-xs text-muted-foreground border-b pb-3">
+                <span>Задач: <b>{retroData.stats.total_tasks}</b></span>
+                <span>Выполнено: <b>{retroData.stats.done_pct}%</b></span>
+                {retroData.stats.total_planned_h > 0 && (
+                  <span>План/факт: <b>{retroData.stats.total_planned_h}ч / {retroData.stats.total_actual_h}ч</b></span>
+                )}
+                <span>Сдвигов дедлайнов: <b>{retroData.stats.deadline_shift_count}</b> ({retroData.stats.total_shift_days} дн.)</span>
+                <span className="ml-auto">
+                  Сформировано: {new Date(retroData.generated_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+              {/* AI content */}
+              <pre className="whitespace-pre-wrap text-sm leading-6 font-sans text-foreground">
+                {retroData.content}
+              </pre>
+            </div>
+          )}
+
+          {retroProjectId && !retroData && !generateRetro.isPending && (
+            <p className="text-sm text-muted-foreground">
+              Ретроспектива по этому проекту ещё не сформирована. Нажмите «Сформировать».
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )

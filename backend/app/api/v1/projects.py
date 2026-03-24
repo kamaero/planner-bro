@@ -56,6 +56,7 @@ from app.services.project_route_ai_service import (
     reject_ai_draft_flow,
     reject_ai_drafts_bulk_flow,
 )
+from app.services.retrospective_service import generate_retrospective, get_retrospective
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
@@ -445,6 +446,26 @@ async def remove_member(
         target_user_id=user_id,
         actor=current_user,
     )
+
+
+@router.get("/{project_id}/retrospective")
+async def get_project_retrospective(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_project_access(project_id, current_user, db)
+    return await get_retrospective(db, project_id)
+
+
+@router.post("/{project_id}/retrospective")
+async def generate_project_retrospective(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_project_access(project_id, current_user, db)
+    return await generate_retrospective(db, project_id, generated_by_id=current_user.id)
 
 
 @router.get("/{project_id}/deadline-history", response_model=list[DeadlineChangeOut])
