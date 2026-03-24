@@ -62,6 +62,7 @@ from app.services.task_dependency_service import (
     project_critical_path,
 )
 from app.services.dependency_graph_service import get_dependency_graph
+from app.services.time_tracking_service import get_project_time_summary
 
 router = APIRouter(tags=["tasks"])
 
@@ -279,6 +280,17 @@ async def dependency_graph(
     await _require_project_exists(project_id, db)
     await _require_project_visibility(project_id, current_user, db)
     return await get_dependency_graph(db, project_id)
+
+
+@router.get("/projects/{project_id}/time-summary")
+async def project_time_summary(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_exists(project_id, db)
+    await _require_project_visibility(project_id, current_user, db)
+    return await get_project_time_summary(db, project_id)
 
 
 @router.get("/projects/{project_id}/critical-path")

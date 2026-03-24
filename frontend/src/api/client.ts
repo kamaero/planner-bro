@@ -426,4 +426,8 @@ export const api = {
   // Dependency graph
   getDependencyGraph: (projectId: string) =>
     apiClient.get(`/projects/${projectId}/dependency-graph`).then((r) => r.data),
+
+  // Time tracking
+  getProjectTimeSummary: (projectId: string) =>
+    apiClient.get(`/projects/${projectId}/time-summary`).then((r) => r.data),
 }

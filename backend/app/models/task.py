@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date, timezone
-from sqlalchemy import String, DateTime, Date, ForeignKey, Integer, Enum as SAEnum, Boolean
+from sqlalchemy import String, DateTime, Date, ForeignKey, Integer, Numeric, Enum as SAEnum, Boolean
 from sqlalchemy import inspect
 from sqlalchemy.orm.attributes import NO_VALUE
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -55,6 +55,7 @@ class Task(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     estimated_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_hours: Mapped[float | None] = mapped_column(Numeric(precision=6, scale=2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

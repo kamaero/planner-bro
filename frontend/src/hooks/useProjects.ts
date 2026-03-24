@@ -506,6 +506,32 @@ export interface DependencyGraph {
   edges: DependencyGraphEdge[]
 }
 
+export interface TimeSummaryAssignee {
+  assignee_id: string | null
+  assignee_name: string | null
+  estimated: number
+  actual: number
+  task_count: number
+}
+
+export interface TimeSummary {
+  total_estimated: number | null
+  total_actual: number | null
+  tasks_with_estimate: number
+  tasks_with_actual: number
+  total_tasks: number
+  by_assignee: TimeSummaryAssignee[]
+  by_status: { status: string; estimated: number; actual: number; task_count: number }[]
+}
+
+export function useProjectTimeSummary(projectId?: string) {
+  return useQuery<TimeSummary>({
+    queryKey: ['time-summary', projectId],
+    queryFn: () => api.getProjectTimeSummary(projectId!),
+    enabled: !!projectId,
+  })
+}
+
 export function useDependencyGraph(projectId?: string) {
   return useQuery<DependencyGraph>({
     queryKey: ['dependency-graph', projectId],

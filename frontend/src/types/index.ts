@@ -142,6 +142,7 @@ export interface Task {
   repeat_every_days?: number
   created_by_id: string
   estimated_hours?: number
+  actual_hours?: number | null
   created_at: string
   updated_at: string
 }

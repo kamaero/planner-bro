@@ -131,6 +131,8 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [newDependencyLagDays, setNewDependencyLagDays] = useState('0')
   const [selectedParentTaskId, setSelectedParentTaskId] = useState('')
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([])
+  const [estimatedHours, setEstimatedHours] = useState('')
+  const [actualHours, setActualHours] = useState('')
 
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
@@ -196,6 +198,8 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     setProgressPercent(String(task.progress_percent ?? 0))
     setNextStep(task.next_step ?? '')
     setRepeatDays(task.repeat_every_days ? String(task.repeat_every_days) : '')
+    setEstimatedHours(task.estimated_hours != null ? String(task.estimated_hours) : '')
+    setActualHours(task.actual_hours != null ? String(task.actual_hours) : '')
     setIsEscalation(!!task.is_escalation)
     setEscalationFor(task.escalation_for ?? '')
     setEscalationSlaHours(String(task.escalation_sla_hours ?? 24))
@@ -791,12 +795,71 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                   </div>
                 )}
               </div>
-              {task.estimated_hours && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Clock className="w-4 h-4" />
-                  <span>{task.estimated_hours}h estimated</span>
+              {/* ── Time tracking ── */}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Учёт времени</p>
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <label className="text-xs text-muted-foreground mb-1 block">План (ч)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={estimatedHours}
+                      onChange={(e) => setEstimatedHours(e.target.value)}
+                      className="w-full text-sm border rounded px-2 py-1 bg-background"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-muted-foreground mb-1 block">Факт (ч)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={actualHours}
+                      onChange={(e) => setActualHours(e.target.value)}
+                      className="w-full text-sm border rounded px-2 py-1 bg-background"
+                      placeholder="0"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await updateTask.mutateAsync({
+                          taskId: task.id,
+                          data: {
+                            estimated_hours: estimatedHours ? parseInt(estimatedHours) : null,
+                            actual_hours: actualHours ? parseFloat(actualHours) : null,
+                          },
+                        })
+                      } catch (err: any) {
+                        window.alert(humanizeApiError(err, 'Не удалось сохранить часы'))
+                      }
+                    }}
+                  >
+                    Сохранить
+                  </Button>
                 </div>
-              )}
+                {(task.estimated_hours != null || task.actual_hours != null) && (() => {
+                  const est = task.estimated_hours ?? 0
+                  const act = Number(task.actual_hours ?? 0)
+                  const pct = est > 0 ? Math.round((act / est) * 100) : null
+                  return (
+                    <div className="text-xs text-muted-foreground flex gap-3">
+                      {task.estimated_hours != null && <span>План: <b>{task.estimated_hours}ч</b></span>}
+                      {task.actual_hours != null && <span>Факт: <b>{act}ч</b></span>}
+                      {pct != null && (
+                        <span className={pct > 100 ? 'text-red-500 font-semibold' : 'text-green-600'}>
+                          {pct}% от плана
+                        </span>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm">
                   <span>Эскалация на руководителя</span>

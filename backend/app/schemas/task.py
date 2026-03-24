@@ -29,6 +29,7 @@ class TaskBase(BaseModel):
     assignee_ids: list[str] = Field(default_factory=list)
     parent_task_id: Optional[str] = None
     estimated_hours: Optional[int] = None
+    actual_hours: Optional[float] = None
     is_escalation: bool = False
     escalation_for: Optional[str] = None
     escalation_sla_hours: int = 24
@@ -60,6 +61,7 @@ class TaskUpdate(BaseModel):
     assigned_to_id: Optional[str] = None
     assignee_ids: Optional[list[str]] = None
     estimated_hours: Optional[int] = None
+    actual_hours: Optional[float] = None
     parent_task_id: Optional[str] = None
     is_escalation: Optional[bool] = None
     escalation_for: Optional[str] = None

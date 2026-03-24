@@ -31,6 +31,7 @@ import { useUsers } from '@/hooks/useUsers'
 import { api } from '@/api/client'
 import { GanttChart } from '@/components/GanttChart/GanttChart'
 import { DependencyGraphView } from '@/components/DependencyGraphView'
+import { TimeTrackingPanel } from '@/components/TimeTrackingPanel'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
 import { MembersPanel } from '@/components/MembersPanel/MembersPanel'
 import { TaskTable } from '@/components/TaskTable/TaskTable'
@@ -47,7 +48,7 @@ import { formatUserDisplayName } from '@/lib/userName'
 import type { Task, GanttTask, ProjectFile } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { useMyPermissions } from '@/hooks/useMyPermissions'
-import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp, BrainCircuit, X, GitBranch } from 'lucide-react'
+import { ArrowLeft, Plus, BarChart2, List, Users, Pencil, Paperclip, Download, Trash2, ChevronDown, ChevronUp, BrainCircuit, X, GitBranch, Clock } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -138,8 +139,9 @@ export function ProjectDetail() {
   const currentUser = useAuthStore((s) => s.user)
   const { permissions } = useMyPermissions()
 
-  const [view, setView] = useState<'gantt' | 'list' | 'members' | 'files' | 'graph'>('list')
+  const [view, setView] = useState<'gantt' | 'list' | 'members' | 'files' | 'graph' | 'time'>('list')
   const { data: depGraph } = useDependencyGraph(view === 'graph' ? id : undefined)
+  const showTime = view === 'time'
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
@@ -928,6 +930,14 @@ export function ProjectDetail() {
           >
             <GitBranch className="w-4 h-4 mr-1" />
             Граф
+          </Button>
+          <Button
+            variant={view === 'time' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setView('time')}
+          >
+            <Clock className="w-4 h-4 mr-1" />
+            Время
           </Button>
         </div>
 
@@ -1736,6 +1746,8 @@ export function ProjectDetail() {
             <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">Загрузка...</div>
           )}
         </div>
+      ) : showTime ? (
+        <TimeTrackingPanel projectId={id!} />
       ) : (
         <div className="space-y-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
