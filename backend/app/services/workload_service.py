@@ -42,25 +42,46 @@ async def get_workload(
             "departments": [],
         }
 
-    # 2. Fetch tasks overlapping [start_date, end_date] assigned to these users
-    tasks_q = (
+    # 2. Fetch tasks overlapping [start_date, end_date] assigned to these users.
+    #    Tasks can be assigned via TaskAssignee (many-to-many) OR assigned_to_id (legacy).
+    date_filter = [
+        Task.start_date != None,
+        Task.end_date != None,
+        Task.start_date <= end_date,
+        Task.end_date >= start_date,
+    ]
+
+    # 2a. Via TaskAssignee join table
+    q_joinee = (
         select(Task, TaskAssignee.user_id, Project.name.label("project_name"))
         .join(TaskAssignee, TaskAssignee.task_id == Task.id)
         .join(Project, Project.id == Task.project_id)
-        .where(
-            TaskAssignee.user_id.in_(user_ids),
-            Task.start_date != None,
-            Task.end_date != None,
-            Task.start_date <= end_date,
-            Task.end_date >= start_date,
-        )
+        .where(TaskAssignee.user_id.in_(user_ids), *date_filter)
     )
-    rows = (await db.execute(tasks_q)).all()
+    rows_joinee = (await db.execute(q_joinee)).all()
+
+    # 2b. Via assigned_to_id (primary assignee field)
+    q_direct = (
+        select(Task, Task.assigned_to_id, Project.name.label("project_name"))
+        .join(Project, Project.id == Task.project_id)
+        .where(Task.assigned_to_id.in_(user_ids), *date_filter)
+    )
+    rows_direct = (await db.execute(q_direct)).all()
+
+    # Merge, deduplicating by (task_id, user_id)
+    seen: set[tuple[str, str]] = set()
+    merged_rows: list[tuple] = []
+    for row in list(rows_joinee) + list(rows_direct):
+        task, uid, project_name = row
+        key = (task.id, uid)
+        if key not in seen:
+            seen.add(key)
+            merged_rows.append(row)
 
     # 3. Build workload map: user_id → day_str → {hours, tasks}
     workload: dict[str, dict[str, dict]] = {uid: {} for uid in user_ids}
 
-    for task, uid, project_name in rows:
+    for task, uid, project_name in merged_rows:
         t_start: date = max(task.start_date, start_date)
         t_end: date = min(task.end_date, end_date)
         visible_days = (t_end - t_start).days + 1
