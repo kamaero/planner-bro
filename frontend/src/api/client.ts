@@ -257,6 +257,9 @@ export const api = {
       control_ski?: boolean
       assigned_to_id?: string | null
       delete?: boolean
+      end_date_shift_days?: number
+      deadline_change_reason?: string
+      target_project_id?: string
     }
   ) => apiClient.post(`/projects/${projectId}/tasks/bulk`, data).then((r) => r.data),
   listTaskComments: (taskId: string) => apiClient.get(`/tasks/${taskId}/comments`).then((r) => r.data),
@@ -286,6 +289,8 @@ export const api = {
     apiClient.get('/notifications/report-settings').then((r) => r.data),
   updateReportDispatchSettings: (data: {
     smtp_enabled: boolean
+    email_test_mode?: boolean
+    email_test_recipient?: string
     telegram_summaries_enabled: boolean
     email_analytics_enabled: boolean
     email_analytics_recipients: string
