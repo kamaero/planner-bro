@@ -16,6 +16,7 @@ import { useTeamUsersAdminState } from '@/hooks/useTeamUsersAdminState'
 import type { UserDraft } from '@/hooks/useTeamUsersAdminState'
 import { useTeamReportSettings } from '@/hooks/useTeamReportSettings'
 import type { DigestChannelKey } from '@/hooks/useTeamReportSettings'
+import { useTeamCoreData } from '@/hooks/useTeamCoreData'
 
 export function Team() {
   const currentUser = useAuthStore((s) => s.user)
@@ -23,11 +24,8 @@ export function Team() {
   const canCreateSubordinates = canManageTeam || currentUser?.role === 'manager'
 
   const [section, setSection] = useState<'overview' | 'users' | 'org' | 'settings' | 'contractors'>('overview')
-  const [users, setUsers] = useState<User[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
+  const { users, setUsers, departments, loading, error, setError, loadAll: loadCoreData } = useTeamCoreData()
   const { loginEvents, loginEventsLoading, loginEventsError, loadLoginEvents } = useTeamLoginEvents(!!canManageTeam)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
   const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({})
   const [departmentDrafts, setDepartmentDrafts] = useState<Record<string, { parent_id: string; head_user_id: string }>>({})
@@ -152,23 +150,14 @@ export function Team() {
   }
 
   const loadAll = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const [userData, departmentData] = await Promise.all([api.listUsers(), api.listDepartments()])
-      setUsers(userData)
-      setDepartments(departmentData)
-      initializeUserDrafts(userData)
-      const depDrafts: Record<string, { parent_id: string; head_user_id: string }> = {}
-      departmentData.forEach((d: Department) => {
-        depDrafts[d.id] = { parent_id: d.parent_id ?? '', head_user_id: d.head_user_id ?? '' }
-      })
-      setDepartmentDrafts(depDrafts)
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Не удалось загрузить данные команды')
-    } finally {
-      setLoading(false)
-    }
+    const result = await loadCoreData()
+    if (!result) return
+    initializeUserDrafts(result.users)
+    const depDrafts: Record<string, { parent_id: string; head_user_id: string }> = {}
+    result.departments.forEach((d: Department) => {
+      depDrafts[d.id] = { parent_id: d.parent_id ?? '', head_user_id: d.head_user_id ?? '' }
+    })
+    setDepartmentDrafts(depDrafts)
   }
 
   loadAllRef.current = loadAll
