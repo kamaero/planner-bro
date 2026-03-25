@@ -23,7 +23,7 @@ export const TEAM_FIXED_DIGEST_TIMEZONE = 'Asia/Yekaterinburg'
 const TEAM_FALLBACK_TIME_WINDOW = '09:00-12:00'
 const ALL_WEEKDAY_IDS = TEAM_WEEKDAY_OPTIONS.map((d) => d.id)
 
-type DigestChannelKey = 'telegram_projects_slots' | 'telegram_critical_slots' | 'email_analytics_slots'
+export type DigestChannelKey = 'telegram_projects_slots' | 'telegram_critical_slots' | 'email_analytics_slots'
 
 type DigestChannelPreset = {
   days: string[]
