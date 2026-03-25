@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { useExternalContractors, useCreateExternalContractor, useDeleteExternalContractor } from '@/hooks/useProjects'
@@ -10,6 +10,7 @@ import type { AuthLoginEvent, Department, User, TempAssignee, ReportDispatchSett
 import { formatUserDisplayName } from '@/lib/userName'
 import { useTeamOwnPassword } from '@/hooks/useTeamOwnPassword'
 import { useTeamLoginEvents } from '@/hooks/useTeamLoginEvents'
+import { useTeamTempAssignees } from '@/hooks/useTeamTempAssignees'
 
 type UserDraft = Pick<
   User,
@@ -158,11 +159,19 @@ export function Team() {
   const [reportSettingsSaving, setReportSettingsSaving] = useState(false)
   const [reportSettingsMessage, setReportSettingsMessage] = useState('')
   const [adminDirectiveTestBusy, setAdminDirectiveTestBusy] = useState(false)
-  const [tempAssignees, setTempAssignees] = useState<TempAssignee[]>([])
-  const [tempAssigneesLoading, setTempAssigneesLoading] = useState(false)
-  const [tempAssigneesError, setTempAssigneesError] = useState('')
-  const [tempAssigneeBusyId, setTempAssigneeBusyId] = useState<string | null>(null)
-  const [tempAssigneeLinkDrafts, setTempAssigneeLinkDrafts] = useState<Record<string, string>>({})
+  const loadAllRef = useRef<() => Promise<unknown>>(() => Promise.resolve())
+  const {
+    tempAssignees,
+    tempAssigneesLoading,
+    tempAssigneesError,
+    tempAssigneeBusyId,
+    tempAssigneeLinkDrafts,
+    setTempAssigneeLinkDrafts,
+    loadTempAssignees,
+    handleLinkTempAssignee,
+    handleIgnoreTempAssignee,
+    handlePromoteTempAssignee,
+  } = useTeamTempAssignees(!!canManageTeam, () => loadAllRef.current())
 
   const [nameDrafts, setNameDrafts] = useState<Record<string, { first_name: string; middle_name: string; last_name: string }>>({})
   const [nameBusyId, setNameBusyId] = useState<string | null>(null)
@@ -260,6 +269,8 @@ export function Team() {
     }
   }
 
+  loadAllRef.current = loadAll
+
   useEffect(() => {
     void loadAll()
   }, [])
@@ -283,78 +294,12 @@ export function Team() {
     }
   }
 
-  const loadTempAssignees = async () => {
-    if (!canManageTeam) return
-    setTempAssigneesLoading(true)
-    setTempAssigneesError('')
-    try {
-      const data = await api.listTempAssignees({ status: 'pending', limit: 500 })
-      setTempAssignees(data)
-      const drafts: Record<string, string> = {}
-      data.forEach((item: TempAssignee) => {
-        drafts[item.id] = item.linked_user_id ?? ''
-      })
-      setTempAssigneeLinkDrafts(drafts)
-    } catch (err: any) {
-      setTempAssigneesError(err?.response?.data?.detail ?? 'Не удалось загрузить temp-исполнителей')
-    } finally {
-      setTempAssigneesLoading(false)
-    }
-  }
 
   useEffect(() => {
     if (section !== 'settings' || !canManageTeam) return
     void loadReportSettings()
     void loadTempAssignees()
   }, [section, canManageTeam])
-
-  const handleLinkTempAssignee = async (item: TempAssignee) => {
-    const userId = (tempAssigneeLinkDrafts[item.id] || '').trim()
-    if (!userId) return
-    setTempAssigneeBusyId(item.id)
-    try {
-      await api.linkTempAssignee(item.id, userId)
-      await loadTempAssignees()
-    } catch (err: any) {
-      setTempAssigneesError(err?.response?.data?.detail ?? 'Не удалось связать temp-исполнителя')
-    } finally {
-      setTempAssigneeBusyId(null)
-    }
-  }
-
-  const handleIgnoreTempAssignee = async (item: TempAssignee) => {
-    setTempAssigneeBusyId(item.id)
-    try {
-      await api.ignoreTempAssignee(item.id)
-      await loadTempAssignees()
-    } catch (err: any) {
-      setTempAssigneesError(err?.response?.data?.detail ?? 'Не удалось скрыть temp-исполнителя')
-    } finally {
-      setTempAssigneeBusyId(null)
-    }
-  }
-
-  const handlePromoteTempAssignee = async (item: TempAssignee) => {
-    const suggested = item.email || ''
-    const email = window.prompt(`Email для создания аккаунта (${item.raw_name})`, suggested)?.trim()
-    if (!email) return
-    setTempAssigneeBusyId(item.id)
-    try {
-      const result = await api.promoteTempAssignee(item.id, { email, role: 'developer' })
-      const temporaryPassword = result?.temporary_password as string | null | undefined
-      if (temporaryPassword) {
-        window.alert(`Аккаунт создан. Временный пароль: ${temporaryPassword}`)
-      } else {
-        window.alert('Аккаунт создан и связан с temp-исполнителем.')
-      }
-      await loadAll()
-      await loadTempAssignees()
-    } catch (err: any) {
-      setTempAssigneesError(err?.response?.data?.detail ?? 'Не удалось создать пользователя из temp')
-    } finally {
-      setTempAssigneeBusyId(null)
-    }
-  }
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
