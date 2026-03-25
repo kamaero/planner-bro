@@ -1,246 +1,271 @@
-# Changelog
+# История изменений
 
-All notable changes to planner-bro are recorded here, grouped by logical release.
-
----
-
-## [0.20] — 2026-03-24 — Workload Calendar & External Contractors
-
-### Added
-- **Workload calendar** (`/Загрузка`) — week/month view with department filter; cells colour-coded by load level (green ≤80 %, yellow ≤100 %, orange ≤125 %, red >125 %); tooltip shows tasks with project/priority/status
-- **External dependencies** — contractors/blockers per task with statuses: `waiting` / `testing` / `received` / `overdue`; auto-upgrades to `overdue` when `due_date < today`
-- **Global contractor list** in Team section (`/team` → "Внешние исполнители") — add/delete by name
-- **Contractors column** in List view of project tasks — colour-coded badges (blue = waiting/testing, green = received, red = overdue)
-- Batch endpoint `GET /projects/{id}/external-deps` — single query instead of N+1 per task
-- DB migrations: `0037_task_external_deps`, `0038_external_contractors`
-
-### Fixed
-- Workload calendar showed no data — tasks assigned via `assigned_to_id` (legacy FK) were invisible; now both `TaskAssignee` join table and `assigned_to_id` are queried and deduplicated
-- `/workload` and `/external-contractors` routes returned 404 — FastAPI matched them as `/{user_id}`; fixed by moving static routes before the parameterised catch-all
-- Migration 0037 failed with `KeyError: '0036'` — `down_revision` was `'0036'` but the stored head was `'0036_custom_fields'`
-- Task creation 500 — `from sqlalchemy.orm import inspect` doesn't exist in SQLAlchemy 2.x; fixed to `from sqlalchemy import inspect`
-- External dep save 500 — `due_date` string caused `asyncpg DataError`; fixed with `_parse_date()` helper that converts to `datetime.date`
-- Task save broken after opening ExternalDepsPanel — missing `data-enter-ignore="true"` meant Enter in the contractor form triggered the global TaskDrawer save
-- External contractor writes not persisted — `await db.flush()` without `await db.commit()`; fixed all write paths
+Все значимые изменения planner-bro записаны здесь, сгруппированы по логическим релизам.
 
 ---
 
-## [0.19] — 2026-03 — Dependency Graph, Time Tracking, Retrospective, Custom Fields
+## [0.21] — 2026-03-25 — Рефакторинг: разбивка крупных файлов
 
-### Added
-- **Dependency graph visualisation** — React Flow + dagre auto-layout; shows task-to-task blocking relationships with critical path highlighting
-- **Time tracking** — planned vs actual hours per task; project-level time summary endpoint
-- **AI project retrospective** — auto-generated report on the Analytics page when a project closes
-- **Custom fields per project** — admins define typed fields (text, number, date, select); values stored per task; DB migrations 0020–0036
+### Изменено
+- **backend `users.py`** (~1400 строк → ~400) — маршруты разнесены по отдельным файлам:
+  - `org.py` — структура организации и отделы (`/org/departments`, `/org/tree`)
+  - `temp_assignees.py` — управление temp-исполнителями
+  - `login_events.py` — журнал входов в систему
+- **frontend `ProjectDetail.tsx`** (~2067 строк → ~1143, −45%) — выделены компоненты:
+  - `ProjectEditDialog` + `ProjectTaskCreateDialog` — диалоги редактирования проекта и создания задачи
+  - `ProjectDetailHeader` — шапка страницы проекта
+  - `ProjectSummaryCard` — карточка прогресса и дедлайнов
+  - `ProjectDetailFilesSection` — вкладка файлов
+  - `ProjectDetailGanttSection` — вкладка Gantt
+- **frontend `Team.tsx`** (~2058 строк → ~1679, −18%) — выделены React-хуки:
+  - `useTeamCoreData` — загрузка пользователей и отделов
+  - `useTeamReportSettings` — настройки рассылок + 8 утилитных функций
+  - `useTeamUsersAdminState` — черновики прав, имён, форма инвайта
+  - `useTeamDepartmentCreate` — форма создания отдела
+  - `useTeamTempAssignees` — управление temp-исполнителями
+  - `useTeamLoginEvents` — журнал входов
+  - `useTeamOwnPassword` — смена собственного пароля
 
----
-
-## [0.18] — 2026-03 — Anti-Spam, Permissions 2.0, Bulk Edit 2.0, AI Project Manager
-
-### Added
-- Anti-spam digest: deduplicates notification emails; configurable quiet hours
-- HTML email digests with JWT action buttons (approve/reject directly from email)
-- Permissions 2.0: granular `can_delete`, `can_import`, `can_bulk_edit` flags enforced in API
-- Bulk edit 2.0: deadline shift + move-to-project for selected tasks
-- AI Project Manager: on-demand analysis + nightly scan + weekly digest
-- Email test mode for debugging SMTP without real delivery
-
----
-
-## [0.17] — 2026-02 — Service Layer Refactor & New Pages
-
-### Added
-- Full service-layer refactor from codex branch: thin route handlers delegate to `services/` modules (task_service, project_service, notification_service, etc.)
-- DB migrations 0027–0033 (various schema additions from the refactor)
-- `/my-tasks` page — per-user task inbox
-- `/help` page — inline documentation
-
-### Changed
-- API routes split into domain-specific service modules; route files now import from `services/`
+### Исправлено
+- `useTeamTempAssignees` требовал `loadAll` до его объявления — решено через `useRef` (паттерн `loadAllRef`)
 
 ---
 
-## [0.16] — 2026-02 — Activity Heatmap & Bug Fixes
+## [0.20] — 2026-03-24 — Календарь загрузки и внешние исполнители
 
-### Added
-- GitHub-style activity heatmap in Analytics page (commits/events per day)
+### Добавлено
+- **Календарь загрузки** (`/Загрузка`) — вид по неделям/месяцу с фильтром по отделу; ячейки подсвечены по уровню нагрузки (зелёный ≤80 %, жёлтый ≤100 %, оранжевый ≤125 %, красный >125 %); тултип показывает задачи с проектом/приоритетом/статусом
+- **Внешние зависимости** — подрядчики/блокеры на задаче со статусами: `waiting` / `testing` / `received` / `overdue`; автоматически переходит в `overdue` при `due_date < сегодня`
+- **Глобальный список подрядчиков** в разделе «Команда» (`/team` → «Внешние исполнители») — добавление/удаление по имени
+- **Колонка «Подрядчики»** в табличном виде задач проекта — цветные бейджи (синий = ожидание/тестирование, зелёный = получено, красный = просрочено)
+- Пакетный эндпоинт `GET /projects/{id}/external-deps` — один запрос вместо N+1 на задачу
+- Миграции БД: `0037_task_external_deps`, `0038_external_contractors`
 
-### Fixed
-- Subtask / department / manager cycle detection (prevented infinite loops in org-structure queries)
-- Email dispatch log TTL (old logs auto-cleaned)
-- Bulk edit error propagation
-
----
-
-## [0.15] — 2026-01 — Multi-Assignee & Planning Status
-
-### Added
-- Multi-assignee support on tasks (many-to-many `task_assignees` table, migration 0017)
-- `planning` task status (migration 0018)
-- Task list sorting by status / deadline / assignee
-- Dashboard "my projects" mode filter
-
-### Fixed
-- Task create payload: always strips `assignee_ids` from ORM kwargs before direct field assignment
-- Alembic chain for task assignees migration numbering conflict
-- Dashboard department filtering edge cases
-- Project edit modal: closes immediately and restores on save error
+### Исправлено
+- Календарь загрузки не показывал данные — задачи через `assigned_to_id` (legacy FK) были невидимы; теперь оба источника запрашиваются и дедуплицируются
+- Маршруты `/workload` и `/external-contractors` возвращали 404 — FastAPI обрабатывал их как `/{user_id}`; исправлено перестановкой статических маршрутов перед параметризованным catch-all
+- Миграция 0037 падала с `KeyError: '0036'` — `down_revision` указывал `'0036'`, а сохранённый head был `'0036_custom_fields'`
+- Создание задачи 500 — `from sqlalchemy.orm import inspect` не существует в SQLAlchemy 2.x; исправлено на `from sqlalchemy import inspect`
+- Сохранение внешней зависимости 500 — строка `due_date` вызывала `asyncpg DataError`; исправлено хелпером `_parse_date()`
+- Сохранение задачи ломалось после открытия `ExternalDepsPanel` — отсутствовал `data-enter-ignore="true"`, Enter в форме подрядчика запускал глобальное сохранение TaskDrawer
+- Запись внешних подрядчиков не сохранялась — `await db.flush()` без `await db.commit()`; исправлены все пути записи
 
 ---
 
-## [0.14] — 2026-01 — Unified File Import & Dashboard UX
+## [0.19] — 2026-03 — Граф зависимостей, учёт времени, ретроспектива, кастомные поля
 
-### Added
-- Unified project file upload pipeline: handles `.mpp`, `.xls`, `.xml`, `.pdf` in a single endpoint
-- Dashboard deadline neon highlights and escalation blink toggle
-- Task import: improved deterministic numbering from plan files
-- Select-all toggle for AI draft approval
-
----
-
-## [0.13] — 2025-12 — Department Dashboard & Telegram Bot
-
-### Added
-- Department-based IT dashboard (`/projects/dashboard/departments`) — project tiles grouped by department with manual project-to-department linking
-- Scheduled Telegram summaries: per-project and critical-task digests (configurable timezone)
-- Telegram bot commands: `/start`, `/stop`, `/stats` with admin permission gating
-- Users can edit their own display name in the team card (`PUT /users/me`)
+### Добавлено
+- **Граф зависимостей** — React Flow + dagre авторазметка; показывает связи блокировки между задачами с подсветкой критического пути
+- **Учёт времени** — плановые и фактические часы на задаче; сводный эндпоинт времени по проекту
+- **AI-ретроспектива проекта** — автоматически формируемый отчёт на странице аналитики при закрытии проекта
+- **Кастомные поля на проект** — администраторы задают типизированные поля (текст, число, дата, список); значения хранятся на задаче; миграции БД 0020–0036
 
 ---
 
-## [0.12] — 2025-12 — Vault, Dependencies, Presence
+## [0.18] — 2026-03 — Антиспам, права 2.0, массовое редактирование 2.0, AI-руководитель
 
-### Added
-- **Secure team vault** — AES-256-GCM encrypted file storage; per-file keys via HKDF-SHA256; signed 15-min download JWTs; `vault_files` table (migration 0015)
-- **Task dependencies** — predecessor/successor relationships; dependency graph service; API CRUD (`/tasks/{id}/dependencies`)
-- Org structure admin: departments (hierarchical), `manager_id` / `department_id` on users (migration 0014)
-- Online presence — `GET /users/online/presence` returns users with active WebSocket connections; sidebar shows green/red dots; polled every 30 s
-- Self-service password change (`PUT /users/me/password`)
-
----
-
-## [0.11] — 2025-11 — Audit Trail & Check-ins
-
-### Added
-- Deadline change audit trail — mandatory `deadline_change_reason` on every `end_date` change; `deadline_changes` table (migration 0010); history shown in TaskDrawer and ProjectDetail
-- `reason` column on `task_events` (migration 0011)
-- Task check-ins — `POST /tasks/{id}/check-in`; fields: `last_check_in_at`, `next_check_in_due_at`, `last_check_in_note` (migration 0013)
-- Team notifications: deep-links to tasks from push/email, management audit log
-- `DeadlineReasonModal` intercepts saves in TaskDrawer and ProjectDetail
+### Добавлено
+- Антиспам-дайджест: дедупликация уведомлений по email; настраиваемые тихие часы
+- HTML email-дайджесты с JWT-кнопками действий (подтвердить/отклонить прямо из письма)
+- Права 2.0: гранулярные флаги `can_delete`, `can_import`, `can_bulk_edit`, проверяемые в API
+- Массовое редактирование 2.0: сдвиг дедлайна + перемещение в другой проект для выбранных задач
+- AI-руководитель: анализ по запросу + ночной скан + еженедельный дайджест
+- Тестовый режим email для отладки SMTP без реальной отправки
 
 ---
 
-## [0.10] — 2025-11 — Notion-Style Table View
+## [0.17] — 2026-02 — Рефакторинг сервисного слоя и новые страницы
 
-### Added
-- Notion-style table view for project tasks (list/table toggle in ProjectDetail)
-- Inline status change from table view without opening drawer
-- Task number column (hierarchical numbering via `buildTaskNumbering`)
-- Deadline history collapsible section in TaskDrawer
+### Добавлено
+- Полный рефакторинг сервисного слоя из ветки codex: тонкие обработчики маршрутов делегируют в модули `services/` (task_service, project_service, notification_service и т.д.)
+- Миграции БД 0027–0033 (различные дополнения схемы из рефакторинга)
+- Страница `/my-tasks` — личный инбокс задач пользователя
+- Страница `/help` — встроенная документация
 
----
-
-## [0.9] — 2025-10 — Excalidraw Collab & AI Improvements
-
-### Added
-- Self-hosted Excalidraw collaborative whiteboard; sidebar link; team board page at `/team-board`
-- AI switched to DeepSeek direct (OpenRouter fallback); improved grounding (strict quote extraction)
-- Deterministic `.doc` plan table parsing before LLM fallback
-- Login flow stabilised; accidental password resets prevented
+### Изменено
+- API-маршруты разбиты по доменным сервисным модулям; файлы маршрутов импортируют из `services/`
 
 ---
 
-## [0.8] — 2025-09 — Permissions, AI Trigger, Performance
+## [0.16] — 2026-02 — Тепловая карта активности и исправления
 
-### Added
-- Granular team permissions (`can_delete`, `can_import`, `can_bulk_edit`) enforced in API (migration 0009)
-- Manual AI file processing trigger with progress UI
-- IT-specific project templates
-- Bulk task update endpoint (`POST /projects/{id}/tasks/bulk`) + frontend multi-select list actions
+### Добавлено
+- Тепловая карта активности в стиле GitHub на странице аналитики (события/коммиты по дням)
 
-### Changed
-- Code splitting (Vite dynamic imports); task list virtualisation for large projects; Gantt capped at 150 tasks
-
----
-
-## [0.7] — 2025-09 — Production Hardening
-
-### Added
-- VPS deploy scripts (`scripts/deploy_backend.sh`, `scripts/deploy_frontend.sh`)
-- Nginx: blocked `/docs`, `/openapi.json`, `/redoc`; security headers; TLS 1.2/1.3 only
-- fail2ban on SSH; UFW rules; Docker network isolation for PostgreSQL + Redis
-- Production backup and health-check tasks (Celery Beat)
-- WebSocket stability: server-side heartbeat + client reconnect
-- `launch_basis` milestone fields + Gantt display; `control_ski` flag on tasks (migration 0008)
+### Исправлено
+- Определение циклов в подзадачах / отделах / менеджерах (предотвращает бесконечные циклы в запросах орг-структуры)
+- TTL лога отправки email (старые записи очищаются автоматически)
+- Распространение ошибок при массовом редактировании
 
 ---
 
-## [0.6] — 2025-08 — Team Management & Notifications
+## [0.15] — 2026-01 — Несколько исполнителей и статус «Планирование»
 
-### Added
-- Team management page (`/team`) — user list, roles, org structure
-- View-all access model: users with `role="viewer"` see all projects read-only
-- Actionable notifications (task link in notification dropdown)
-- Improved notification readability (grouped by project)
-- Disabled Google OAuth and self-registration (internal-only mode)
+### Добавлено
+- Поддержка нескольких исполнителей на задаче (many-to-many таблица `task_assignees`, миграция 0017)
+- Статус задачи `planning` (миграция 0018)
+- Сортировка списка задач по статусу / дедлайну / исполнителю
+- Фильтр «мои проекты» на дашборде
 
----
-
-## [0.5] — 2025-07 — AI Import & Task Extensions
-
-### Added
-- AI file-to-draft pipeline: upload PDF/doc → Celery ingestion job → AI extracts tasks → approval flow (`ai_ingestion_jobs`, `ai_task_drafts` tables, migration 0006)
-- MS Project XML import (`POST /projects/{id}/import/msproject`)
-- Task progress bar + next-step quick update (migration 0005)
-- 7-day task changes widget on Dashboard
+### Исправлено
+- Создание задачи: всегда убирает `assignee_ids` из kwargs ORM перед прямым присвоением полей
+- Конфликт нумерации миграций для task_assignees
+- Граничные случаи фильтрации по отделам на дашборде
+- Модальное окно редактирования проекта: закрывается сразу и восстанавливается при ошибке сохранения
 
 ---
 
-## [0.4] — 2025-06 — Analytics & Deploy Pipeline
+## [0.14] — 2026-01 — Единый импорт файлов и UX дашборда
 
-### Added
-- Analytics page with per-project and global metrics
-- Current-year activity chart on Dashboard
-- Frontend: Vite prebuilt dist deployment (no Node on VPS at runtime)
-
-### Fixed
-- Analytics: stable hook order; guard against missing task dates
-- Frontend prod build pipeline on VPS
+### Добавлено
+- Единый пайплайн загрузки файлов проекта: обрабатывает `.mpp`, `.xls`, `.xml`, `.pdf` в одном эндпоинте
+- Неоновая подсветка просроченных дедлайнов и переключатель мигания эскалаций на дашборде
+- Импорт задач: улучшенная детерминированная нумерация из плановых файлов
+- Переключатель «выбрать все» для подтверждения AI-черновиков
 
 ---
 
-## [0.3] — 2025-05 — Escalations & SLA
+## [0.13] — 2025-12 — Дашборд по отделам и Telegram-бот
 
-### Added
-- Escalation workflow — overdue tasks escalated to manager; inbox view for assignees
-- Escalation SLA (hours threshold before escalation fires) — migration 0004
-- Bottleneck dashboard widget
-- Definition-of-Done (DoD) completion gates — project-level checklist (JSONB)
-- Dark theme toggle
-- Members panel in project detail
-- Email assignment notifications (`aiosmtplib` + Celery Beat deadline checker — migration 0003)
+### Добавлено
+- IT-дашборд по отделам (`/projects/dashboard/departments`) — плитки проектов, сгруппированные по отделам, с ручной привязкой проекта к отделу
+- Запланированные Telegram-дайджесты: по проектам и критическим задачам (настраиваемый часовой пояс)
+- Команды Telegram-бота: `/start`, `/stop`, `/stats` с проверкой прав администратора
+- Пользователи могут редактировать своё отображаемое имя в карточке команды (`PUT /users/me`)
 
 ---
 
-## [0.2] — 2025-04 — Infrastructure & Mobile
+## [0.12] — 2025-12 — Хранилище, зависимости, присутствие
 
-### Added
-- Android project (Flutter) + GitHub Actions APK build workflow
-- SSL/HTTPS via Let's Encrypt for `plannerbro.ru`
-- Docker Compose `docker-compose.prod.yml` with Nginx reverse proxy
-- VITE_GOOGLE_CLIENT_ID build arg wired through docker-compose
-
-### Fixed
-- Deployment issues on EU VPS
+### Добавлено
+- **Зашифрованное хранилище команды** — AES-256-GCM; ключи на файл через HKDF-SHA256; подписанные JWT на скачивание (15 мин); таблица `vault_files` (миграция 0015)
+- **Зависимости задач** — связи предшественник/преемник; сервис графа зависимостей; API CRUD (`/tasks/{id}/dependencies`)
+- Администрирование орг-структуры: отделы (иерархические), `manager_id` / `department_id` на пользователях (миграция 0014)
+- Онлайн-присутствие — `GET /users/online/presence` возвращает пользователей с активными WebSocket-соединениями; сайдбар показывает зелёные/красные точки; обновляется каждые 30 с
+- Самостоятельная смена пароля (`PUT /users/me/password`)
 
 ---
 
-## [0.1] — 2025-03 — Foundation
+## [0.11] — 2025-11 — Аудит дедлайнов и чекины
 
-### Added
-- Initial FastAPI backend with async SQLAlchemy + PostgreSQL
-- Core tables: users, projects, project_members, tasks, task_comments, task_events, notifications, devices (migration 0001)
-- React SPA frontend with Vite; Gantt chart (gantt-task-react); TanStack Query data layer
-- JWT auth (access + refresh tokens); Zustand auth store
-- Nginx → FastAPI proxy configuration; Docker Compose dev stack
-- Project files upload/download (migration 0002)
+### Добавлено
+- Аудит изменений дедлайна — обязательная `deadline_change_reason` при каждом изменении `end_date`; таблица `deadline_changes` (миграция 0010); история показывается в TaskDrawer и ProjectDetail
+- Колонка `reason` в `task_events` (миграция 0011)
+- Чекины по задачам — `POST /tasks/{id}/check-in`; поля: `last_check_in_at`, `next_check_in_due_at`, `last_check_in_note` (миграция 0013)
+- Уведомления команды: диплинки на задачи из push/email, аудит-лог руководства
+- `DeadlineReasonModal` перехватывает сохранение в TaskDrawer и ProjectDetail
+
+---
+
+## [0.10] — 2025-11 — Табличный вид в стиле Notion
+
+### Добавлено
+- Табличный вид задач проекта в стиле Notion (переключатель список/таблица в ProjectDetail)
+- Смена статуса прямо из таблицы без открытия ящика
+- Колонка с номером задачи (иерархическая нумерация через `buildTaskNumbering`)
+- Коллапсируемый раздел истории дедлайнов в TaskDrawer
+
+---
+
+## [0.9] — 2025-10 — Excalidraw и улучшение AI
+
+### Добавлено
+- Самохостируемая совместная доска Excalidraw; ссылка в сайдбаре; страница команды `/team-board`
+- AI переведён на DeepSeek напрямую (OpenRouter как запасной вариант); улучшенное заземление (строгое извлечение цитат)
+- Детерминированный разбор таблиц из `.doc`-планов перед обращением к LLM
+- Стабилизирован процесс входа; предотвращены случайные сбросы паролей
+
+---
+
+## [0.8] — 2025-09 — Права, триггер AI, производительность
+
+### Добавлено
+- Гранулярные права команды (`can_delete`, `can_import`, `can_bulk_edit`) с проверкой в API (миграция 0009)
+- Ручной триггер обработки AI-файлов с UI прогресса
+- IT-специфические шаблоны проектов
+- Пакетное обновление задач (`POST /projects/{id}/tasks/bulk`) + мультиселект в интерфейсе
+
+### Изменено
+- Code splitting (динамические импорты Vite); виртуализация списка задач для крупных проектов; Gantt ограничен 150 задачами
+
+---
+
+## [0.7] — 2025-09 — Укрепление продакшена
+
+### Добавлено
+- Скрипты деплоя на VPS (`scripts/deploy_backend.sh`, `scripts/deploy_frontend.sh`)
+- Nginx: заблокированы `/docs`, `/openapi.json`, `/redoc`; заголовки безопасности; только TLS 1.2/1.3
+- fail2ban на SSH; правила UFW; изоляция Docker-сети для PostgreSQL + Redis
+- Резервное копирование и health-check задачи в продакшене (Celery Beat)
+- Стабильность WebSocket: серверный heartbeat + переподключение клиента
+- Поля milestone `launch_basis` + отображение в Gantt; флаг `control_ski` на задачах (миграция 0008)
+
+---
+
+## [0.6] — 2025-08 — Управление командой и уведомления
+
+### Добавлено
+- Страница управления командой (`/team`) — список пользователей, роли, орг-структура
+- Модель «видит всё»: пользователи с `role="viewer"` видят все проекты только для чтения
+- Кликабельные уведомления (ссылка на задачу в выпадающем списке)
+- Улучшена читаемость уведомлений (группировка по проекту)
+- Отключены Google OAuth и саморегистрация (режим только для внутренних пользователей)
+
+---
+
+## [0.5] — 2025-07 — AI-импорт и расширения задач
+
+### Добавлено
+- AI-пайплайн «файл в черновик»: загрузка PDF/doc → задание Celery → AI извлекает задачи → поток подтверждения (таблицы `ai_ingestion_jobs`, `ai_task_drafts`, миграция 0006)
+- Импорт MS Project XML (`POST /projects/{id}/import/msproject`)
+- Прогресс-бар задачи + быстрое обновление следующего шага (миграция 0005)
+- Виджет «изменения задач за 7 дней» на дашборде
+
+---
+
+## [0.4] — 2025-06 — Аналитика и пайплайн деплоя
+
+### Добавлено
+- Страница аналитики с метриками по проекту и глобальными метриками
+- График активности за текущий год на дашборде
+- Frontend: деплой предсобранного dist через Vite (Node не нужен на VPS в runtime)
+
+### Исправлено
+- Аналитика: стабильный порядок хуков; защита от отсутствующих дат задач
+- Пайплайн сборки frontend на VPS
+
+---
+
+## [0.3] — 2025-05 — Эскалации и SLA
+
+### Добавлено
+- Workflow эскалаций — просроченные задачи эскалируются к менеджеру; inbox-вид для исполнителей
+- SLA эскалаций (порог в часах до срабатывания) — миграция 0004
+- Виджет узких мест на дашборде
+- Ворота завершения DoD (Definition of Done) — чеклист на уровне проекта (JSONB)
+- Переключатель тёмной темы
+- Панель участников в деталях проекта
+- Email-уведомления о назначении (`aiosmtplib` + проверка дедлайнов Celery Beat — миграция 0003)
+
+---
+
+## [0.2] — 2025-04 — Инфраструктура и мобильное приложение
+
+### Добавлено
+- Android-проект (Flutter) + GitHub Actions для сборки APK
+- SSL/HTTPS через Let's Encrypt для `plannerbro.ru`
+- Docker Compose `docker-compose.prod.yml` с реверс-прокси Nginx
+- Build arg `VITE_GOOGLE_CLIENT_ID` прокинут через docker-compose
+
+### Исправлено
+- Проблемы деплоя на EU VPS
+
+---
+
+## [0.1] — 2025-03 — Фундамент
+
+### Добавлено
+- Первоначальный FastAPI-бэкенд с async SQLAlchemy + PostgreSQL
+- Основные таблицы: users, projects, project_members, tasks, task_comments, task_events, notifications, devices (миграция 0001)
+- React SPA frontend на Vite; Gantt-диаграмма (gantt-task-react); слой данных TanStack Query
+- JWT-авторизация (access + refresh токены); Zustand auth store
