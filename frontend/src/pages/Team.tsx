@@ -12,11 +12,8 @@ import { useTeamOwnPassword } from '@/hooks/useTeamOwnPassword'
 import { useTeamLoginEvents } from '@/hooks/useTeamLoginEvents'
 import { useTeamTempAssignees } from '@/hooks/useTeamTempAssignees'
 import { useTeamDepartmentCreate } from '@/hooks/useTeamDepartmentCreate'
-
-type UserDraft = Pick<
-  User,
-  'role' | 'visibility_scope' | 'own_tasks_visibility_enabled' | 'work_email' | 'position_title' | 'manager_id' | 'department_id' | 'can_manage_team' | 'can_delete' | 'can_import' | 'can_bulk_edit'
->
+import { useTeamUsersAdminState } from '@/hooks/useTeamUsersAdminState'
+import type { UserDraft } from '@/hooks/useTeamUsersAdminState'
 
 const WEEKDAY_OPTIONS = [
   { id: 'mon', label: 'Пн' },
@@ -72,39 +69,26 @@ export function Team() {
   const [error, setError] = useState('')
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
   const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({})
-  const [permissionDrafts, setPermissionDrafts] = useState<Record<string, UserDraft>>({})
   const [departmentDrafts, setDepartmentDrafts] = useState<Record<string, { parent_id: string; head_user_id: string }>>({})
-
-  const [invite, setInvite] = useState<{
-    first_name: string
-    middle_name: string
-    last_name: string
-    email: string
-    work_email: string
-    role: 'developer' | 'manager' | 'admin'
-    visibility_scope: 'own_tasks_only' | 'department_scope' | 'full_scope'
-    own_tasks_visibility_enabled: boolean
-    password: string
-    position_title: string
-    manager_id: string
-    department_id: string
-  }>({
-    first_name: '',
-    middle_name: '',
-    last_name: '',
-    email: '',
-    work_email: '',
-    role: 'developer',
-    visibility_scope: 'own_tasks_only',
-    own_tasks_visibility_enabled: true,
-    password: '',
-    position_title: '',
-    manager_id: '',
-    department_id: '',
-  })
-  const [inviting, setInviting] = useState(false)
-  const [inviteSuccess, setInviteSuccess] = useState('')
-  const [inviteError, setInviteError] = useState('')
+  const {
+    permissionDrafts,
+    setPermissionDrafts,
+    nameDrafts,
+    setNameDrafts,
+    initializeUserDrafts,
+    invite,
+    setInvite,
+    resetInvite,
+    inviting,
+    setInviting,
+    inviteSuccess,
+    setInviteSuccess,
+    inviteError,
+    setInviteError,
+    handlePermissionChange,
+    isPermissionChanged,
+    isNameChanged,
+  } = useTeamUsersAdminState()
 
   const {
     changingOwnPassword,
@@ -180,7 +164,6 @@ export function Team() {
     handleCreateDepartment,
   } = useTeamDepartmentCreate(!!canManageTeam, () => loadAllRef.current())
 
-  const [nameDrafts, setNameDrafts] = useState<Record<string, { first_name: string; middle_name: string; last_name: string }>>({})
   const [nameBusyId, setNameBusyId] = useState<string | null>(null)
 
   const { setUser } = useAuthStore()
@@ -240,35 +223,12 @@ export function Team() {
       const [userData, departmentData] = await Promise.all([api.listUsers(), api.listDepartments()])
       setUsers(userData)
       setDepartments(departmentData)
-      const drafts: Record<string, UserDraft> = {}
-      const nDrafts: Record<string, { first_name: string; middle_name: string; last_name: string }> = {}
-      userData.forEach((user: User) => {
-        drafts[user.id] = {
-          role: user.role,
-          visibility_scope: user.visibility_scope ?? 'department_scope',
-          own_tasks_visibility_enabled: user.own_tasks_visibility_enabled ?? true,
-          work_email: user.work_email ?? null,
-          position_title: user.position_title ?? null,
-          manager_id: user.manager_id ?? null,
-          department_id: user.department_id ?? null,
-          can_manage_team: user.can_manage_team,
-          can_delete: user.can_delete,
-          can_import: user.can_import,
-          can_bulk_edit: user.can_bulk_edit,
-        }
-        nDrafts[user.id] = {
-          first_name: user.first_name ?? '',
-          middle_name: user.middle_name ?? '',
-          last_name: user.last_name ?? '',
-        }
-      })
-      setPermissionDrafts(drafts)
+      initializeUserDrafts(userData)
       const depDrafts: Record<string, { parent_id: string; head_user_id: string }> = {}
       departmentData.forEach((d: Department) => {
         depDrafts[d.id] = { parent_id: d.parent_id ?? '', head_user_id: d.head_user_id ?? '' }
       })
       setDepartmentDrafts(depDrafts)
-      setNameDrafts(nDrafts)
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? 'Не удалось загрузить данные команды')
     } finally {
@@ -331,20 +291,7 @@ export function Team() {
         department_id: invite.department_id || undefined,
       })
       setInviteSuccess(`Аккаунт создан: ${invite.email}`)
-      setInvite({
-        first_name: '',
-        middle_name: '',
-        last_name: '',
-        email: '',
-        work_email: '',
-        role: 'developer',
-        visibility_scope: 'own_tasks_only',
-        own_tasks_visibility_enabled: true,
-        password: '',
-        position_title: '',
-        manager_id: '',
-        department_id: '',
-      })
+      resetInvite()
       await loadAll()
     } catch (err: any) {
       setInviteError(err?.response?.data?.detail ?? 'Не удалось создать аккаунт')
@@ -420,16 +367,6 @@ export function Team() {
     }
   }
 
-  const isNameChanged = (user: User) => {
-    const draft = nameDrafts[user.id]
-    if (!draft) return false
-    return (
-      draft.first_name !== (user.first_name ?? '') ||
-      draft.middle_name !== (user.middle_name ?? '') ||
-      draft.last_name !== (user.last_name ?? '')
-    )
-  }
-
   const handleResetPassword = async (user: User) => {
     if (!canCreateSubordinates) return
     if (user.id === currentUser?.id) {
@@ -468,46 +405,6 @@ export function Team() {
     } finally {
       setBusyUserId(null)
     }
-  }
-
-  const handlePermissionChange = (userId: string, field: keyof UserDraft, value: string | boolean) => {
-    setPermissionDrafts((prev) => ({
-      ...prev,
-      [userId]: {
-        ...(prev[userId] ?? {
-          role: 'developer',
-          visibility_scope: 'department_scope',
-          own_tasks_visibility_enabled: true,
-          work_email: null,
-          position_title: null,
-          manager_id: null,
-          department_id: null,
-          can_manage_team: false,
-          can_delete: false,
-          can_import: false,
-          can_bulk_edit: false,
-        }),
-        [field]: value,
-      },
-    }))
-  }
-
-  const isPermissionChanged = (user: User) => {
-    const draft = permissionDrafts[user.id]
-    if (!draft) return false
-    return (
-      draft.role !== user.role ||
-      (draft.visibility_scope ?? 'department_scope') !== (user.visibility_scope ?? 'department_scope') ||
-      (draft.own_tasks_visibility_enabled ?? true) !== (user.own_tasks_visibility_enabled ?? true) ||
-      (draft.work_email ?? '') !== (user.work_email ?? '') ||
-      (draft.position_title ?? '') !== (user.position_title ?? '') ||
-      (draft.manager_id ?? '') !== (user.manager_id ?? '') ||
-      (draft.department_id ?? '') !== (user.department_id ?? '') ||
-      draft.can_manage_team !== user.can_manage_team ||
-      draft.can_delete !== user.can_delete ||
-      draft.can_import !== user.can_import ||
-      draft.can_bulk_edit !== user.can_bulk_edit
-    )
   }
 
   const handleSavePermissions = async (user: User) => {
