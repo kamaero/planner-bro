@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { Task } from '@/types'
 import { Clock, AlertCircle, CornerDownRight } from 'lucide-react'
 import type { ExternalDep } from '@/hooks/useProjects'
-import { buildTaskNumbering } from '@/lib/taskOrdering'
+import { buildTaskNumbering, stripTaskOrderPrefix } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -167,9 +167,9 @@ export function TaskTable({
             const hasParent = Boolean(task.parent_task_id)
             const predecessorIds = task.predecessor_ids ?? []
             const hasBlockingDependency = predecessorIds.length > 0
-            const parentTitle = task.parent_task_id ? taskById.get(task.parent_task_id)?.title : null
+            const parentTitle = task.parent_task_id ? stripTaskOrderPrefix(taskById.get(task.parent_task_id)?.title ?? '') || null : null
             const predecessorTitles = predecessorIds
-              .map((id) => taskById.get(id)?.title || id)
+              .map((id) => stripTaskOrderPrefix(taskById.get(id)?.title || '') || id)
               .slice(0, 2)
 
             return (
@@ -191,7 +191,7 @@ export function TaskTable({
                         {numberingById.get(task.id) ?? '—'}
                       </div>
                       <p className="font-medium whitespace-normal break-words group-hover:text-primary transition-colors">
-                        {task.title}
+                        {stripTaskOrderPrefix(task.title)}
                       </p>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         {hasParent && (
