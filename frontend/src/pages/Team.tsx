@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch'
 import type { AuthLoginEvent, Department, User, TempAssignee, ReportDispatchSettings } from '@/types'
 import { formatUserDisplayName } from '@/lib/userName'
 import { useTeamOwnPassword } from '@/hooks/useTeamOwnPassword'
+import { useTeamLoginEvents } from '@/hooks/useTeamLoginEvents'
 
 type UserDraft = Pick<
   User,
@@ -58,12 +59,13 @@ const DIGEST_CHANNEL_MINUTE_OFFSET: Record<DigestChannelKey, number> = {
 
 export function Team() {
   const currentUser = useAuthStore((s) => s.user)
+  const canManageTeam = currentUser?.role === 'admin' || currentUser?.can_manage_team
+  const canCreateSubordinates = canManageTeam || currentUser?.role === 'manager'
+
   const [section, setSection] = useState<'overview' | 'users' | 'org' | 'settings' | 'contractors'>('overview')
   const [users, setUsers] = useState<User[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
-  const [loginEvents, setLoginEvents] = useState<AuthLoginEvent[]>([])
-  const [loginEventsLoading, setLoginEventsLoading] = useState(false)
-  const [loginEventsError, setLoginEventsError] = useState('')
+  const { loginEvents, loginEventsLoading, loginEventsError, loadLoginEvents } = useTeamLoginEvents(!!canManageTeam)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
@@ -167,9 +169,6 @@ export function Team() {
 
   const { setUser } = useAuthStore()
 
-  const canManageTeam = currentUser?.role === 'admin' || currentUser?.can_manage_team
-  const canCreateSubordinates = canManageTeam || currentUser?.role === 'manager'
-
   const usersById = useMemo(() => {
     const map: Record<string, User> = {}
     users.forEach((u) => { map[u.id] = u })
@@ -264,20 +263,6 @@ export function Team() {
   useEffect(() => {
     void loadAll()
   }, [])
-
-  const loadLoginEvents = async () => {
-    if (!canManageTeam) return
-    setLoginEventsLoading(true)
-    setLoginEventsError('')
-    try {
-      const events = await api.listLoginEvents({ limit: 200 })
-      setLoginEvents(events)
-    } catch (err: any) {
-      setLoginEventsError(err?.response?.data?.detail ?? 'Не удалось загрузить журнал входов')
-    } finally {
-      setLoginEventsLoading(false)
-    }
-  }
 
   useEffect(() => {
     if (section !== 'overview' || !canManageTeam) return
