@@ -11,6 +11,7 @@ import { formatUserDisplayName } from '@/lib/userName'
 import { useTeamOwnPassword } from '@/hooks/useTeamOwnPassword'
 import { useTeamLoginEvents } from '@/hooks/useTeamLoginEvents'
 import { useTeamTempAssignees } from '@/hooks/useTeamTempAssignees'
+import { useTeamDepartmentCreate } from '@/hooks/useTeamDepartmentCreate'
 
 type UserDraft = Pick<
   User,
@@ -105,10 +106,6 @@ export function Team() {
   const [inviteSuccess, setInviteSuccess] = useState('')
   const [inviteError, setInviteError] = useState('')
 
-  const [newDepartmentName, setNewDepartmentName] = useState('')
-  const [newDepartmentParentId, setNewDepartmentParentId] = useState('')
-  const [newDepartmentHeadId, setNewDepartmentHeadId] = useState('')
-  const [creatingDepartment, setCreatingDepartment] = useState(false)
   const {
     changingOwnPassword,
     ownPasswordSuccess,
@@ -172,6 +169,16 @@ export function Team() {
     handleIgnoreTempAssignee,
     handlePromoteTempAssignee,
   } = useTeamTempAssignees(!!canManageTeam, () => loadAllRef.current())
+  const {
+    newDepartmentName,
+    setNewDepartmentName,
+    newDepartmentParentId,
+    setNewDepartmentParentId,
+    newDepartmentHeadId,
+    setNewDepartmentHeadId,
+    creatingDepartment,
+    handleCreateDepartment,
+  } = useTeamDepartmentCreate(!!canManageTeam, () => loadAllRef.current())
 
   const [nameDrafts, setNameDrafts] = useState<Record<string, { first_name: string; middle_name: string; last_name: string }>>({})
   const [nameBusyId, setNameBusyId] = useState<string | null>(null)
@@ -343,27 +350,6 @@ export function Team() {
       setInviteError(err?.response?.data?.detail ?? 'Не удалось создать аккаунт')
     } finally {
       setInviting(false)
-    }
-  }
-
-  const handleCreateDepartment = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!canManageTeam || !newDepartmentName.trim()) return
-    setCreatingDepartment(true)
-    try {
-      await api.createDepartment({
-        name: newDepartmentName.trim(),
-        parent_id: newDepartmentParentId || null,
-        head_user_id: newDepartmentHeadId || null,
-      })
-      setNewDepartmentName('')
-      setNewDepartmentParentId('')
-      setNewDepartmentHeadId('')
-      await loadAll()
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Не удалось создать отдел')
-    } finally {
-      setCreatingDepartment(false)
     }
   }
 
