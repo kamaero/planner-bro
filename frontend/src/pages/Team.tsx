@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import type { AuthLoginEvent, Department, User, TempAssignee, ReportDispatchSettings } from '@/types'
 import { formatUserDisplayName } from '@/lib/userName'
+import { useTeamOwnPassword } from '@/hooks/useTeamOwnPassword'
 
 type UserDraft = Pick<
   User,
@@ -105,10 +106,14 @@ export function Team() {
   const [newDepartmentParentId, setNewDepartmentParentId] = useState('')
   const [newDepartmentHeadId, setNewDepartmentHeadId] = useState('')
   const [creatingDepartment, setCreatingDepartment] = useState(false)
-  const [changingOwnPassword, setChangingOwnPassword] = useState(false)
-  const [ownPasswordSuccess, setOwnPasswordSuccess] = useState('')
-  const [ownPasswordError, setOwnPasswordError] = useState('')
-  const [ownPasswordForm, setOwnPasswordForm] = useState({ current_password: '', new_password: '' })
+  const {
+    changingOwnPassword,
+    ownPasswordSuccess,
+    ownPasswordError,
+    ownPasswordForm,
+    setOwnPasswordForm,
+    handleChangeOwnPassword,
+  } = useTeamOwnPassword()
   const [reportSettings, setReportSettings] = useState<ReportDispatchSettings>({
     smtp_enabled: true,
     email_test_mode: false,
@@ -528,21 +533,6 @@ export function Team() {
     }
   }
 
-  const handleChangeOwnPassword = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setChangingOwnPassword(true)
-    setOwnPasswordError('')
-    setOwnPasswordSuccess('')
-    try {
-      await api.changeMyPassword(ownPasswordForm)
-      setOwnPasswordSuccess('Пароль успешно обновлен')
-      setOwnPasswordForm({ current_password: '', new_password: '' })
-    } catch (err: any) {
-      setOwnPasswordError(err?.response?.data?.detail ?? 'Не удалось изменить пароль')
-    } finally {
-      setChangingOwnPassword(false)
-    }
-  }
 
   const handleDeactivate = async (user: User) => {
     if (!canCreateSubordinates) return
