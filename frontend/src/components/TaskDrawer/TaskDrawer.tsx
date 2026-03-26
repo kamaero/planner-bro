@@ -190,6 +190,14 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const taskHierarchyOptions = useMemo(() => buildTaskHierarchy(projectTasks), [projectTasks])
   const taskNumbering = useMemo(() => buildTaskNumbering(projectTasks), [projectTasks])
 
+  const formatTaskOption = (id: string, title: string) => {
+    const depth = taskHierarchyOptions.depthById.get(id) ?? 0
+    const num = taskNumbering.get(id) ?? ''
+    const indent = depth > 0 ? '  '.repeat(Math.min(depth, 4)) + (depth > 4 ? `(${depth}) ` : '') : ''
+    const label = title.length > 55 ? title.slice(0, 54) + '…' : title
+    return `${indent}${num} ${label}`.trim()
+  }
+
   useEffect(() => {
     if (!task) return
     setStartDate(task.start_date ?? '')
@@ -462,7 +470,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-[95vw] max-w-6xl h-[88vh]" onKeyDown={handleDialogKeyDown}>
+        <DialogContent className="w-[96vw] max-w-7xl h-[88vh]" onKeyDown={handleDialogKeyDown}>
           <DialogHeader>
             <DialogTitle>{task.title}</DialogTitle>
           </DialogHeader>
@@ -609,7 +617,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                     .filter((candidate) => !blockedParentIds.has(candidate.id))
                     .map((candidate) => (
                       <option key={candidate.id} value={candidate.id}>
-                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(candidate.id) ?? 0)}${taskNumbering.get(candidate.id) ?? ''} ${candidate.title}`}
+                        {formatTaskOption(candidate.id, candidate.title)}
                       </option>
                     ))}
                 </select>
@@ -640,7 +648,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                     .filter((t) => t.id !== task.id)
                     .map((t) => (
                       <option key={t.id} value={t.id}>
-                        {`${'· '.repeat(taskHierarchyOptions.depthById.get(t.id) ?? 0)}${taskNumbering.get(t.id) ?? ''} ${t.title}`}
+                        {formatTaskOption(t.id, t.title)}
                       </option>
                     ))}
                 </select>
