@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -117,6 +118,7 @@ async def import_tasks_from_ms_project_content(
         assignee_hints = item.assignee_hints or ([item.assignee_hint] if item.assignee_hint else [])
         matched_assignee_ids = match_assignee_ids(assignee_hints, user_candidates)
         task = Task(
+            id=str(uuid.uuid4()),
             project_id=project_id,
             title=title,
             description=None,
