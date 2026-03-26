@@ -98,8 +98,8 @@ def _match_assignee_ids(assignee_hints: list[str] | None, members: list[User]) -
     return result
 
 
-def _drafts_from_ms_project_file(content: bytes) -> tuple[list[dict], int]:
-    parsed = parse_ms_project_content(content)
+def _drafts_from_ms_project_file(content: bytes, filename: str | None = None) -> tuple[list[dict], int]:
+    parsed = parse_ms_project_content(content, filename=filename)
     drafts: list[dict] = []
     for item in parsed.tasks:
         title = item.title
@@ -232,13 +232,14 @@ async def _async_process_file_for_ai(job_id: str, prompt_instruction: str | None
                 or "spreadsheetml" in lower_ct
                 or "ms-excel" in lower_ct
             )
+            is_docx = lower_name.endswith((".docx", ".doc")) or "wordprocessingml" in lower_ct
 
             drafts = None
             source_skipped_rows = 0
             raw = read_project_file_bytes(file_record)
             if is_project_plan_source:
                 try:
-                    drafts, source_skipped_rows = _drafts_from_ms_project_file(raw)
+                    drafts, source_skipped_rows = _drafts_from_ms_project_file(raw, filename=file_record.filename)
                 except ValueError as exc:
                     # For explicit .mpp uploads keep clear error; otherwise fallback to generic AI parser.
                     if lower_name.endswith(".mpp"):
@@ -247,6 +248,13 @@ async def _async_process_file_for_ai(job_id: str, prompt_instruction: str | None
                 # If parser returned nothing, fallback to generic AI text extraction.
                 if lower_name.endswith(".xlsx") and drafts is not None and len(drafts) == 0:
                     drafts = None
+
+            # DOCX: attempt structured WBS triplet parsing before falling back to LLM.
+            if drafts is None and is_docx:
+                try:
+                    drafts, source_skipped_rows = _drafts_from_ms_project_file(raw, filename=file_record.filename)
+                except ValueError:
+                    drafts = None  # Not a WBS plan — will fall through to LLM below
 
             if drafts is None:
                 text = extract_text_for_ai_bytes(raw, file_record.filename, file_record.content_type)

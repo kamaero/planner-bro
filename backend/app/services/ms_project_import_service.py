@@ -800,6 +800,102 @@ def parse_ms_project_xml(content: bytes) -> MSProjectParseResult:
     return MSProjectParseResult(tasks=parsed_tasks, skipped_count=skipped_count)
 
 
+_WBS_NUM_RE = re.compile(r'^\d+(?:\.\d+)*$')
+_DATE_RU_RE = re.compile(r'^(\d{2})\.(\d{2})\.(\d{4})$')
+
+
+def _extract_docx_paragraphs(content: bytes) -> list[str]:
+    """Extract non-empty text paragraphs from a DOCX file."""
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        if "word/document.xml" not in archive.namelist():
+            return []
+        doc_xml = archive.read("word/document.xml")
+    root = ET.fromstring(doc_xml)
+    paragraphs: list[str] = []
+    for node in root.iter():
+        local = node.tag.split("}", 1)[-1] if "}" in node.tag else node.tag
+        if local != "p":
+            continue
+        parts: list[str] = []
+        for child in node.iter():
+            cl = child.tag.split("}", 1)[-1] if "}" in child.tag else child.tag
+            if cl == "t" and child.text:
+                parts.append(child.text)
+        line = "".join(parts).strip()
+        if line:
+            paragraphs.append(line)
+    return paragraphs
+
+
+def _parse_docx_wbs(content: bytes) -> MSProjectParseResult | None:
+    """Try to parse a DOCX as a WBS task list with pattern: outline_num / title / date.
+
+    Returns None if the document doesn't look like this format (fewer than 3 tasks matched).
+    """
+    from datetime import date as _date
+
+    paragraphs = _extract_docx_paragraphs(content)
+    if len(paragraphs) < 3:
+        return None
+
+    # Detect triplet pattern: wbs_num, title, DD.MM.YYYY date
+    triplets: list[tuple[str, str, str]] = []
+    i = 0
+    while i + 2 < len(paragraphs):
+        num = paragraphs[i].strip()
+        title = paragraphs[i + 1].strip()
+        date_raw = paragraphs[i + 2].strip()
+        if _WBS_NUM_RE.match(num) and _DATE_RU_RE.match(date_raw):
+            triplets.append((num, title, date_raw))
+            i += 3
+        else:
+            i += 1  # advance one and retry
+
+    if len(triplets) < 3:
+        return None
+
+    parsed_tasks: list[ParsedMSProjectTask] = []
+    outline_to_uid: dict[str, str] = {}
+    for idx, (outline_num, title, date_raw) in enumerate(triplets):
+        uid = f"wbs-{outline_num}"
+        m = _DATE_RU_RE.match(date_raw)
+        end_date = None
+        if m:
+            try:
+                end_date = _date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            except ValueError:
+                pass
+
+        # Resolve parent from dot-notation (e.g. "2.1" → parent is "2")
+        parent_uid: str | None = None
+        if "." in outline_num:
+            parent_outline = outline_num.rsplit(".", 1)[0]
+            parent_uid = outline_to_uid.get(parent_outline)
+
+        outline_to_uid[outline_num] = uid
+        parsed_tasks.append(
+            ParsedMSProjectTask(
+                uid=uid,
+                outline_number=outline_num,
+                title=title,
+                description=None,
+                start_date=None,
+                end_date=end_date,
+                progress_percent=0,
+                priority="medium",
+                estimated_hours=None,
+                parent_uid=parent_uid,
+                department=None,
+                bureau=None,
+                task_kind=None,
+                assignee_hint=None,
+                assignee_hints=[],
+                customer=None,
+            )
+        )
+    return MSProjectParseResult(tasks=parsed_tasks, skipped_count=0)
+
+
 def parse_ms_project_content(content: bytes, filename: str | None = None) -> MSProjectParseResult:
     lower_name = (filename or "").lower()
     # Legacy MS Project .mpp files are OLE Compound File Binary format.
@@ -810,11 +906,22 @@ def parse_ms_project_content(content: bytes, filename: str | None = None) -> MSP
     if not is_xlsx and content.startswith(b"PK"):
         try:
             with zipfile.ZipFile(io.BytesIO(content)) as archive:
-                is_xlsx = "xl/workbook.xml" in archive.namelist()
+                names = archive.namelist()
+                is_xlsx = "xl/workbook.xml" in names
+                is_docx = not is_xlsx and "word/document.xml" in names
         except Exception:
             is_xlsx = False
+            is_docx = False
+    else:
+        is_docx = lower_name.endswith(".docx") and content.startswith(b"PK")
     if is_xlsx:
         return _parse_ms_project_xlsx(content)
+    if is_docx:
+        result = _parse_docx_wbs(content)
+        if result is not None:
+            return result
+        # DOCX that doesn't match WBS triplet pattern → let caller fall back to LLM
+        raise ValueError("DOCX не содержит структурированного WBS-плана мероприятий")
     return parse_ms_project_xml(content)
 
 
