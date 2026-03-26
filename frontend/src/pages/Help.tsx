@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BookOpen, FolderKanban, ShieldCheck, Smartphone, Upload, Users, Workflow, BrainCircuit, Mail, ListChecks, Lock, Zap } from 'lucide-react'
+import { BookOpen, Download, FolderKanban, ShieldCheck, Smartphone, Upload, Users, Workflow, BrainCircuit, Mail, ListChecks, Lock, Zap } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 type HelpSection = {
@@ -8,6 +8,7 @@ type HelpSection = {
   icon: typeof FolderKanban
   summary: string
   bullets: string[]
+  downloadLink?: { href: string; label: string }
 }
 
 const HELP_SECTIONS: HelpSection[] = [
@@ -139,10 +140,11 @@ const HELP_SECTIONS: HelpSection[] = [
     summary: 'Как готовить XML / XLSX, чтобы задачи и исполнители распознавались без ручной чистки.',
     bullets: [
       'Для MS Project предпочтителен XML/MSPDI, а не только исходный MPP.',
-      'Для XLSX лучше использовать явные колонки: Наименование, Срок, Исполнитель, Заказчик, Вид задачи.',
+      'Для XLSX лучше использовать шаблон ниже — колонки уже названы правильно, даты в текстовом формате ДД.ММ.ГГГГ.',
       'Исполнители лучше всего матчятся по email или по формату Фамилия И.О.',
       'Если человека ещё нет в системе, имя может попасть во временные назначения для дальнейшей привязки.',
     ],
+    downloadLink: { href: '/task_import_template.xlsx', label: 'Скачать шаблон XLSX' },
   },
   {
     id: 'mobile',
@@ -230,6 +232,16 @@ export function Help() {
                 {section.bullets.map((point) => (
                   <p key={point} className="rounded-xl bg-muted/40 px-3 py-2 text-sm leading-6 text-muted-foreground">{point}</p>
                 ))}
+                {section.downloadLink && (
+                  <a
+                    href={section.downloadLink.href}
+                    download
+                    className="inline-flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm transition-colors hover:bg-accent"
+                  >
+                    <Download className="h-4 w-4" />
+                    {section.downloadLink.label}
+                  </a>
+                )}
               </div>
             </article>
           )

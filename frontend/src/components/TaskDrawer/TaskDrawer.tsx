@@ -594,7 +594,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               </Button>
             </div>
 
-            <div className="rounded-lg border p-3 space-y-2">
+            <div className="rounded-lg border p-3 space-y-2" data-enter-ignore="true">
               <p className="text-sm font-medium">Родительская задача (структура)</p>
               <p className="text-xs text-muted-foreground">
                 Это только иерархия. Для блокировки старта используйте раздел зависимостей ниже.
@@ -620,7 +620,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
               </div>
             </div>
 
-            <div className="rounded-lg border p-3 space-y-2">
+            <div className="rounded-lg border p-3 space-y-2" data-enter-ignore="true">
               <p className="text-sm font-medium">Связанные задачи (зависимости)</p>
               <p className="text-xs text-muted-foreground">
                 FS блокирует старт до завершения предшественника. SS/FF синхронизируют старт/финиш.
