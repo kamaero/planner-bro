@@ -386,7 +386,12 @@ export function useDeleteTask() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (taskId: string) => api.deleteTask(taskId),
-    onSuccess: () => {
+    onSuccess: (_, taskId) => {
+      // Remove deleted task from all tasks caches immediately so the list
+      // never flickers to empty while the background refetch is in flight.
+      qc.setQueriesData<Task[]>({ queryKey: ['tasks'] }, (old) =>
+        old ? old.filter((t) => t.id !== taskId) : old
+      )
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['gantt'] })
       qc.invalidateQueries({ queryKey: ['critical-path'] })

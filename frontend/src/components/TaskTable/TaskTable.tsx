@@ -58,6 +58,7 @@ interface TaskTableProps {
   shiftsMap?: Record<string, number>
   rowSize?: 'compact' | 'normal' | 'comfortable'
   externalDepsMap?: Record<string, ExternalDep[]>
+  isFetching?: boolean
 }
 
 export function TaskTable({
@@ -68,6 +69,7 @@ export function TaskTable({
   shiftsMap = {},
   rowSize = 'normal',
   externalDepsMap = {},
+  isFetching = false,
 }: TaskTableProps) {
   const today = new Date().toISOString().slice(0, 10)
   const topRef = useRef<HTMLDivElement | null>(null)
@@ -119,7 +121,7 @@ export function TaskTable({
     return capped
   }
 
-  if (tasks.length === 0) {
+  if (tasks.length === 0 && !isFetching) {
     return (
       <div className="text-center py-12 text-muted-foreground text-sm">
         Задач нет. Создайте первую задачу.

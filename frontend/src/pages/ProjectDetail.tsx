@@ -103,7 +103,7 @@ export function ProjectDetail() {
   const { data: allProjects = [] } = useProjects()
   const { data: ganttData } = useGantt(id!)
   const { data: criticalPath } = useCriticalPath(id!)
-  const { data: tasks = [] } = useTasks(id!)
+  const { data: tasks = [], isFetching: tasksFetching } = useTasks(id!)
   const { data: members = [] } = useMembers(id!)
   const { data: users = [] } = useUsers()
   const { data: files = [] } = useProjectFiles(id!)
@@ -1062,6 +1062,7 @@ export function ProjectDetail() {
             shiftsMap={shiftsMap}
             rowSize={taskRowSize}
             externalDepsMap={projectExternalDeps}
+            isFetching={tasksFetching}
           />
         </div>
       ) : view === 'members' ? (
