@@ -63,6 +63,7 @@ export function ProjectDetailFilesSection({ projectId, canImport, canManage, onD
   const [replaceExistingMSImport, setReplaceExistingMSImport] = useState(true)
   const [aiPromptInstruction, setAIPromptInstruction] = useState('')
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([])
+  const [deleteExistingOnApprove, setDeleteExistingOnApprove] = useState(false)
   const [columnSuggestions, setColumnSuggestions] = useState<Record<string, string> | null>(null)
   const [columnSuggestPending, setColumnSuggestPending] = useState(false)
 
@@ -138,7 +139,8 @@ export function ProjectDetailFilesSection({ projectId, canImport, canManage, onD
 
   const handleApproveSelectedDrafts = async () => {
     if (selectedDraftIds.length === 0) return
-    await approveAIDraftsBulk.mutateAsync({ projectId, draftIds: selectedDraftIds })
+    if (deleteExistingOnApprove && !window.confirm('Удалить все существующие задачи проекта и заменить выбранными черновиками?')) return
+    await approveAIDraftsBulk.mutateAsync({ projectId, draftIds: selectedDraftIds, deleteExistingTasks: deleteExistingOnApprove })
   }
 
   const handleRejectSelectedDrafts = async () => {
@@ -365,6 +367,15 @@ export function ProjectDetailFilesSection({ projectId, canImport, canManage, onD
                 ? 'Создание...'
                 : `Подтвердить выбранные (${selectedDraftIds.length})`}
             </Button>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={deleteExistingOnApprove}
+                onChange={(e) => setDeleteExistingOnApprove(e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              Заменить старые задачи
+            </label>
             <Button
               size="sm"
               variant="outline"

@@ -360,6 +360,7 @@ async def approve_ai_drafts_bulk(
         project_id=project_id,
         draft_ids=data.draft_ids,
         actor=current_user,
+        delete_existing_tasks=data.delete_existing_tasks,
     )
 
 

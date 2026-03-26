@@ -334,8 +334,8 @@ export function useApproveAIDraft() {
 export function useApproveAIDraftsBulk() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ projectId, draftIds }: { projectId: string; draftIds: string[] }) =>
-      api.approveAIDraftsBulk(projectId, draftIds),
+    mutationFn: ({ projectId, draftIds, deleteExistingTasks }: { projectId: string; draftIds: string[]; deleteExistingTasks?: boolean }) =>
+      api.approveAIDraftsBulk(projectId, draftIds, deleteExistingTasks),
     onSuccess: (_, { projectId }) => {
       qc.invalidateQueries({ queryKey: ['ai-drafts', projectId] })
       qc.invalidateQueries({ queryKey: ['tasks', projectId] })

@@ -392,8 +392,8 @@ export const api = {
     apiClient.get(`/projects/${projectId}/ai-drafts`, { params }).then((r) => r.data),
   approveAIDraft: (projectId: string, draftId: string) =>
     apiClient.post(`/projects/${projectId}/ai-drafts/${draftId}/approve`).then((r) => r.data),
-  approveAIDraftsBulk: (projectId: string, draftIds: string[]) =>
-    apiClient.post(`/projects/${projectId}/ai-drafts/approve-bulk`, { draft_ids: draftIds }).then((r) => r.data),
+  approveAIDraftsBulk: (projectId: string, draftIds: string[], deleteExistingTasks = false) =>
+    apiClient.post(`/projects/${projectId}/ai-drafts/approve-bulk`, { draft_ids: draftIds, delete_existing_tasks: deleteExistingTasks }).then((r) => r.data),
   rejectAIDraft: (projectId: string, draftId: string) =>
     apiClient.post(`/projects/${projectId}/ai-drafts/${draftId}/reject`).then((r) => r.data),
   rejectAIDraftsBulk: (projectId: string, draftIds: string[]) =>

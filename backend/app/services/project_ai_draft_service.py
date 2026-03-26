@@ -134,12 +134,25 @@ async def approve_ai_drafts_bulk_and_archive(
     draft_ids: list[str],
     actor: User,
     user_candidates: list[User],
+    delete_existing_tasks: bool = False,
 ) -> list[AITaskDraft]:
     from app.services.project_access_service import maybe_archive_processed_file
+
+    if delete_existing_tasks:
+        existing_tasks = (
+            await db.execute(select(Task).where(Task.project_id == project_id))
+        ).scalars().all()
+        for t in existing_tasks:
+            await db.delete(t)
+        await db.flush()
 
     drafts = await list_ai_drafts_by_ids(db, project_id=project_id, draft_ids=draft_ids)
     draft_map = {d.id: d for d in drafts}
     approved: list[AITaskDraft] = []
+
+    # ms_project_uid → created task.id for second-pass hierarchy linking
+    uid_to_task_id: dict[str, str] = {}
+
     for draft_id in draft_ids:
         draft = draft_map.get(draft_id)
         if not draft or draft.status != "pending":
@@ -152,6 +165,30 @@ async def approve_ai_drafts_bulk_and_archive(
             user_candidates=user_candidates,
         )
         approved.append(draft)
+        # Track uid → task mapping for hierarchy resolution
+        if draft.approved_task_id:
+            ms_uid = str((draft.raw_payload or {}).get("ms_project_uid") or "").strip()
+            if ms_uid:
+                uid_to_task_id[ms_uid] = draft.approved_task_id
+
+    # Second pass: apply parent-child hierarchy from ms_project parent_uid
+    if uid_to_task_id:
+        for draft in approved:
+            if not draft.approved_task_id:
+                continue
+            parent_ms_uid = str((draft.raw_payload or {}).get("parent_uid") or "").strip()
+            if not parent_ms_uid:
+                continue
+            parent_task_id = uid_to_task_id.get(parent_ms_uid)
+            if not parent_task_id or parent_task_id == draft.approved_task_id:
+                continue
+            task = (
+                await db.execute(select(Task).where(Task.id == draft.approved_task_id))
+            ).scalar_one_or_none()
+            if task and not task.parent_task_id:
+                task.parent_task_id = parent_task_id
+        await db.flush()
+
     for file_id in {d.project_file_id for d in approved}:
         await maybe_archive_processed_file(project_id, file_id, actor.id, db)
     return approved

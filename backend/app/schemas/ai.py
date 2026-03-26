@@ -50,6 +50,7 @@ class AITaskDraftOut(BaseModel):
 
 class AITaskDraftBulkApproveRequest(BaseModel):
     draft_ids: list[str] = Field(default_factory=list, min_length=1)
+    delete_existing_tasks: bool = False
 
 
 class AITaskDraftBulkRejectRequest(BaseModel):

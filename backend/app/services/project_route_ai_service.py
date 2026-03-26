@@ -41,6 +41,7 @@ async def approve_ai_drafts_bulk_flow(
     project_id: str,
     draft_ids: list[str],
     actor: User,
+    delete_existing_tasks: bool = False,
 ) -> list[AITaskDraft]:
     user_candidates = await get_user_candidates(db)
     approved = await approve_ai_drafts_bulk_and_archive(
@@ -49,6 +50,7 @@ async def approve_ai_drafts_bulk_flow(
         draft_ids=draft_ids,
         actor=actor,
         user_candidates=user_candidates,
+        delete_existing_tasks=delete_existing_tasks,
     )
     await db.commit()
     return approved
