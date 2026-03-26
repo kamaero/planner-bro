@@ -116,11 +116,12 @@ function daysUntil(dateValue?: string): number | null {
   return Math.round((target.getTime() - startToday.getTime()) / (1000 * 60 * 60 * 24))
 }
 
-function deadlinePulseClass(days: number | null): string {
+function deadlinePulseClass(days: number | null, animate = true): string {
   if (days === null) return ''
-  if (days >= 0 && days <= 7) return 'border-red-400 shadow-[0_0_10px_rgba(239,68,68,0.35)] animate-pulse'
-  if (days >= 10 && days <= 14) return 'border-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.42)] animate-pulse'
-  if (days > 14 && days <= 20) return 'border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.38)] animate-pulse'
+  const pulse = animate ? ' animate-pulse' : ''
+  if (days >= 0 && days <= 7) return `border-red-400 shadow-[0_0_10px_rgba(239,68,68,0.35)]${pulse}`
+  if (days >= 10 && days <= 14) return `border-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.42)]${pulse}`
+  if (days > 14 && days <= 20) return `border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.38)]${pulse}`
   return ''
 }
 
@@ -736,13 +737,13 @@ export function Dashboard() {
             <p className="mb-2 text-xs text-muted-foreground">Ближайшие дедлайны</p>
             <div className="space-y-2">
               {upcomingDeadlines.length === 0 && <p className="text-xs text-muted-foreground">Нет предстоящих дедлайнов</p>}
-              {upcomingDeadlines.map((task) => (
+              {upcomingDeadlines.map((task, index) => (
                 <Link
                   key={task.id}
                   to={`/projects/${task.project_id}`}
                   className={cn(
                     'block rounded border px-2 py-1.5 text-xs transition-colors',
-                    deadlinePulseClass(daysUntil(task.end_date)) || 'hover:bg-accent'
+                    deadlinePulseClass(daysUntil(task.end_date), index === 0) || 'hover:bg-accent'
                   )}
                 >
                   <p className="truncate font-medium">{task.title}</p>

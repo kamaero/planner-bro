@@ -339,7 +339,6 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   }
 
   const handleDeadlineReasonConfirm = async (reason: string) => {
-    setShowDeadlineReasonModal(false)
     try {
       await updateTask.mutateAsync({
         taskId: task.id,
@@ -353,6 +352,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
           deadline_change_reason: reason,
         },
       })
+      setShowDeadlineReasonModal(false)
       setPendingEndDate('')
     } catch (error: any) {
       window.alert(humanizeApiError(error, 'Не удалось сохранить дедлайн задачи'))

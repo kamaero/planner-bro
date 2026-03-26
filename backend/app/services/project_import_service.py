@@ -4,14 +4,14 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.task import Task, TaskComment, TaskEvent
+from app.models.project import ProjectMember
+from app.models.task import Task, TaskAssignee, TaskComment, TaskEvent
 from app.models.user import User
 from app.services.ms_project_import_service import parse_ms_project_content
 from app.services.project_rules_service import (
     fio_short,
     fio_short_from_parts,
     match_assignee_ids,
-    sync_task_assignees_for_project,
 )
 from app.services.system_activity_service import log_system_activity
 from app.services.temp_assignee_service import upsert_temp_assignees
@@ -85,6 +85,14 @@ async def import_tasks_from_ms_project_content(
     created_by_uid: dict[str, Task] = {}
     parent_links: list[tuple[Task, str]] = []
     user_candidates = (await db.execute(select(User).where(User.is_active == True))).scalars().all()
+    # Pre-fetch existing project members once to avoid N+1 queries in the import loop
+    existing_project_member_ids: set[str] = {
+        row[0]
+        for row in (
+            await db.execute(select(ProjectMember.user_id).where(ProjectMember.project_id == project_id))
+        ).all()
+    }
+    new_member_ids: set[str] = set()
     known_emails = {
         value
         for u in user_candidates
@@ -122,8 +130,11 @@ async def import_tasks_from_ms_project_content(
             created_by_id=actor_id,
         )
         db.add(task)
-        await db.flush()
-        await sync_task_assignees_for_project(task, project_id, matched_assignee_ids, db)
+        for user_id in matched_assignee_ids:
+            db.add(TaskAssignee(task_id=task.id, user_id=user_id))
+            if user_id not in existing_project_member_ids and user_id not in new_member_ids:
+                db.add(ProjectMember(project_id=project_id, user_id=user_id, role="member"))
+                new_member_ids.add(user_id)
         db.add(
             TaskEvent(
                 task_id=task.id,
