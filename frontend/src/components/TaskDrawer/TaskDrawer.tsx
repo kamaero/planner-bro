@@ -27,6 +27,7 @@ import { humanizeApiError } from '@/lib/errorMessages'
 import { buildTaskHierarchy, buildTaskNumbering } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
 import { useAuthStore } from '@/store/authStore'
+import { TaskCombobox } from './TaskCombobox'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
@@ -189,14 +190,6 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   }, [projectTasks, task?.id])
   const taskHierarchyOptions = useMemo(() => buildTaskHierarchy(projectTasks), [projectTasks])
   const taskNumbering = useMemo(() => buildTaskNumbering(projectTasks), [projectTasks])
-
-  const formatTaskOption = (id: string, title: string) => {
-    const depth = taskHierarchyOptions.depthById.get(id) ?? 0
-    const num = taskNumbering.get(id) ?? ''
-    const indent = depth > 0 ? '  '.repeat(Math.min(depth, 4)) + (depth > 4 ? `(${depth}) ` : '') : ''
-    const label = title.length > 55 ? title.slice(0, 54) + '…' : title
-    return `${indent}${num} ${label}`.trim()
-  }
 
   useEffect(() => {
     if (!task) return
@@ -607,20 +600,15 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 Это только иерархия. Для блокировки старта используйте раздел зависимостей ниже.
               </p>
               <div className="flex items-center gap-2">
-                <select
+                <TaskCombobox
                   value={selectedParentTaskId}
-                  onChange={(e) => setSelectedParentTaskId(e.target.value)}
-                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
-                >
-                  <option value="">Без родителя</option>
-                  {taskHierarchyOptions.ordered
-                    .filter((candidate) => !blockedParentIds.has(candidate.id))
-                    .map((candidate) => (
-                      <option key={candidate.id} value={candidate.id}>
-                        {formatTaskOption(candidate.id, candidate.title)}
-                      </option>
-                    ))}
-                </select>
+                  onChange={setSelectedParentTaskId}
+                  tasks={taskHierarchyOptions.ordered.filter((c) => !blockedParentIds.has(c.id))}
+                  depthById={taskHierarchyOptions.depthById}
+                  numbering={taskNumbering}
+                  placeholder="Без родителя"
+                  emptyLabel="Без родителя"
+                />
                 <Button
                   size="sm"
                   variant="outline"
@@ -638,20 +626,15 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
                 FS блокирует старт до завершения предшественника. SS/FF синхронизируют старт/финиш.
               </p>
               <div className="flex items-center gap-2">
-                <select
+                <TaskCombobox
                   value={newDependencyTaskId}
-                  onChange={(e) => setNewDependencyTaskId(e.target.value)}
-                  className="text-sm border rounded px-2 py-1 bg-background flex-1"
-                >
-                  <option value="">Выберите предшественника</option>
-                  {taskHierarchyOptions.ordered
-                    .filter((t) => t.id !== task.id)
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {formatTaskOption(t.id, t.title)}
-                      </option>
-                    ))}
-                </select>
+                  onChange={setNewDependencyTaskId}
+                  tasks={taskHierarchyOptions.ordered.filter((t) => t.id !== task.id)}
+                  depthById={taskHierarchyOptions.depthById}
+                  numbering={taskNumbering}
+                  placeholder="Выберите предшественника"
+                  emptyLabel="Выберите предшественника"
+                />
                 <Button
                   size="sm"
                   variant="outline"
