@@ -22,6 +22,7 @@ from app.services.project_service import get_gantt_data
 from app.services.project_dashboard_service import build_department_dashboard_payload
 from app.services.project_analytics_service import compute_deadline_stats_summary
 from app.services.project_import_service import import_tasks_from_ms_project_content, read_import_upload_or_400
+from app.services.ms_project_import_service import suggest_xlsx_column_mapping
 from app.services.project_access_service import (
     get_member,
     list_project_deadline_history as list_project_deadline_history_query,
@@ -215,6 +216,28 @@ async def import_tasks_from_ms_project(
         actor_id=current_user.id,
     )
     return MSProjectImportResult(**result)
+
+
+@router.post("/{project_id}/tasks/import/suggest-columns")
+async def suggest_import_columns(
+    project_id: str,
+    upload: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Use LLM to suggest column mappings for unrecognised XLSX headers."""
+    from app.core.config import settings
+    await require_project_access(project_id, current_user, db)
+    _, content = await read_import_upload_or_400(upload)
+    if not settings.DEEPSEEK_API_KEY:
+        return {"suggestions": {}, "error": "AI не настроен (DEEPSEEK_API_KEY отсутствует)"}
+    suggestions = await suggest_xlsx_column_mapping(
+        content,
+        api_key=settings.DEEPSEEK_API_KEY,
+        base_url=settings.DEEPSEEK_BASE_URL,
+        model=settings.DEEPSEEK_MODEL,
+    )
+    return {"suggestions": suggestions}
 
 
 @router.get("/{project_id}/files/{file_id}/download")

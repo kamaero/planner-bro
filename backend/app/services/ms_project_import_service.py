@@ -238,6 +238,53 @@ _XLSX_COLUMN_ALIASES: dict[str, tuple[str, set[str]]] = {
 _XLSX_RECOMMENDED_FIELDS = ("title", "end_date", "assignee", "customer", "task_kind")
 
 
+def _build_xlsx_date_style_indices(archive: zipfile.ZipFile) -> set[int]:
+    """Return the set of cellXfs indexes whose numFmtId indicates a date format."""
+    # Built-in Excel date numFmtIds (OOXML spec §18.8.30)
+    _BUILTIN_DATE_FMT_IDS: set[int] = {
+        14, 15, 16, 17, 18, 19, 20, 21, 22,
+        27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+        45, 46, 47, 49, 55, 56, 57, 58,
+    }
+    date_style_indices: set[int] = set()
+    if "xl/styles.xml" not in archive.namelist():
+        return date_style_indices
+    try:
+        styles_root = ET.fromstring(archive.read("xl/styles.xml"))
+        # Collect custom date format IDs from <numFmts>
+        custom_date_fmt_ids: set[int] = set()
+        for node in styles_root.iter():
+            if _tag_name(node.tag) != "numFmt":
+                continue
+            try:
+                fmt_id = int(node.attrib.get("numFmtId", ""))
+            except (ValueError, TypeError):
+                continue
+            code = node.attrib.get("formatCode", "").lower()
+            # Treat as date if the format code contains date tokens but not duration [h]
+            if any(t in code for t in ("yyyy", "yy", "dd")) and "[h]" not in code:
+                custom_date_fmt_ids.add(fmt_id)
+        all_date_fmt_ids = _BUILTIN_DATE_FMT_IDS | custom_date_fmt_ids
+        # Walk <cellXfs> children and record which xf indexes are date formats
+        xf_idx = 0
+        in_cell_xfs = False
+        for node in styles_root.iter():
+            tag = _tag_name(node.tag)
+            if tag == "cellXfs":
+                in_cell_xfs = True
+            if in_cell_xfs and tag == "xf":
+                try:
+                    fmt_id = int(node.attrib.get("numFmtId", "0"))
+                except (ValueError, TypeError):
+                    fmt_id = 0
+                if fmt_id in all_date_fmt_ids:
+                    date_style_indices.add(xf_idx)
+                xf_idx += 1
+    except Exception:
+        pass  # Styles parsing is best-effort; fall back to no date detection
+    return date_style_indices
+
+
 def _read_xlsx_rows(content: bytes) -> list[dict[int, str]]:
     try:
         archive = zipfile.ZipFile(io.BytesIO(content))
@@ -260,6 +307,10 @@ def _read_xlsx_rows(content: bytes) -> list[dict[int, str]]:
                     if _tag_name(node.tag) == "t" and node.text:
                         chunks.append(node.text)
                 shared_strings.append("".join(chunks))
+
+        # Detect which cell style indexes are date formats so we can convert
+        # Excel serial numbers to ISO date strings before field mapping.
+        date_style_indices = _build_xlsx_date_style_indices(archive)
 
         sheet_names = sorted(
             name
@@ -300,6 +351,20 @@ def _read_xlsx_rows(content: bytes) -> list[dict[int, str]]:
                                 s_idx = int(raw)
                                 value_text = shared_strings[s_idx] if 0 <= s_idx < len(shared_strings) else ""
                             except ValueError:
+                                value_text = raw
+                        elif cell_type is None and raw and date_style_indices:
+                            # Numeric cell — check style to detect Excel date serial
+                            try:
+                                style_idx = int(cell.attrib.get("s", "-1"))
+                                if style_idx in date_style_indices:
+                                    serial = int(float(raw))
+                                    if 1 <= serial <= 100000:
+                                        value_text = (date(1899, 12, 30) + timedelta(days=serial)).isoformat()
+                                    else:
+                                        value_text = raw
+                                else:
+                                    value_text = raw
+                            except Exception:
                                 value_text = raw
                         else:
                             value_text = raw
@@ -542,6 +607,9 @@ def _parse_ms_project_mpp(content: bytes) -> MSProjectParseResult:
         Path(temp_path).unlink(missing_ok=True)
 
 
+_OUTLINE_PREFIX_RE = re.compile(r'^(\d+(?:\.\d+)*)(?:[.)])?\s+(.*)', re.DOTALL)
+
+
 def _parse_ms_project_xlsx(content: bytes) -> MSProjectParseResult:
     rows = _read_xlsx_rows(content)
     _, header_map = _build_xlsx_header_map(rows)
@@ -570,13 +638,32 @@ def _parse_ms_project_xlsx(content: bytes) -> MSProjectParseResult:
     assignee_aliases = _XLSX_COLUMN_ALIASES["assignee"][1]
     customer_aliases = _XLSX_COLUMN_ALIASES["customer"][1]
 
+    normalized_header_values = set(header_map.values())
+    has_outline_col = bool(normalized_header_values & outline_aliases)
+    has_parent_col = bool(normalized_header_values & parent_aliases)
+
     parsed_tasks: list[ParsedMSProjectTask] = []
     skipped_count = 0
     for idx, row in enumerate(rows[1:], start=2):
-        title = read(row, title_aliases)
-        if not title:
+        title_raw = read(row, title_aliases)
+        if not title_raw:
             skipped_count += 1
             continue
+
+        outline_from_col = read(row, outline_aliases)
+
+        # If the file has no explicit WBS/outline column, try to extract
+        # a hierarchical number from the beginning of the title (e.g. "1.2 Task").
+        # This lets us preserve row order and build parent-child hierarchy.
+        if not has_outline_col:
+            m = _OUTLINE_PREFIX_RE.match(title_raw)
+            if m:
+                outline_from_col = m.group(1)
+                title_raw = m.group(2).strip()
+
+        # Fallback: sequential 1-based row position keeps list order on import.
+        outline_number = outline_from_col or str(idx - 1)
+
         uid = read(row, uid_aliases) or f"row-{idx}"
         progress = _clamp_progress(read(row, progress_aliases))
         estimated_hours = _parse_int(read(row, estimate_aliases))
@@ -587,8 +674,8 @@ def _parse_ms_project_xlsx(content: bytes) -> MSProjectParseResult:
         parsed_tasks.append(
             ParsedMSProjectTask(
                 uid=uid,
-                outline_number=read(row, outline_aliases),
-                title=title,
+                outline_number=outline_number,
+                title=title_raw,
                 description=read(row, desc_aliases),
                 start_date=_parse_sheet_date(read(row, start_aliases)),
                 end_date=_parse_sheet_date(read(row, end_aliases)),
@@ -604,6 +691,18 @@ def _parse_ms_project_xlsx(content: bytes) -> MSProjectParseResult:
                 customer=read(row, customer_aliases),
             )
         )
+
+    # Auto-build parent-child hierarchy from dot-notation outline numbers
+    # (e.g. "1.1" is a child of "1") when the file has no explicit parent column.
+    if not has_parent_col:
+        outline_to_uid: dict[str, str] = {
+            t.outline_number: t.uid for t in parsed_tasks if t.outline_number
+        }
+        for task in parsed_tasks:
+            if task.parent_uid or not task.outline_number or "." not in task.outline_number:
+                continue
+            parent_outline = task.outline_number.rsplit(".", 1)[0]
+            task.parent_uid = outline_to_uid.get(parent_outline)
 
     return MSProjectParseResult(tasks=parsed_tasks, skipped_count=skipped_count)
 
@@ -706,3 +805,107 @@ def parse_ms_project_content(content: bytes, filename: str | None = None) -> MSP
     if is_xlsx:
         return _parse_ms_project_xlsx(content)
     return parse_ms_project_xml(content)
+
+
+_FIELD_DESCRIPTIONS: dict[str, str] = {
+    "title": "название задачи (обязательно)",
+    "end_date": "дата окончания / дедлайн",
+    "start_date": "дата начала",
+    "assignee": "исполнитель (ФИО или email)",
+    "customer": "заказчик",
+    "task_kind": "вид задачи / тип работы",
+    "priority": "приоритет (low/medium/high/critical)",
+    "progress": "прогресс выполнения (0–100 %)",
+    "estimated_hours": "трудоёмкость в часах",
+    "department": "отдел",
+    "bureau": "бюро",
+    "description": "описание / примечание",
+    "outline_number": "WBS / иерархический номер строки",
+    "uid": "уникальный ID задачи",
+    "parent_uid": "ID родительской задачи",
+}
+
+
+async def suggest_xlsx_column_mapping(
+    content: bytes,
+    *,
+    api_key: str,
+    base_url: str,
+    model: str,
+) -> dict[str, str]:
+    """Call LLM to map unrecognised XLSX column headers to known field keys.
+
+    Returns {original_header: field_key, ...} only for headers that are not
+    already matched by the built-in aliases.
+    """
+    import json
+    import httpx
+
+    try:
+        rows = _read_xlsx_rows(content)
+    except Exception:
+        return {}
+
+    if len(rows) < 1:
+        return {}
+
+    detected_headers, header_map = _build_xlsx_header_map(rows)
+
+    # Identify headers that are already recognised so we skip them.
+    normalized_header_values = set(header_map.values())
+    recognised_normalised: set[str] = set()
+    for _field, (_label, aliases) in _XLSX_COLUMN_ALIASES.items():
+        recognised_normalised |= aliases & normalized_header_values
+
+    unrecognised = [
+        h for col, h in sorted(header_map.items())
+        if _sheet_header_normalize(h) not in recognised_normalised
+    ]
+    if not unrecognised:
+        return {}
+
+    # Gather up to 3 sample data rows as text.
+    sample_rows = []
+    for row in rows[1:4]:
+        sample_rows.append(
+            {detected_headers[i]: row.get(i + 1, "") for i in range(len(detected_headers))}
+        )
+
+    fields_desc = "\n".join(f"  {k}: {v}" for k, v in _FIELD_DESCRIPTIONS.items())
+    sample_text = "\n".join(
+        "  " + ", ".join(f'{k}={v!r}' for k, v in r.items()) for r in sample_rows
+    )
+
+    prompt = (
+        "Ты помогаешь маппить колонки XLSX-файла с задачами на поля системы управления проектами.\n\n"
+        f"Все заголовки файла: {detected_headers}\n"
+        f"Нераспознанные заголовки (нужно маппить): {unrecognised}\n\n"
+        f"Первые строки данных:\n{sample_text}\n\n"
+        f"Известные поля:\n{fields_desc}\n\n"
+        "Верни ТОЛЬКО JSON-объект вида:\n"
+        '{"ИмяКолонки": "field_key", ...}\n'
+        "Включай только нераспознанные заголовки, которые явно соответствуют одному из полей. "
+        "Если не уверен — не включай. Поле title обязательно должно быть определено хотя бы раз."
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1},
+            )
+            resp.raise_for_status()
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = "\n".join(raw.splitlines()[1:])
+            if raw.endswith("```"):
+                raw = raw[: raw.rfind("```")]
+        result = json.loads(raw)
+        if not isinstance(result, dict):
+            return {}
+        valid_keys = set(_FIELD_DESCRIPTIONS.keys())
+        return {k: v for k, v in result.items() if isinstance(k, str) and isinstance(v, str) and v in valid_keys}
+    except Exception:
+        return {}

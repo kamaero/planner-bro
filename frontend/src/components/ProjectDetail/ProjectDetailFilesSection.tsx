@@ -16,9 +16,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Download, Trash2 } from 'lucide-react'
+import { BrainCircuit, Download, Trash2 } from 'lucide-react'
 import { humanizeApiError } from '@/lib/errorMessages'
 import { formatUserDisplayName } from '@/lib/userName'
+import { api } from '@/api/client'
 import type { ProjectFile } from '@/types'
 
 interface Props {
@@ -62,6 +63,8 @@ export function ProjectDetailFilesSection({ projectId, canImport, canManage, onD
   const [replaceExistingMSImport, setReplaceExistingMSImport] = useState(true)
   const [aiPromptInstruction, setAIPromptInstruction] = useState('')
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([])
+  const [columnSuggestions, setColumnSuggestions] = useState<Record<string, string> | null>(null)
+  const [columnSuggestPending, setColumnSuggestPending] = useState(false)
 
   useEffect(() => {
     const ids = new Set(aiDrafts.map((d) => d.id))
@@ -100,11 +103,28 @@ export function ProjectDetailFilesSection({ projectId, canImport, canManage, onD
         replaceExisting: replaceExistingMSImport,
       })
       setMSProjectFile(null)
+      setColumnSuggestions(null)
       window.alert(
         `Импорт завершен.\nСоздано: ${result.created}\nСвязано с родителем: ${result.linked_to_parent}\nУдалено старых импортированных: ${result.deleted_existing}\nПропущено: ${result.skipped}`
       )
     } catch (error: any) {
       window.alert(humanizeApiError(error, 'Не удалось импортировать задачи из MS Project'))
+    }
+  }
+
+  const handleSuggestColumns = async () => {
+    if (!msProjectFile) return
+    setColumnSuggestPending(true)
+    setColumnSuggestions(null)
+    try {
+      const form = new FormData()
+      form.append('upload', msProjectFile)
+      const data = await api.suggestImportColumns(projectId, form)
+      setColumnSuggestions(data.suggestions ?? {})
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'AI не смог распознать колонки'))
+    } finally {
+      setColumnSuggestPending(false)
     }
   }
 
@@ -173,12 +193,37 @@ export function ProjectDetailFilesSection({ projectId, canImport, canManage, onD
           </label>
           <Button
             variant="outline"
+            onClick={handleSuggestColumns}
+            disabled={!msProjectFile || columnSuggestPending}
+            title="Распознать колонки с помощью AI"
+          >
+            <BrainCircuit className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
             onClick={handleImportMSProject}
             disabled={!msProjectFile || importMSProjectTasks.isPending || !canImport}
           >
             {importMSProjectTasks.isPending ? 'Импорт...' : 'Импортировать задачи'}
           </Button>
         </div>
+        {columnSuggestPending && (
+          <p className="text-xs text-muted-foreground">AI анализирует колонки...</p>
+        )}
+        {columnSuggestions !== null && (
+          <div className="rounded-lg bg-muted/40 p-3 text-xs space-y-1">
+            <p className="font-medium text-sm">Распознанные колонки (AI)</p>
+            {Object.keys(columnSuggestions).length === 0 ? (
+              <p className="text-muted-foreground">Все колонки уже распознаны автоматически или нераспознанных нет.</p>
+            ) : (
+              Object.entries(columnSuggestions).map(([header, field]) => (
+                <p key={header} className="text-muted-foreground">
+                  <span className="font-mono text-foreground">{header}</span> → {field}
+                </p>
+              ))
+            )}
+          </div>
+        )}
         <p className="text-xs text-muted-foreground">
           При включенной замене удаляются только задачи, которые ранее были импортированы из MS Project в этом
           проекте.

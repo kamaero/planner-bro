@@ -206,6 +206,12 @@ export const api = {
       })
       .then((r) => r.data)
   },
+  suggestImportColumns: (projectId: string, form: FormData) =>
+    apiClient
+      .post(`/projects/${projectId}/tasks/import/suggest-columns`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data),
   deleteProjectFile: (projectId: string, fileId: string) =>
     apiClient.delete(`/projects/${projectId}/files/${fileId}`),
   downloadProjectFile: (projectId: string, fileId: string) =>
