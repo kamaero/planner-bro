@@ -223,7 +223,30 @@ def _safe_json_loads(content: str) -> dict[str, Any]:
     end = payload.rfind("}")
     if start == -1 or end == -1 or end <= start:
         raise ValueError("LLM did not return JSON object")
-    return json.loads(payload[start : end + 1])
+    json_str = payload[start : end + 1]
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        # LLM sometimes generates malformed JSON for large responses.
+        # Try to recover by finding the last complete task entry in the tasks array.
+        tasks_start = json_str.find('"tasks"')
+        if tasks_start == -1:
+            raise ValueError("LLM returned malformed JSON without tasks key")
+        arr_start = json_str.find("[", tasks_start)
+        if arr_start == -1:
+            raise ValueError("LLM returned malformed JSON: tasks is not an array")
+        # Walk back from the end to find the last '}' that closes a task object,
+        # then close the array and outer object.
+        pos = len(json_str) - 1
+        while pos > arr_start:
+            if json_str[pos] == "}":
+                truncated = json_str[:pos + 1] + "]}"
+                try:
+                    return json.loads(truncated)
+                except json.JSONDecodeError:
+                    pass
+            pos -= 1
+        raise ValueError("LLM returned malformed JSON: could not recover any tasks")
 
 
 def _normalize_priority(value: str | None) -> str:

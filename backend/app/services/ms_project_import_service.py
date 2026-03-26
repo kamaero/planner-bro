@@ -642,10 +642,21 @@ def _parse_ms_project_xlsx(content: bytes) -> MSProjectParseResult:
     has_outline_col = bool(normalized_header_values & outline_aliases)
     has_parent_col = bool(normalized_header_values & parent_aliases)
 
+    # When no column matches the title aliases, fall back to column 1 (leftmost).
+    # This ensures files with non-standard headers still produce tasks instead of
+    # returning empty and triggering the slower LLM fallback.
+    has_title_col = bool(normalized_header_values & title_aliases)
+    title_fallback_col: int | None = None
+    if not has_title_col and len(rows) > 1:
+        first_data = rows[1]
+        title_fallback_col = min(first_data.keys()) if first_data else None
+
     parsed_tasks: list[ParsedMSProjectTask] = []
     skipped_count = 0
     for idx, row in enumerate(rows[1:], start=2):
         title_raw = read(row, title_aliases)
+        if not title_raw and title_fallback_col is not None:
+            title_raw = (row.get(title_fallback_col) or "").strip() or None
         if not title_raw:
             skipped_count += 1
             continue
