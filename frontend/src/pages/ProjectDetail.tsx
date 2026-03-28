@@ -178,6 +178,16 @@ export function ProjectDetail() {
   const [pendingProjectFormData, setPendingProjectFormData] = useState<Record<string, unknown> | null>(null)
   const [showProjectDeadlineHistory, setShowProjectDeadlineHistory] = useState(false)
   const [taskRowSize, setTaskRowSize] = useState<'compact' | 'normal' | 'comfortable'>('normal')
+  const [collapsedTaskIds, setCollapsedTaskIds] = useState<Set<string>>(new Set())
+
+  const toggleCollapse = (taskId: string) => {
+    setCollapsedTaskIds(prev => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }
 
   const { data: projectDeadlineHistory = [] } = useProjectDeadlineHistory(id)
   // shiftsMap is empty here — per-task shift counts are shown inside TaskDrawer
@@ -210,6 +220,14 @@ export function ProjectDetail() {
     for (const member of members) uniqueUsers.set(member.user.id, member.user)
     return Array.from(uniqueUsers.values())
   }, [canAssignAcrossOrg, members, users])
+
+  const hasChildrenIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const task of tasks) {
+      if (task.parent_task_id) ids.add(task.parent_task_id)
+    }
+    return ids
+  }, [tasks])
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
@@ -279,14 +297,16 @@ export function ProjectDetail() {
       if (visited.has(node.id)) return
       visited.add(node.id)
       ordered.push(node)
-      const kids = children.get(node.id) ?? []
-      for (const child of kids) appendTree(child)
+      if (!collapsedTaskIds.has(node.id)) {
+        const kids = children.get(node.id) ?? []
+        for (const child of kids) appendTree(child)
+      }
     }
     for (const root of roots) appendTree(root)
     for (const task of sorted) appendTree(task)
 
     return ordered
-  }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter, taskSortBy, taskSortDir])
+  }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter, taskSortBy, taskSortDir, collapsedTaskIds])
 
   const selectedVisibleCount = filteredTasks.filter((t) => selectedTaskIds.includes(t.id)).length
 
@@ -1055,6 +1075,9 @@ export function ProjectDetail() {
             tasks={filteredTasks}
             allTasks={tasks}
             onTaskClick={handleTaskClick}
+            hasChildrenIds={hasChildrenIds}
+            collapsedTaskIds={collapsedTaskIds}
+            onToggleCollapse={toggleCollapse}
             onStatusChange={(taskId, status) => {
               const task = tasks.find((t) => t.id === taskId)
               if (task) handleQuickStatusChange(task, status)

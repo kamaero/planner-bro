@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Task } from '@/types'
-import { Clock, AlertCircle, CornerDownRight } from 'lucide-react'
+import { Clock, AlertCircle, CornerDownRight, ChevronRight, ChevronDown } from 'lucide-react'
 import type { ExternalDep } from '@/hooks/useProjects'
 import { buildTaskNumbering, stripTaskOrderPrefix } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
@@ -59,6 +59,9 @@ interface TaskTableProps {
   rowSize?: 'compact' | 'normal' | 'comfortable'
   externalDepsMap?: Record<string, ExternalDep[]>
   isFetching?: boolean
+  hasChildrenIds?: Set<string>
+  collapsedTaskIds?: Set<string>
+  onToggleCollapse?: (taskId: string) => void
 }
 
 export function TaskTable({
@@ -70,6 +73,9 @@ export function TaskTable({
   rowSize = 'normal',
   externalDepsMap = {},
   isFetching = false,
+  hasChildrenIds,
+  collapsedTaskIds,
+  onToggleCollapse,
 }: TaskTableProps) {
   const today = new Date().toISOString().slice(0, 10)
   const topRef = useRef<HTMLDivElement | null>(null)
@@ -174,6 +180,9 @@ export function TaskTable({
               .map((id) => stripTaskOrderPrefix(taskById.get(id)?.title || '') || id)
               .slice(0, 2)
 
+            const isParentTask = hasChildrenIds?.has(task.id) ?? false
+            const isCollapsed = collapsedTaskIds?.has(task.id) ?? false
+
             return (
               <tr
                 key={task.id}
@@ -183,10 +192,23 @@ export function TaskTable({
                 {/* Title */}
                 <td className={`px-4 ${pyClass}`}>
                   <div className="flex items-start gap-2" style={{ paddingLeft: `${depth * 24}px` }}>
-                    {hasParent && (
+                    {isParentTask ? (
+                      <button
+                        className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={(e) => { e.stopPropagation(); onToggleCollapse?.(task.id) }}
+                        title={isCollapsed ? 'Развернуть подзадачи' : 'Свернуть подзадачи'}
+                      >
+                        {isCollapsed
+                          ? <ChevronRight className="w-3.5 h-3.5" />
+                          : <ChevronDown className="w-3.5 h-3.5" />
+                        }
+                      </button>
+                    ) : hasParent ? (
                       <span className="mt-0.5 shrink-0 text-muted-foreground/80" title="Вложенная задача в структуре">
                         <CornerDownRight className="w-3.5 h-3.5" />
                       </span>
+                    ) : (
+                      <span className="mt-0.5 w-3.5 shrink-0" />
                     )}
                     <div className="min-w-0">
                       <div className="text-[10px] text-muted-foreground font-medium mb-0.5">
@@ -195,18 +217,13 @@ export function TaskTable({
                       <p className="font-medium whitespace-normal break-words group-hover:text-primary transition-colors">
                         {stripTaskOrderPrefix(task.title)}
                       </p>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        {hasParent && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded border bg-muted/40 text-muted-foreground">
-                            структура
-                          </span>
-                        )}
-                        {hasBlockingDependency && (
+                      {hasBlockingDependency && (
+                        <div className="mt-1">
                           <span className="text-[10px] px-1.5 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">
                             зависимость
                           </span>
-                        )}
-                      </div>
+                        </div>
+                      )}
                       {hasParent && (
                         <p className="text-[11px] text-muted-foreground mt-0.5">
                           ↳ Родитель: {parentTitle ?? task.parent_task_id}
