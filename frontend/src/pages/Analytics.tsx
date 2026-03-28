@@ -6,8 +6,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  PieChart,
-  Pie,
   Cell,
   ResponsiveContainer,
 } from 'recharts'
@@ -194,15 +192,7 @@ export function Analytics() {
         </div>
       </div>
 
-      {/* Activity Heatmap */}
-      <div className="rounded-xl border bg-card p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Activity className="w-4 h-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">Активность команды</h2>
-        </div>
-        <ActivityHeatmap />
-      </div>
-
+      {/* Metric Cards — full width, 4 columns */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard label="Проекты" value={totalProjects} />
         <MetricCard label="Всего задач" value={totalTasks} />
@@ -210,65 +200,77 @@ export function Analytics() {
         <MetricCard label="Без исполнителя" value={unassigned} sub="задачи без назначенного ответственного" />
       </div>
 
+      {/* Heatmap + Приоритеты — same 2-col grid as Статусы задач */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="rounded-xl border bg-card p-5">
-          <h2 className="text-sm font-semibold mb-4">Статусы задач</h2>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={statusCounts} margin={{ top: 0, right: 10, bottom: 0, left: -10 }}>
-              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                {statusCounts.map((entry) => (
-                  <Cell key={entry.name} fill={entry.fill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="flex items-center gap-2 mb-4">
+            <Activity className="w-4 h-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold">Активность команды</h2>
+          </div>
+          <ActivityHeatmap />
         </div>
 
         <div className="rounded-xl border bg-card p-5">
           <h2 className="text-sm font-semibold mb-4">Приоритеты задач</h2>
           {priorityChartData.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Нет задач для отображения приоритетов.</p>
+            <p className="text-sm text-muted-foreground">Нет задач для отображения.</p>
           ) : (
-            <>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={priorityChartData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={78}
-                    labelLine
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  >
-                    {priorityChartData.map((entry) => (
-                      <Cell key={entry.name} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="grid grid-cols-2 gap-2 pt-2">
-                {priorityCounts.map((item) => (
-                  <div key={item.name} className="flex items-center justify-between text-xs">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: item.fill }} />
-                      {item.name}
-                    </span>
-                    <span className="font-semibold">{item.value}</span>
-                  </div>
-                ))}
-              </div>
-            </>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={priorityCounts.map(d => ({ ...d, value: Math.max(d.value, 1) }))} margin={{ top: 0, right: 10, bottom: 0, left: -10 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis scale="log" domain={[1, 'auto']} allowDecimals={false} tick={{ fontSize: 12 }} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                <Tooltip formatter={(v: number) => [v === 1 && priorityCounts.find(d => d.value === 0) ? 0 : v, 'задач']} />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                  {priorityCounts.map((entry) => (
+                    <Cell key={entry.name} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* Left column: Статусы + Нагрузка stacked */}
+        <div className="flex flex-col gap-6">
+          <div className="rounded-xl border bg-card p-5">
+            <h2 className="text-sm font-semibold mb-4">Статусы задач</h2>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={statusCounts.map(d => ({ ...d, count: Math.max(d.count, 1) }))} margin={{ top: 0, right: 10, bottom: 0, left: -10 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis scale="log" domain={[1, 'auto']} allowDecimals={false} tick={{ fontSize: 12 }} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                <Tooltip formatter={(v: number) => [v, 'задач']} />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {statusCounts.map((entry) => (
+                    <Cell key={entry.name} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="rounded-xl border bg-card p-5">
+            <h2 className="text-sm font-semibold mb-4">Нагрузка по команде</h2>
+            {workloadData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(180, workloadData.length * 40)}>
+                <BarChart
+                  data={workloadData}
+                  layout="vertical"
+                  margin={{ top: 0, right: 20, bottom: 0, left: 80 }}
+                >
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={75} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground">Нет данных по нагрузке команды.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Right column: Прогресс по проектам */}
         <div className="rounded-xl border bg-card p-5">
           <h2 className="text-sm font-semibold mb-4">Прогресс по проектам</h2>
           {projectProgress.length === 0 ? (
@@ -291,26 +293,6 @@ export function Analytics() {
                 </div>
               ))}
             </div>
-          )}
-        </div>
-
-        <div className="rounded-xl border bg-card p-5">
-          <h2 className="text-sm font-semibold mb-4">Нагрузка по команде</h2>
-          {workloadData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={Math.max(180, workloadData.length * 40)}>
-              <BarChart
-                data={workloadData}
-                layout="vertical"
-                margin={{ top: 0, right: 20, bottom: 0, left: 80 }}
-              >
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={75} />
-                <Tooltip />
-                <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-sm text-muted-foreground">Нет данных по нагрузке команды.</p>
           )}
         </div>
       </div>

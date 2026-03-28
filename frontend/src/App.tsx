@@ -14,6 +14,7 @@ import { TeamStorage } from '@/pages/TeamStorage'
 import { Chat } from '@/pages/Chat'
 import { Help } from '@/pages/Help'
 import { WorkloadCalendar } from '@/pages/WorkloadCalendar'
+import { Roadmap } from '@/pages/Roadmap'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -34,6 +35,7 @@ import {
   ClipboardList,
   HelpCircle,
   CalendarDays,
+  Milestone,
 } from 'lucide-react'
 
 function ThemeToggle() {
@@ -104,6 +106,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       : []),
     { to: '/', label: 'Проекты', icon: LayoutDashboard },
     { to: '/my-tasks', label: 'Мои задачи', icon: ClipboardList },
+    { to: '/roadmap', label: 'Roadmap', icon: Milestone },
     { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
     { to: '/workload', label: 'Загрузка', icon: CalendarDays },
     { to: '/team', label: 'Команда', icon: Users },
@@ -465,6 +468,16 @@ export function App() {
           <AuthGuard>
             <AppLayout>
               <ProjectDetail />
+            </AppLayout>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/roadmap"
+        element={
+          <AuthGuard>
+            <AppLayout>
+              <Roadmap />
             </AppLayout>
           </AuthGuard>
         }

@@ -430,6 +430,18 @@ export function useBulkUpdateTasks() {
   })
 }
 
+export function useReorderTasks() {
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      items,
+    }: {
+      projectId: string
+      items: { task_id: string; order: number }[]
+    }) => api.reorderTasks(projectId, items),
+  })
+}
+
 export function useEscalations() {
   return useQuery<Task[]>({
     queryKey: ['escalations'],

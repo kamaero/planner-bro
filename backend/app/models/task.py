@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date, timezone
-from sqlalchemy import String, DateTime, Date, ForeignKey, Integer, Numeric, Enum as SAEnum, Boolean
+from sqlalchemy import String, DateTime, Date, Float, ForeignKey, Integer, Numeric, Enum as SAEnum, Boolean
 from sqlalchemy import inspect
 from sqlalchemy.orm.attributes import NO_VALUE
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -31,6 +31,7 @@ class Task(Base):
     )
     control_ski: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     progress_percent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    order: Mapped[float | None] = mapped_column(Float, nullable=True)
     next_step: Mapped[str | None] = mapped_column(String(500), nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)

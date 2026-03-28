@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -18,6 +19,7 @@ from app.schemas.task import (
     TaskCheckInCreate,
     TaskDependencyCreate,
     TaskDependencyOut,
+    TaskReorderRequest,
 )
 from app.schemas.deadline_change import DeadlineChangeOut
 from app.services.task_service import (
@@ -208,6 +210,26 @@ async def bulk_update_tasks(
         log_task_event=_log_task_event,
     )
     return TaskBulkUpdateResult(**result)
+
+
+@router.put("/projects/{project_id}/tasks/reorder", status_code=204)
+async def reorder_tasks(
+    project_id: str,
+    data: TaskReorderRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.task import Task as TaskModel
+    from app.services.task_access_service import _require_project_access
+    await _require_project_access(db, project_id, current_user)
+    task_ids = [item.task_id for item in data.items]
+    tasks = (await db.execute(
+        select(TaskModel).where(TaskModel.id.in_(task_ids), TaskModel.project_id == project_id)
+    )).scalars().all()
+    order_map = {item.task_id: item.order for item in data.items}
+    for task in tasks:
+        task.order = order_map[task.id]
+    await db.commit()
 
 
 @router.delete("/tasks/{task_id}", status_code=204)

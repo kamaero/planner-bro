@@ -268,6 +268,8 @@ export const api = {
       target_project_id?: string
     }
   ) => apiClient.post(`/projects/${projectId}/tasks/bulk`, data).then((r) => r.data),
+  reorderTasks: (projectId: string, items: { task_id: string; order: number }[]) =>
+    apiClient.put(`/projects/${projectId}/tasks/reorder`, { items }).then((r) => r.data),
   listTaskComments: (taskId: string) => apiClient.get(`/tasks/${taskId}/comments`).then((r) => r.data),
   addTaskComment: (taskId: string, body: string) =>
     apiClient.post(`/tasks/${taskId}/comments`, { body }).then((r) => r.data),

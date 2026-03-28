@@ -1,6 +1,16 @@
 import { useEffect, useRef } from 'react'
 import type { Task } from '@/types'
-import { Clock, AlertCircle, CornerDownRight, ChevronRight, ChevronDown } from 'lucide-react'
+import { Clock, AlertCircle, CornerDownRight, ChevronRight, ChevronDown, GripVertical } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { ExternalDep } from '@/hooks/useProjects'
 import { buildTaskNumbering, stripTaskOrderPrefix } from '@/lib/taskOrdering'
 import { formatUserDisplayName } from '@/lib/userName'
@@ -62,6 +72,38 @@ interface TaskTableProps {
   hasChildrenIds?: Set<string>
   collapsedTaskIds?: Set<string>
   onToggleCollapse?: (taskId: string) => void
+  onReorder?: (fromIndex: number, toIndex: number) => void
+}
+
+function SortableRow({
+  task,
+  isDraggable,
+  onClick,
+  children,
+}: {
+  task: Task
+  isDraggable: boolean
+  onClick: () => void
+  children: (dragHandleProps: React.HTMLAttributes<HTMLElement> | null, isDragging: boolean) => React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: 'relative' as const,
+    zIndex: isDragging ? 1 : undefined,
+  }
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      onClick={onClick}
+      className="hover:bg-muted/30 cursor-pointer transition-colors group"
+    >
+      {children(isDraggable ? { ...attributes, ...listeners } : null, isDragging)}
+    </tr>
+  )
 }
 
 export function TaskTable({
@@ -76,8 +118,20 @@ export function TaskTable({
   hasChildrenIds,
   collapsedTaskIds,
   onToggleCollapse,
+  onReorder,
 }: TaskTableProps) {
   const today = new Date().toISOString().slice(0, 10)
+  const isDraggable = Boolean(onReorder)
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id || !onReorder) return
+    const fromIndex = tasks.findIndex((t) => t.id === active.id)
+    const toIndex = tasks.findIndex((t) => t.id === over.id)
+    if (fromIndex !== -1 && toIndex !== -1) onReorder(fromIndex, toIndex)
+  }
+
   const topRef = useRef<HTMLDivElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const syncingRef = useRef<'top' | 'bottom' | null>(null)
@@ -157,6 +211,7 @@ export function TaskTable({
       <table className="w-full text-sm min-w-[1220px]">
         <thead>
           <tr className="border-b bg-muted/40 text-muted-foreground text-xs uppercase tracking-wide">
+            {isDraggable && <th className="pl-2 pr-0 w-6 py-2.5" />}
             <th className="px-4 py-2.5 text-left font-medium min-w-[340px]">Задача</th>
             <th className="px-3 py-2.5 text-left font-medium min-w-[280px]">Комментарий</th>
             <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap">Статус</th>
@@ -167,6 +222,8 @@ export function TaskTable({
             <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap">Подрядчики</th>
           </tr>
         </thead>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
         <tbody className="divide-y divide-border">
           {tasks.map((task) => {
             const isOverdue = task.end_date && task.end_date < today && task.status !== 'done'
@@ -184,11 +241,20 @@ export function TaskTable({
             const isCollapsed = collapsedTaskIds?.has(task.id) ?? false
 
             return (
-              <tr
-                key={task.id}
-                className="hover:bg-muted/30 cursor-pointer transition-colors group"
-                onClick={() => onTaskClick(task)}
-              >
+              <SortableRow key={task.id} task={task} isDraggable={isDraggable} onClick={() => onTaskClick(task)}>
+                {(dragHandleProps) => (<>
+                {/* Drag handle */}
+                {isDraggable && (
+                  <td className="pl-2 pr-0 w-6" onClick={(e) => e.stopPropagation()}>
+                    <span
+                      {...(dragHandleProps ?? {})}
+                      className="flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing"
+                      style={{ touchAction: 'none' }}
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </span>
+                  </td>
+                )}
                 {/* Title */}
                 <td className={`px-4 ${pyClass}`}>
                   <div className="flex items-start gap-2" style={{ paddingLeft: `${depth * 24}px` }}>
@@ -356,10 +422,13 @@ export function TaskTable({
                     ))}
                   </div>
                 </td>
-              </tr>
+                </>)}
+              </SortableRow>
             )
           })}
         </tbody>
+        </SortableContext>
+        </DndContext>
       </table>
       </div>
     </div>

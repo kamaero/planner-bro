@@ -10,6 +10,7 @@ import {
   useDeleteProject,
   useUpdateTaskStatus,
   useBulkUpdateTasks,
+  useReorderTasks,
   useProjectFiles,
   useProjectDeadlineHistory,
   useProjects,
@@ -112,6 +113,7 @@ export function ProjectDetail() {
   const deleteProject = useDeleteProject()
   const updateTaskStatus = useUpdateTaskStatus()
   const bulkUpdateTasks = useBulkUpdateTasks()
+  const reorderTasks = useReorderTasks()
   const analyzeProject = useAnalyzeProject()
   const currentUser = useAuthStore((s) => s.user)
   const { permissions } = useMyPermissions()
@@ -230,6 +232,14 @@ export function ProjectDetail() {
     return ids
   }, [tasks])
 
+  const handleReorder = (fromIndex: number, toIndex: number) => {
+    const newList = [...filteredTasks]
+    const [moved] = newList.splice(fromIndex, 1)
+    newList.splice(toIndex, 0, moved)
+    const items = newList.map((task, idx) => ({ task_id: task.id, order: idx * 1000 }))
+    reorderTasks.mutate({ projectId: id!, items })
+  }
+
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
       const searchOk =
@@ -262,6 +272,12 @@ export function ProjectDetail() {
         const byTitle = a.task.title.localeCompare(b.task.title, 'ru')
         if (byTitle !== 0) return taskSortDir === 'asc' ? byTitle : -byTitle
       }
+      // use explicit order field when set (drag-and-drop ordering)
+      const aHasOrder = a.task.order != null
+      const bHasOrder = b.task.order != null
+      if (aHasOrder && bHasOrder) return (a.task.order as number) - (b.task.order as number)
+      if (aHasOrder && !bHasOrder) return -1
+      if (!aHasOrder && bHasOrder) return 1
       const ao = parseTaskOrderFromTitle(a.task.title)
       const bo = parseTaskOrderFromTitle(b.task.title)
       if (ao && bo) {
@@ -1095,6 +1111,7 @@ export function ProjectDetail() {
             hasChildrenIds={hasChildrenIds}
             collapsedTaskIds={collapsedTaskIds}
             onToggleCollapse={toggleCollapse}
+            onReorder={taskSortBy === 'order' ? handleReorder : undefined}
             onStatusChange={(taskId, status) => {
               const task = tasks.find((t) => t.id === taskId)
               if (task) handleQuickStatusChange(task, status)

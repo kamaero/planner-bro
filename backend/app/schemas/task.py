@@ -108,10 +108,18 @@ class TaskBulkUpdateResult(BaseModel):
     errors: list[dict] = Field(default_factory=list)
 
 
+class TaskReorderItem(BaseModel):
+    task_id: str
+    order: float
+
+class TaskReorderRequest(BaseModel):
+    items: list[TaskReorderItem]
+
 class TaskOut(TaskBase):
     id: str
     project_id: str
     created_by_id: str
+    order: Optional[float] = None
     assignee: Optional[UserOut] = None
     assignees: list[UserOut] = Field(default_factory=list)
     predecessor_ids: list[str] = Field(default_factory=list)

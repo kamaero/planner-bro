@@ -121,10 +121,19 @@ Sidebar behavior:
 - **`hooks/useWebSocket.ts`** — opens `ws://host/ws?token=...` on mount, dispatches `queryClient.invalidateQueries` on received events. No explicit reconnect logic.
 - **`components/GanttChart/`** — wraps `gantt-task-react`. Converts `GanttTask[]` (from the `/gantt` endpoint) to the library's `Task[]` type via `toGanttTasks()`.
 - **`pages/Dashboard.tsx`** — compact `Дэшборд IT` with department tabs (`/projects/dashboard/departments`), manual project-to-department linking, and condensed widgets for one-screen visibility.
-- **`pages/ProjectDetail.tsx`** — project editing (name/status/dates/owner) and a Files tab for uploading and managing attachments.
+- **`pages/ProjectDetail.tsx`** — project editing (name/status/dates/owner), Files tab, task list with collapsible subtrees, "hide done" toggle, sort by order/status/priority, and drag-and-drop reordering (via `@dnd-kit`) when sort mode is "по порядку".
+- **`pages/Roadmap.tsx`** — cross-project timeline: all projects as horizontal bars grouped by department. Zoom (week/month/quarter), today marker, hide-completed toggle, hover tooltips, click to navigate. No extra libraries — pure div/CSS layout.
+- **`pages/Analytics.tsx`** — activity heatmap fills card width via ResizeObserver (dynamic cell size), log-scale Y axis on status and priority bar charts so small values remain visible alongside dominant ones.
 - **`pages/TeamStorage.tsx`** — encrypted vault UI: folder tabs, file list, upload panel (with optional description), download via signed token (`window.open`), delete gated by `can_delete`/`admin`.
 - **`pages/Team.tsx`** — team management. Users can edit their own display name inline in their card (calls `PUT /users/me`). Admins/managers manage roles, org structure, departments.
-- **`App.tsx`** sidebar — lower section includes current user card, full team presence list (online/offline dots), and system email activity monitor.
+- **`components/ActivityHeatmap/ActivityHeatmap.tsx`** — full 2026 year heatmap, week starts Monday, future days shown as light gray, dynamic cell sizing via ResizeObserver, numeric month labels (1–12), vertical month separators.
+- **`components/TaskTable/TaskTable.tsx`** — collapse/expand subtrees via chevron, drag handle (GripVertical) with `@dnd-kit/sortable` when `onReorder` prop is provided.
+- **`App.tsx`** sidebar — lower section includes current user card, full team presence list (online/offline dots), and system email activity monitor. Roadmap added to nav (Milestone icon).
+
+### Drag-and-drop task reordering
+- **Backend**: `PUT /projects/{project_id}/tasks/reorder` accepts `[{task_id, order}]`, saves float order values.
+- **Frontend**: `useReorderTasks` mutation hook → `api.reorderTasks`. Enabled only when `taskSortBy === 'order'` in ProjectDetail. Sort logic prefers `task.order` over title-prefix parsing when order values are present.
+- **Dependency**: `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities` (installed in `frontend/`).
 
 ### Flutter mobile (`mobile/lib/`)
 - **`core/api_client.dart`** — singleton `apiClient` (Dio). Token stored in `flutter_secure_storage`. On 401, attempts refresh then replays; on failure calls `logout()` (clears storage).
@@ -217,6 +226,7 @@ Migration chain (`backend/alembic/versions/`):
 | 0018 | `task_status_planning.py` | adds `planning` value to `task_status` enum (default task status) |
 | 0019 | `email_dispatch_logs.py` | `email_dispatch_logs` table for SMTP activity monitor in sidebar |
 | 0020–0033 | *(service-layer refactor batch)* | Various schema additions from codex branch refactor |
+| 0039 | `task_order.py` | `tasks.order` Float column for drag-and-drop sort persistence |
 | 0034 | `dependency_graph.py` | Dependency graph visualisation support fields |
 | 0035 | `time_tracking.py` | `estimated_hours`, `actual_hours` on tasks; `time_entries` table |
 | 0036 | `custom_fields.py` | `project_custom_fields` + `task_custom_field_values` tables |

@@ -121,6 +121,7 @@ export interface Task {
   priority: 'low' | 'medium' | 'high' | 'critical'
   control_ski: boolean
   progress_percent: number
+  order?: number | null
   next_step?: string
   start_date?: string
   end_date?: string
