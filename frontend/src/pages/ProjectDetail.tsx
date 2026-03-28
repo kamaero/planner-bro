@@ -293,13 +293,19 @@ export function ProjectDetail() {
 
     const ordered: Task[] = []
     const visited = new Set<string>()
+    const markVisited = (taskId: string) => {
+      if (visited.has(taskId)) return
+      visited.add(taskId)
+      for (const kid of (children.get(taskId) ?? [])) markVisited(kid.id)
+    }
     const appendTree = (node: Task) => {
       if (visited.has(node.id)) return
       visited.add(node.id)
       ordered.push(node)
-      if (!collapsedTaskIds.has(node.id)) {
-        const kids = children.get(node.id) ?? []
-        for (const child of kids) appendTree(child)
+      if (collapsedTaskIds.has(node.id)) {
+        for (const kid of (children.get(node.id) ?? [])) markVisited(kid.id)
+      } else {
+        for (const child of (children.get(node.id) ?? [])) appendTree(child)
       }
     }
     for (const root of roots) appendTree(root)
