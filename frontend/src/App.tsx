@@ -62,9 +62,10 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const [searchQuery, setSearchQuery] = useState('')
   const clientErrorFloodGuardRef = useRef<Record<string, number>>({})
+  const searchRef = useRef<HTMLDivElement>(null)
   const [searchData, setSearchData] = useState<{
-    projects: Array<{ id: string; name: string; status: string }>
-    tasks: Array<{ id: string; title: string; project_id: string; status: string }>
+    projects: Array<{ id: string; name: string; status: string; end_date?: string | null }>
+    tasks: Array<{ id: string; title: string; project_id: string; project_name: string; status: string; end_date?: string | null; assignee_name?: string | null }>
     users: Array<{ id: string; name: string; email: string }>
   } | null>(null)
   useWebSocket()
@@ -130,6 +131,20 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       clearTimeout(timer)
     }
   }, [searchQuery])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setSearchQuery(''); setSearchData(null) }
+    }
+    const onClick = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchQuery(''); setSearchData(null)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onClick)
+    return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onClick) }
+  }, [])
 
   useEffect(() => {
     const reportClientError = (payload: {
@@ -217,66 +232,57 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             <ThemeToggle />
           </div>
         </div>
-        <div className="px-3 pb-3">
+        <div className="px-3 pb-3" ref={searchRef}>
           <div className="relative">
             <Input
-              placeholder="Глобальный поиск: проекты, задачи, люди"
+              placeholder="Поиск проектов и задач..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
             {searchData && (
-              <div className="absolute z-20 mt-1 w-full rounded-lg border bg-card shadow-md p-2 space-y-2 max-h-80 overflow-auto">
+              <div className="absolute z-20 mt-1 w-full rounded-lg border bg-card shadow-md p-2 space-y-2 max-h-96 overflow-auto">
                 {searchData.projects.length > 0 && (
                   <div>
-                    <p className="text-[11px] uppercase text-muted-foreground mb-1">Проекты</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground px-2 mb-1">Проекты</p>
                     {searchData.projects.map((p) => (
                       <Link
                         key={p.id}
                         to={`/projects/${p.id}`}
-                        className="block text-sm px-2 py-1 rounded hover:bg-accent"
-                        onClick={() => {
-                          setSearchQuery('')
-                          setSearchData(null)
-                        }}
+                        className="block px-2 py-1.5 rounded hover:bg-accent transition-colors"
+                        onClick={() => { setSearchQuery(''); setSearchData(null) }}
                       >
-                        {p.name}
+                        <p className="text-sm font-medium truncate">{p.name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {p.status}{p.end_date ? ` · до ${new Date(p.end_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}` : ''}
+                        </p>
                       </Link>
                     ))}
                   </div>
                 )}
                 {searchData.tasks.length > 0 && (
                   <div>
-                    <p className="text-[11px] uppercase text-muted-foreground mb-1">Задачи</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground px-2 mb-1">Задачи</p>
                     {searchData.tasks.map((t) => (
                       <Link
                         key={t.id}
                         to={`/projects/${t.project_id}`}
-                        className="block text-sm px-2 py-1 rounded hover:bg-accent"
-                        onClick={() => {
-                          setSearchQuery('')
-                          setSearchData(null)
-                        }}
+                        className="block px-2 py-1.5 rounded hover:bg-accent transition-colors"
+                        onClick={() => { setSearchQuery(''); setSearchData(null) }}
                       >
-                        {t.title}
+                        <p className="text-sm font-medium truncate">{t.title}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {t.project_name}
+                          {t.status ? ` · ${t.status}` : ''}
+                          {t.assignee_name ? ` · ${t.assignee_name}` : ''}
+                          {t.end_date ? ` · до ${new Date(t.end_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}` : ''}
+                        </p>
                       </Link>
                     ))}
                   </div>
                 )}
-                {searchData.users.length > 0 && (
-                  <div>
-                    <p className="text-[11px] uppercase text-muted-foreground mb-1">Люди</p>
-                    {searchData.users.map((u) => (
-                      <p key={u.id} className="text-sm px-2 py-1 text-muted-foreground">
-                        {u.name} · {u.email}
-                      </p>
-                    ))}
-                  </div>
+                {searchData.projects.length === 0 && searchData.tasks.length === 0 && (
+                  <p className="text-sm text-muted-foreground px-2 py-1">Ничего не найдено.</p>
                 )}
-                {searchData.projects.length === 0 &&
-                  searchData.tasks.length === 0 &&
-                  searchData.users.length === 0 && (
-                    <p className="text-sm text-muted-foreground px-2 py-1">Ничего не найдено.</p>
-                  )}
               </div>
             )}
           </div>

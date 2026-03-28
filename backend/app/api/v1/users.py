@@ -566,9 +566,49 @@ async def global_search(
         )
     ).scalars().all()
 
+    # build project name map for task results
+    known_project_ids = {p.id for p in projects}
+    extra_project_ids = {t.project_id for t in tasks} - known_project_ids
+    extra_projects: list = []
+    if extra_project_ids:
+        extra_projects = (await db.execute(
+            select(Project.id, Project.name).where(Project.id.in_(extra_project_ids))
+        )).all()
+    project_name_map = {p.id: p.name for p in projects}
+    for ep in extra_projects:
+        project_name_map[ep.id] = ep.name
+
+    # build assignee name map for task results
+    assignee_ids = {t.assigned_to_id for t in tasks if t.assigned_to_id}
+    assignee_map: dict = {}
+    if assignee_ids:
+        rows = (await db.execute(
+            select(User.id, User.name).where(User.id.in_(assignee_ids))
+        )).all()
+        assignee_map = {r.id: r.name for r in rows}
+
     return {
-        "projects": [{"id": p.id, "name": p.name, "status": p.status} for p in projects],
-        "tasks": [{"id": t.id, "title": t.title, "project_id": t.project_id, "status": t.status} for t in tasks],
+        "projects": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "status": p.status,
+                "end_date": p.end_date.isoformat() if p.end_date else None,
+            }
+            for p in projects
+        ],
+        "tasks": [
+            {
+                "id": t.id,
+                "title": t.title,
+                "project_id": t.project_id,
+                "project_name": project_name_map.get(t.project_id, ""),
+                "status": t.status,
+                "end_date": t.end_date.isoformat() if t.end_date else None,
+                "assignee_name": assignee_map.get(t.assigned_to_id) if t.assigned_to_id else None,
+            }
+            for t in tasks
+        ],
         "users": [{"id": u.id, "name": u.name, "email": u.email} for u in users],
     }
 
