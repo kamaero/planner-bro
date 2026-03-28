@@ -626,13 +626,13 @@ export function Dashboard() {
               type="button"
               onClick={() => setOnlyMine((v) => !v)}
               className={cn(
-                'rounded-md border px-3 py-1.5 text-xs font-medium transition-all animate-pulse',
+                'rounded-md border px-3 py-1.5 text-xs font-medium transition-all',
                 onlyMine
                   ? 'border-blue-600 bg-blue-600/15 text-blue-700 shadow-[0_0_12px_rgba(37,99,235,0.45)]'
-                  : 'border-blue-400/80 bg-blue-500/10 text-blue-700 shadow-[0_0_10px_rgba(59,130,246,0.3)]'
+                  : 'border-border text-muted-foreground hover:border-blue-400 hover:text-blue-700'
               )}
             >
-              Мои проекты и задачи
+              Мои проекты
             </button>
           </div>
           <div className="mb-3 flex flex-wrap gap-2">
@@ -701,22 +701,6 @@ export function Dashboard() {
               </div>
             ))}
           </div>
-          {onlyMine && (
-            <div className="mt-3 border-t pt-3">
-              <p className="mb-2 text-xs text-muted-foreground">Мои задачи</p>
-              <div className="max-h-44 space-y-1 overflow-auto pr-1">
-                {myTasks.length === 0 && <p className="text-xs text-muted-foreground">Личных задач не найдено.</p>}
-                {myTasks.map((task) => (
-                  <Link key={task.id} to={`/projects/${task.project_id}?task=${task.id}`} className="block rounded border px-2 py-1.5 text-xs hover:bg-accent">
-                    <p className="truncate font-medium">{task.title}</p>
-                    <p className="text-muted-foreground">
-                      {TASK_STATUS_LABEL[task.status] ?? task.status} · дедлайн: {formatDate(task.end_date)}
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
         </SectionCard>
 
         <SectionCard title="Статусы и дедлайны" className="xl:col-span-3">
@@ -876,7 +860,11 @@ export function Dashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Мои задачи" className="xl:col-span-3">
+        <SectionCard
+          title="Мои задачи"
+          className="xl:col-span-3"
+          action={<Link to="/my-tasks" className="text-xs text-muted-foreground hover:text-primary transition-colors">Все →</Link>}
+        >
           <div className="max-h-64 space-y-2 overflow-auto">
             {myUrgentTasks.length === 0 && <p className="text-sm text-muted-foreground">Личных задач нет.</p>}
             {myUrgentTasks.map((task) => {
