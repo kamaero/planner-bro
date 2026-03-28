@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   useProject,
@@ -29,39 +29,25 @@ import { ProjectTaskCreateDialog } from '@/components/ProjectDetail/ProjectTaskC
 import type { TaskCreateFormState } from '@/components/ProjectDetail/ProjectTaskCreateDialog'
 import { ProjectDetailHeader } from '@/components/ProjectDetail/ProjectDetailHeader'
 import { ProjectSummaryCard } from '@/components/ProjectDetail/ProjectSummaryCard'
+import { ProjectTaskListView } from '@/components/ProjectDetail/ProjectTaskListView'
+import { ProjectAiAnalysisModal } from '@/components/ProjectDetail/ProjectAiAnalysisModal'
 import { DependencyGraphView } from '@/components/DependencyGraphView'
 import { TimeTrackingPanel } from '@/components/TimeTrackingPanel'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
 import { MembersPanel } from '@/components/MembersPanel/MembersPanel'
-import { TaskTable } from '@/components/TaskTable/TaskTable'
 import { DeadlineReasonModal } from '@/components/DeadlineReasonModal/DeadlineReasonModal'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { humanizeApiError } from '@/lib/errorMessages'
 import { buildTaskHierarchy, parseTaskOrderFromTitle } from '@/lib/taskOrdering'
-import { formatUserDisplayName } from '@/lib/userName'
 import type { Task, GanttTask, ProjectFile } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { useMyPermissions } from '@/hooks/useMyPermissions'
-import { BrainCircuit, X } from 'lucide-react'
-import { useVirtualizer } from '@tanstack/react-virtual'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-blue-100 text-blue-800',
   medium: 'bg-yellow-100 text-yellow-800',
   high: 'bg-orange-100 text-orange-800',
   critical: 'bg-red-100 text-red-800',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  planning: 'Планирование',
-  tz: 'ТЗ',
-  todo: 'К выполнению',
-  in_progress: 'В работе',
-  testing: 'Тестирование',
-  review: 'На проверке',
-  done: 'Выполнено',
 }
 
 const TASK_STATUS_ORDER: Record<string, number> = {
@@ -333,15 +319,6 @@ export function ProjectDetail() {
   }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter, taskSortBy, taskSortDir, collapsedTaskIds, hideDone])
 
   const selectedVisibleCount = filteredTasks.filter((t) => selectedTaskIds.includes(t.id)).length
-
-  const VIRTUAL_THRESHOLD = 40
-  const taskListRef = useRef<HTMLDivElement>(null)
-  const taskVirtualizer = useVirtualizer({
-    count: filteredTasks.length,
-    getScrollElement: () => taskListRef.current,
-    estimateSize: () => 110,
-    overscan: 5,
-  })
 
   useEffect(() => {
     if (project && editOpen) {
@@ -733,71 +710,6 @@ export function ProjectDetail() {
     window.URL.revokeObjectURL(url)
   }
 
-  const renderTaskContent = (task: Task) => (
-    <>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            checked={selectedTaskIds.includes(task.id)}
-            onChange={() => handleToggleTaskSelection(task.id)}
-            onClick={(e) => e.stopPropagation()}
-            className="h-4 w-4"
-          />
-          <button
-            onClick={() => handleTaskClick(task)}
-            className="text-left hover:text-primary transition-colors"
-          >
-            <span className="font-medium text-sm">{task.title}</span>
-          </button>
-          <span
-            className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[task.priority]}`}
-          >
-            {task.priority}
-          </span>
-          {task.is_escalation && (
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-800">
-              эскалация
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {task.assignee && (
-            <span className="text-xs text-muted-foreground">{formatUserDisplayName(task.assignee)}</span>
-          )}
-          <select
-            value={task.status}
-            onChange={(e) => handleQuickStatusChange(task, e.target.value)}
-            className="text-xs border rounded px-2 py-1 bg-background"
-          >
-            <option value="planning">{STATUS_LABELS.planning}</option>
-            <option value="tz">{STATUS_LABELS.tz}</option>
-            <option value="todo">{STATUS_LABELS.todo}</option>
-            <option value="in_progress">{STATUS_LABELS.in_progress}</option>
-            <option value="testing">{STATUS_LABELS.testing}</option>
-            <option value="review">{STATUS_LABELS.review}</option>
-            <option value="done">{STATUS_LABELS.done}</option>
-          </select>
-        </div>
-      </div>
-      <div className="mt-2">
-        <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-          <div
-            className="h-full bg-primary"
-            style={{ width: `${Math.max(0, Math.min(100, task.progress_percent ?? 0))}%` }}
-          />
-        </div>
-        <p className="text-xs text-muted-foreground mt-1">
-          Прогресс: {task.progress_percent ?? 0}%{task.next_step ? ` · Следующий шаг: ${task.next_step}` : ''}
-        </p>
-      </div>
-      {task.end_date && (
-        <p className="text-xs text-muted-foreground mt-1">
-          Дедлайн: {new Date(task.end_date).toLocaleDateString()}
-        </p>
-      )}
-    </>
-  )
 
   if (!project) {
     return <div className="p-6 text-muted-foreground">Loading...</div>
@@ -870,258 +782,62 @@ export function ProjectDetail() {
           onTaskClick={handleGanttTaskClick}
         />
       ) : view === 'list' ? (
-        <div className="space-y-3">
-          <div className="rounded-lg border bg-card p-3 space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <Input
-                placeholder="Поиск по задачам..."
-                value={taskSearch}
-                onChange={(e) => setTaskSearch(e.target.value)}
-              />
-              <select
-                value={taskStatusFilter}
-                onChange={(e) => setTaskStatusFilter(e.target.value)}
-                className="border rounded px-2 py-2 text-sm bg-background"
-              >
-                <option value="all">Все статусы</option>
-                <option value="planning">Планирование</option>
-                <option value="tz">ТЗ</option>
-                <option value="todo">К выполнению</option>
-                <option value="in_progress">В работе</option>
-                <option value="testing">Тестирование</option>
-                <option value="review">На проверке</option>
-                <option value="done">Выполнено</option>
-              </select>
-              <select
-                value={taskAssigneeFilter}
-                onChange={(e) => setTaskAssigneeFilter(e.target.value)}
-                className="border rounded px-2 py-2 text-sm bg-background"
-              >
-                <option value="all">Все исполнители</option>
-                <option value="unassigned">Без исполнителя</option>
-                {members.map((m) => (
-                  <option key={m.user.id} value={m.user.id}>
-                    {formatUserDisplayName(m.user)}
-                  </option>
-                ))}
-              </select>
-              <Button variant="outline" onClick={handleToggleSelectAllVisible}>
-                {selectedVisibleCount === filteredTasks.length && filteredTasks.length > 0
-                  ? 'Снять выделение'
-                  : 'Выделить видимые'}
-              </Button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-muted-foreground">
-                Выбрано: {selectedTaskIds.length} / Видимых: {filteredTasks.length}
-              </span>
-              <Button
-                variant={hideDone ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setHideDone((v) => !v)}
-              >
-                {hideDone
-                  ? `Показать выполненные (${tasks.filter((t) => t.status === 'done').length})`
-                  : 'Скрыть выполненные'}
-              </Button>
-              <select
-                value={taskSortBy}
-                onChange={(e) => setTaskSortBy(e.target.value as 'order' | 'status' | 'priority')}
-                className="border rounded px-2 py-1 text-sm bg-background"
-              >
-                <option value="order">Сортировка: по порядку</option>
-                <option value="status">Сортировка: по статусу</option>
-                <option value="priority">Сортировка: по приоритету</option>
-              </select>
-              <select
-                value={taskSortDir}
-                onChange={(e) => setTaskSortDir(e.target.value as 'asc' | 'desc')}
-                className="border rounded px-2 py-1 text-sm bg-background"
-              >
-                <option value="asc">По возрастанию</option>
-                <option value="desc">По убыванию</option>
-              </select>
-              <select
-                value={taskRowSize}
-                onChange={(e) => setTaskRowSize(e.target.value as 'compact' | 'normal' | 'comfortable')}
-                className="border rounded px-2 py-1 text-sm bg-background"
-              >
-                <option value="compact">Плотность: компактно</option>
-                <option value="normal">Плотность: обычная</option>
-                <option value="comfortable">Плотность: свободно</option>
-              </select>
-              {canManage && canBulkEdit && (
-                <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('tz')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    В ТЗ
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('planning')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    В планирование
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('in_progress')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    В работу
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('review')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    На проверку
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('testing')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    В тестирование
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkStatusUpdate('done')}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    Завершить
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={handleBulkDelete}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy || !canDelete}
-                  >
-                    Удалить выбранные
-                  </Button>
-                  <select
-                    value={bulkAssignee}
-                    onChange={(e) => setBulkAssignee(e.target.value)}
-                    className="border rounded px-2 py-1 text-sm bg-background"
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    <option value="keep">Исполнитель: без изменений</option>
-                    <option value="unassigned">Исполнитель: снять назначение</option>
-                    {members.map((m) => (
-                      <option key={m.user.id} value={m.user.id}>
-                        Исполнитель: {formatUserDisplayName(m.user)}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleBulkAssign}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy || bulkAssignee === 'keep'}
-                  >
-                    Применить исполнителя
-                  </Button>
-                  <select
-                    value={bulkPriority}
-                    onChange={(e) => setBulkPriority(e.target.value)}
-                    className="border rounded px-2 py-1 text-sm bg-background"
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    <option value="keep">Приоритет: без изменений</option>
-                    <option value="low">Низкий</option>
-                    <option value="medium">Средний</option>
-                    <option value="high">Высокий</option>
-                    <option value="critical">Критический</option>
-                    <option value="ski">Контроль СКИ (critical)</option>
-                  </select>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleBulkPriority}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy || bulkPriority === 'keep'}
-                  >
-                    Применить приоритет
-                  </Button>
-                  {/* Deadline shift */}
-                  <input
-                    type="number"
-                    placeholder="Дней (±)"
-                    value={bulkShiftDays}
-                    onChange={(e) => setBulkShiftDays(e.target.value)}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                    className="border rounded px-2 py-1 text-sm bg-background w-24"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Причина сдвига"
-                    value={bulkShiftReason}
-                    onChange={(e) => setBulkShiftReason(e.target.value)}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                    className="border rounded px-2 py-1 text-sm bg-background w-40"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleBulkShiftDeadline}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy || !bulkShiftDays || !bulkShiftReason.trim()}
-                  >
-                    Сдвинуть дедлайн
-                  </Button>
-                  {/* Move to project */}
-                  <select
-                    value={bulkMoveProjectId}
-                    onChange={(e) => setBulkMoveProjectId(e.target.value)}
-                    className="border rounded px-2 py-1 text-sm bg-background"
-                    disabled={selectedTaskIds.length === 0 || bulkBusy}
-                  >
-                    <option value="">Перенести в проект...</option>
-                    {allProjects
-                      .filter((p) => p.id !== id)
-                      .map((p) => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                  </select>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleBulkMoveToProject}
-                    disabled={selectedTaskIds.length === 0 || bulkBusy || !bulkMoveProjectId}
-                  >
-                    Перенести
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
-
-          <TaskTable
-            tasks={filteredTasks}
-            allTasks={tasks}
-            onTaskClick={handleTaskClick}
-            hasChildrenIds={hasChildrenIds}
-            collapsedTaskIds={collapsedTaskIds}
-            onToggleCollapse={toggleCollapse}
-            onReorder={taskSortBy === 'order' ? handleReorder : undefined}
-            onStatusChange={(taskId, status) => {
-              const task = tasks.find((t) => t.id === taskId)
-              if (task) handleQuickStatusChange(task, status)
-            }}
-            shiftsMap={shiftsMap}
-            rowSize={taskRowSize}
-            externalDepsMap={projectExternalDeps}
-            isFetching={tasksFetching}
-          />
-        </div>
+        <ProjectTaskListView
+          tasks={tasks}
+          filteredTasks={filteredTasks}
+          members={members}
+          allProjects={allProjects}
+          projectId={id!}
+          taskSearch={taskSearch}
+          setTaskSearch={setTaskSearch}
+          taskStatusFilter={taskStatusFilter}
+          setTaskStatusFilter={setTaskStatusFilter}
+          taskAssigneeFilter={taskAssigneeFilter}
+          setTaskAssigneeFilter={setTaskAssigneeFilter}
+          hideDone={hideDone}
+          setHideDone={setHideDone}
+          taskSortBy={taskSortBy}
+          setTaskSortBy={setTaskSortBy}
+          taskSortDir={taskSortDir}
+          setTaskSortDir={setTaskSortDir}
+          taskRowSize={taskRowSize}
+          setTaskRowSize={setTaskRowSize}
+          selectedTaskIds={selectedTaskIds}
+          selectedVisibleCount={selectedVisibleCount}
+          onToggleSelectAllVisible={handleToggleSelectAllVisible}
+          canManage={canManage}
+          canBulkEdit={canBulkEdit}
+          canDelete={canDelete}
+          bulkBusy={bulkBusy}
+          bulkAssignee={bulkAssignee}
+          setBulkAssignee={setBulkAssignee}
+          bulkPriority={bulkPriority}
+          setBulkPriority={setBulkPriority}
+          bulkShiftDays={bulkShiftDays}
+          setBulkShiftDays={setBulkShiftDays}
+          bulkShiftReason={bulkShiftReason}
+          setBulkShiftReason={setBulkShiftReason}
+          bulkMoveProjectId={bulkMoveProjectId}
+          setBulkMoveProjectId={setBulkMoveProjectId}
+          onBulkStatusUpdate={handleBulkStatusUpdate}
+          onBulkAssign={handleBulkAssign}
+          onBulkPriority={handleBulkPriority}
+          onBulkDelete={handleBulkDelete}
+          onBulkShiftDeadline={handleBulkShiftDeadline}
+          onBulkMoveToProject={handleBulkMoveToProject}
+          hasChildrenIds={hasChildrenIds}
+          collapsedTaskIds={collapsedTaskIds}
+          onToggleCollapse={toggleCollapse}
+          onTaskClick={handleTaskClick}
+          onReorder={taskSortBy === 'order' ? handleReorder : undefined}
+          onStatusChange={(taskId, status) => {
+            const task = tasks.find((t) => t.id === taskId)
+            if (task) handleQuickStatusChange(task, status)
+          }}
+          shiftsMap={shiftsMap}
+          externalDepsMap={projectExternalDeps}
+          isFetching={tasksFetching}
+        />
       ) : view === 'members' ? (
         <MembersPanel projectId={id!} />
       ) : view === 'graph' ? (
@@ -1162,39 +878,11 @@ export function ProjectDetail() {
         onCancel={handleProjectDeadlineCancel}
       />
 
-      {/* AI Analysis modal */}
       {showAiAnalysis && aiAnalysisResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-card rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b">
-              <div className="flex items-center gap-2">
-                <BrainCircuit className="w-5 h-5 text-primary" />
-                <span className="font-semibold">AI-анализ проекта</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex gap-3 text-xs text-muted-foreground">
-                  <span>Задач: {aiAnalysisResult.stats.total_tasks}</span>
-                  <span>Выполнено: {aiAnalysisResult.stats.done_percent}%</span>
-                  {aiAnalysisResult.stats.overdue_count > 0 && (
-                    <span className="text-destructive">Просрочено: {aiAnalysisResult.stats.overdue_count}</span>
-                  )}
-                  {aiAnalysisResult.stats.stale_count > 0 && (
-                    <span className="text-yellow-600">Зависших: {aiAnalysisResult.stats.stale_count}</span>
-                  )}
-                </div>
-                <button onClick={() => setShowAiAnalysis(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            <div className="overflow-y-auto px-5 py-4 flex-1">
-              <pre className="whitespace-pre-wrap text-sm font-sans leading-relaxed">{aiAnalysisResult.analysis}</pre>
-            </div>
-            <div className="px-5 py-3 border-t text-xs text-muted-foreground">
-              Сгенерировано: {new Date(aiAnalysisResult.generated_at).toLocaleString('ru-RU')}
-            </div>
-          </div>
-        </div>
+        <ProjectAiAnalysisModal
+          result={aiAnalysisResult}
+          onClose={() => setShowAiAnalysis(false)}
+        />
       )}
     </div>
   )
