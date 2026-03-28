@@ -163,6 +163,7 @@ export function ProjectDetail() {
   const [taskSearch, setTaskSearch] = useState('')
   const [taskStatusFilter, setTaskStatusFilter] = useState('all')
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState('all')
+  const [hideDone, setHideDone] = useState(false)
   const [taskSortBy, setTaskSortBy] = useState<'order' | 'status' | 'priority'>('order')
   const [taskSortDir, setTaskSortDir] = useState<'asc' | 'desc'>('asc')
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
@@ -237,6 +238,7 @@ export function ProjectDetail() {
         (task.description ?? '').toLowerCase().includes(taskSearch.toLowerCase())
 
       const statusOk = taskStatusFilter === 'all' || task.status === taskStatusFilter
+      const doneOk = !hideDone || task.status !== 'done'
 
       const assigneeOk =
         taskAssigneeFilter === 'all' ||
@@ -244,7 +246,7 @@ export function ProjectDetail() {
           ? !(task.assignee_ids && task.assignee_ids.length > 0) && !task.assigned_to_id
           : task.assigned_to_id === taskAssigneeFilter || (task.assignee_ids ?? []).includes(taskAssigneeFilter))
 
-      return searchOk && statusOk && assigneeOk
+      return searchOk && statusOk && doneOk && assigneeOk
     })
     const withIndex = filtered.map((task, idx) => ({ task, idx }))
     withIndex.sort((a, b) => {
@@ -312,7 +314,7 @@ export function ProjectDetail() {
     for (const task of sorted) appendTree(task)
 
     return ordered
-  }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter, taskSortBy, taskSortDir, collapsedTaskIds])
+  }, [tasks, taskSearch, taskStatusFilter, taskAssigneeFilter, taskSortBy, taskSortDir, collapsedTaskIds, hideDone])
 
   const selectedVisibleCount = filteredTasks.filter((t) => selectedTaskIds.includes(t.id)).length
 
@@ -898,6 +900,15 @@ export function ProjectDetail() {
               <span className="text-xs text-muted-foreground">
                 Выбрано: {selectedTaskIds.length} / Видимых: {filteredTasks.length}
               </span>
+              <Button
+                variant={hideDone ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setHideDone((v) => !v)}
+              >
+                {hideDone
+                  ? `Показать выполненные (${tasks.filter((t) => t.status === 'done').length})`
+                  : 'Скрыть выполненные'}
+              </Button>
               <select
                 value={taskSortBy}
                 onChange={(e) => setTaskSortBy(e.target.value as 'order' | 'status' | 'priority')}
