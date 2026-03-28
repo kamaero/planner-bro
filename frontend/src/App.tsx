@@ -109,7 +109,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { to: '/roadmap', label: 'Roadmap', icon: Milestone },
     { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
     { to: '/workload', label: 'Загрузка', icon: CalendarDays },
-    { to: '/team', label: 'Команда', icon: Users },
+    { to: '/team', label: 'Настройки', icon: Users },
     { to: '/team-board', label: 'Доска команды', icon: PencilRuler },
     { to: '/storage', label: 'Хранилище', icon: Lock },
     { to: '/help', label: 'Помощь', icon: HelpCircle },

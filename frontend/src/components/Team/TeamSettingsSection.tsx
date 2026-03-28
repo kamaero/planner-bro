@@ -1,5 +1,4 @@
-import type { TempAssignee, User, ReportDispatchSettings } from '@/types'
-import { formatUserDisplayName } from '@/lib/userName'
+import type { ReportDispatchSettings } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -7,27 +6,7 @@ import { Switch } from '@/components/ui/switch'
 import type { DigestChannelKey } from '@/hooks/useTeamReportSettings'
 
 interface Props {
-  // own password
-  changingOwnPassword: boolean
-  ownPasswordSuccess: string
-  ownPasswordError: string
-  ownPasswordForm: { current_password: string; new_password: string }
-  setOwnPasswordForm: React.Dispatch<React.SetStateAction<{ current_password: string; new_password: string }>>
-  handleChangeOwnPassword: (e: React.FormEvent) => void
-  // current user
-  currentUser: User | null | undefined
   canManageTeam: boolean | undefined
-  // temp assignees
-  tempAssignees: TempAssignee[]
-  tempAssigneesLoading: boolean
-  tempAssigneesError: string
-  tempAssigneeBusyId: string | null
-  tempAssigneeLinkDrafts: Record<string, string>
-  setTempAssigneeLinkDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>
-  loadTempAssignees: () => void
-  handleLinkTempAssignee: (item: TempAssignee) => void
-  handleIgnoreTempAssignee: (item: TempAssignee) => void
-  handlePromoteTempAssignee: (item: TempAssignee) => void
   // report settings
   reportSettings: ReportDispatchSettings
   setReportSettings: React.Dispatch<React.SetStateAction<ReportDispatchSettings>>
@@ -45,28 +24,10 @@ interface Props {
   adminDirectiveTestBusy: boolean
   handleSaveReportSettings: (e: React.FormEvent) => void
   handleAdminDirectiveTest: () => void
-  users: User[]
 }
 
 export function TeamSettingsSection({
-  changingOwnPassword,
-  ownPasswordSuccess,
-  ownPasswordError,
-  ownPasswordForm,
-  setOwnPasswordForm,
-  handleChangeOwnPassword,
-  currentUser,
   canManageTeam,
-  tempAssignees,
-  tempAssigneesLoading,
-  tempAssigneesError,
-  tempAssigneeBusyId,
-  tempAssigneeLinkDrafts,
-  setTempAssigneeLinkDrafts,
-  loadTempAssignees,
-  handleLinkTempAssignee,
-  handleIgnoreTempAssignee,
-  handlePromoteTempAssignee,
   reportSettings,
   setReportSettings,
   weekdayOptions,
@@ -83,129 +44,11 @@ export function TeamSettingsSection({
   adminDirectiveTestBusy,
   handleSaveReportSettings,
   handleAdminDirectiveTest,
-  users,
 }: Props) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border bg-card p-4 space-y-3 max-w-2xl">
-        <h2 className="font-semibold">Сменить свой пароль</h2>
-        <form onSubmit={handleChangeOwnPassword} className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label htmlFor="current-password">Текущий пароль</Label>
-              <Input
-                id="current-password"
-                type="password"
-                value={ownPasswordForm.current_password}
-                onChange={(e) => setOwnPasswordForm((f) => ({ ...f, current_password: e.target.value }))}
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="new-password">Новый пароль</Label>
-              <Input
-                id="new-password"
-                type="password"
-                minLength={6}
-                value={ownPasswordForm.new_password}
-                onChange={(e) => setOwnPasswordForm((f) => ({ ...f, new_password: e.target.value }))}
-                required
-              />
-            </div>
-          </div>
-          <Button type="submit" disabled={changingOwnPassword}>
-            {changingOwnPassword ? 'Сохранение...' : 'Сменить пароль'}
-          </Button>
-          {ownPasswordSuccess && <p className="text-sm text-green-600">{ownPasswordSuccess}</p>}
-          {ownPasswordError && <p className="text-sm text-destructive">{ownPasswordError}</p>}
-        </form>
-      </div>
-
-      <div className="rounded-xl border bg-card p-4 space-y-2 max-w-2xl">
-        <h2 className="font-semibold">Режим видимости задач (заглушка)</h2>
-        <p className="text-sm text-muted-foreground">
-          Эту настройку переключает ваш руководитель в карточке сотрудника.
-        </p>
-        <label className="flex items-center justify-between rounded border px-3 py-2 text-sm">
-          <span>Фильтр "только свои задачи"</span>
-          <Switch
-            checked={currentUser?.own_tasks_visibility_enabled ?? true}
-            onCheckedChange={() => {}}
-            disabled
-          />
-        </label>
-      </div>
-
+    <div className="space-y-4 max-w-2xl">
       <div className="rounded-xl border bg-card p-4 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="font-semibold">Temp-исполнители из файлов</h2>
-          <Button variant="outline" size="sm" onClick={() => void loadTempAssignees()} disabled={tempAssigneesLoading}>
-            {tempAssigneesLoading ? 'Обновление...' : 'Обновить'}
-          </Button>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Нераспознанные исполнители из импорта. Их можно связать с существующим аккаунтом или завести как нового сотрудника.
-        </p>
-        {tempAssigneesError && <p className="text-sm text-destructive">{tempAssigneesError}</p>}
-        {!tempAssigneesLoading && tempAssignees.length === 0 && (
-          <p className="text-sm text-muted-foreground">Пока нет нераспознанных исполнителей.</p>
-        )}
-        {!tempAssigneesLoading && tempAssignees.length > 0 && (
-          <div className="space-y-2">
-            {tempAssignees.map((item) => (
-              <div key={item.id} className="rounded border p-3 space-y-2">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="font-medium">{item.raw_name}</span>
-                  <span className="text-muted-foreground">· source: {item.source}</span>
-                  <span className="text-muted-foreground">· seen: {item.seen_count}</span>
-                  {item.email && <span className="text-muted-foreground">· {item.email}</span>}
-                </div>
-                <div className="flex flex-col md:flex-row gap-2 md:items-center">
-                  <select
-                    value={tempAssigneeLinkDrafts[item.id] ?? ''}
-                    onChange={(e) => setTempAssigneeLinkDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                    className="w-full md:w-80 border rounded px-2 py-2 bg-background text-sm"
-                  >
-                    <option value="">Связать с пользователем...</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {formatUserDisplayName(u)} ({u.email})
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void handleLinkTempAssignee(item)}
-                    disabled={!tempAssigneeLinkDrafts[item.id] || tempAssigneeBusyId === item.id}
-                  >
-                    Связать
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void handlePromoteTempAssignee(item)}
-                    disabled={tempAssigneeBusyId === item.id}
-                  >
-                    Создать пользователя
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void handleIgnoreTempAssignee(item)}
-                    disabled={tempAssigneeBusyId === item.id}
-                  >
-                    Игнорировать
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-xl border bg-card p-4 space-y-3 max-w-2xl">
-        <h2 className="font-semibold">Настройки рассылки отчетов</h2>
+        <h2 className="font-semibold">Настройки email-рассылки</h2>
         {!canManageTeam && (
           <p className="text-sm text-muted-foreground">
             Управление рассылкой доступно только менеджерам и администраторам.
@@ -242,7 +85,7 @@ export function TeamSettingsSection({
             {reportSettings.email_test_mode && (
               <div className="space-y-1">
                 <p className="text-xs text-blue-700">
-                  Тест-режим включён: все исходящие письма (любые сценарии) будут перенаправлены на один адрес.
+                  Тест-режим включён: все исходящие письма будут перенаправлены на один адрес.
                 </p>
                 <input
                   type="email"
@@ -256,17 +99,6 @@ export function TeamSettingsSection({
                 />
               </div>
             )}
-
-            <label className="flex items-center justify-between gap-3 text-sm">
-              <span>Telegram-дайджесты включены</span>
-              <Switch
-                checked={reportSettings.telegram_summaries_enabled}
-                onCheckedChange={(checked) =>
-                  setReportSettings((prev) => ({ ...prev, telegram_summaries_enabled: checked }))
-                }
-                disabled={reportSettingsLoading || reportSettingsSaving}
-              />
-            </label>
 
             <label className="flex items-center justify-between gap-3 text-sm">
               <span>Email-дайджесты аналитики включены</span>
@@ -416,24 +248,8 @@ export function TeamSettingsSection({
             </div>
 
             <div className="rounded-lg border p-3 space-y-3">
-              <p className="text-sm font-medium">Расписание и темы дайджестов</p>
+              <p className="text-sm font-medium">Расписание email-дайджестов</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <label className="flex items-center justify-between gap-3 text-sm">
-                  <span>Telegram: тема «Проекты»</span>
-                  <Switch
-                    checked={reportSettings.digest_schedule?.telegram_projects_enabled ?? true}
-                    onCheckedChange={(checked) => updateDigestSchedule({ telegram_projects_enabled: checked })}
-                    disabled={reportSettingsLoading || reportSettingsSaving}
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 text-sm">
-                  <span>Telegram: тема «Критические/СКИ»</span>
-                  <Switch
-                    checked={reportSettings.digest_schedule?.telegram_critical_enabled ?? true}
-                    onCheckedChange={(checked) => updateDigestSchedule({ telegram_critical_enabled: checked })}
-                    disabled={reportSettingsLoading || reportSettingsSaving}
-                  />
-                </label>
                 <label className="flex items-center justify-between gap-3 text-sm">
                   <span>Email: тема «Проекты»</span>
                   <Switch
@@ -452,8 +268,6 @@ export function TeamSettingsSection({
                 </label>
               </div>
               {([
-                { key: 'telegram_projects_slots', label: 'Telegram проекты' },
-                { key: 'telegram_critical_slots', label: 'Telegram критические/СКИ' },
                 { key: 'email_analytics_slots', label: 'Email аналитика' },
               ] as Array<{ key: DigestChannelKey; label: string }>).map((channel) => {
                 const preset = getDigestPreset(channel.key)

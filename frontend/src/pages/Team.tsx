@@ -3,7 +3,10 @@ import { api } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { useExternalContractors, useCreateExternalContractor, useDeleteExternalContractor } from '@/hooks/useProjects'
 import { Button } from '@/components/ui/button'
-import type { AuthLoginEvent, Department, User } from '@/types'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import type { AuthLoginEvent, Department, TempAssignee, User } from '@/types'
 import { formatUserDisplayName } from '@/lib/userName'
 import { useTeamOwnPassword } from '@/hooks/useTeamOwnPassword'
 import { useTeamLoginEvents } from '@/hooks/useTeamLoginEvents'
@@ -22,7 +25,7 @@ export function Team() {
   const canManageTeam = currentUser?.role === 'admin' || currentUser?.can_manage_team
   const canCreateSubordinates = canManageTeam || currentUser?.role === 'manager'
 
-  const [section, setSection] = useState<'overview' | 'users' | 'org' | 'settings' | 'contractors'>('overview')
+  const [section, setSection] = useState<'org' | 'mailing' | 'profile'>('org')
   const { users, setUsers, departments, loading, error, setError, loadAll: loadCoreData } = useTeamCoreData()
   const { loginEvents, loginEventsLoading, loginEventsError, loadLoginEvents } = useTeamLoginEvents(!!canManageTeam)
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
@@ -166,8 +169,9 @@ export function Team() {
   }, [])
 
   useEffect(() => {
-    if (section !== 'overview' || !canManageTeam) return
+    if (section !== 'org' || !canManageTeam) return
     void loadLoginEvents()
+    void loadTempAssignees()
   }, [section, canManageTeam])
 
   const loadReportSettings = async () => {
@@ -185,9 +189,8 @@ export function Team() {
   }
 
   useEffect(() => {
-    if (section !== 'settings' || !canManageTeam) return
+    if (section !== 'mailing' || !canManageTeam) return
     void loadReportSettings()
-    void loadTempAssignees()
   }, [section, canManageTeam])
 
   const handleInvite = async (e: React.FormEvent) => {
@@ -387,7 +390,7 @@ export function Team() {
         smtp_enabled: reportSettings.smtp_enabled,
         email_test_mode: reportSettings.email_test_mode,
         email_test_recipient: reportSettings.email_test_recipient,
-        telegram_summaries_enabled: reportSettings.telegram_summaries_enabled,
+        telegram_summaries_enabled: false,
         email_analytics_enabled: reportSettings.email_analytics_enabled,
         email_analytics_recipients: reportSettings.email_analytics_recipients,
         admin_directive: reportSettings.admin_directive,
@@ -423,121 +426,110 @@ export function Team() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Команда</h1>
+        <h1 className="text-2xl font-bold">Настройки</h1>
         <p className="text-sm text-muted-foreground">
-          Разделен на подразделы: обзор, управление пользователями, оргструктура, настройки.
+          Оргструктура, рассылки и профиль.
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant={section === 'overview' ? 'default' : 'outline'} onClick={() => setSection('overview')}>
-          Список команды
-        </Button>
-        <Button variant={section === 'users' ? 'default' : 'outline'} onClick={() => setSection('users')}>
-          Управление пользователями
-        </Button>
         <Button variant={section === 'org' ? 'default' : 'outline'} onClick={() => setSection('org')}>
-          Управление оргструктурой
+          Оргструктура
         </Button>
-        <Button variant={section === 'settings' ? 'default' : 'outline'} onClick={() => setSection('settings')}>
-          Настройки
+        <Button variant={section === 'mailing' ? 'default' : 'outline'} onClick={() => setSection('mailing')}>
+          Рассылки
         </Button>
-        <Button variant={section === 'contractors' ? 'default' : 'outline'} onClick={() => setSection('contractors')}>
-          Внешние исполнители
+        <Button variant={section === 'profile' ? 'default' : 'outline'} onClick={() => setSection('profile')}>
+          Мой профиль
         </Button>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      {section === 'overview' && (
-        <TeamOverviewSection
-          users={users}
-          departments={departments}
-          loading={loading}
-          canManageTeam={canManageTeam}
-          departmentsById={departmentsById}
-          loginEvents={loginEvents}
-          loginEventsLoading={loginEventsLoading}
-          loginEventsError={loginEventsError}
-          loadLoginEvents={loadLoginEvents}
-          formatDateTime={formatDateTime}
-          getLoginEmailType={getLoginEmailType}
-        />
-      )}
-
       {section === 'org' && (
-        <TeamOrgSection
-          departments={departments}
-          users={users}
-          canManageTeam={canManageTeam}
-          departmentDrafts={departmentDrafts}
-          handleDepartmentDraftChange={handleDepartmentDraftChange}
-          handleSaveDepartment={handleSaveDepartment}
-          handleDeleteDepartment={handleDeleteDepartment}
-          subordinateTree={subordinateTree}
-          usersById={usersById}
-          newDepartmentName={newDepartmentName}
-          setNewDepartmentName={setNewDepartmentName}
-          newDepartmentParentId={newDepartmentParentId}
-          setNewDepartmentParentId={setNewDepartmentParentId}
-          newDepartmentHeadId={newDepartmentHeadId}
-          setNewDepartmentHeadId={setNewDepartmentHeadId}
-          creatingDepartment={creatingDepartment}
-          handleCreateDepartment={handleCreateDepartment}
-        />
+        <div className="space-y-6">
+          <TeamOverviewSection
+            users={users}
+            departments={departments}
+            loading={loading}
+            canManageTeam={canManageTeam}
+            departmentsById={departmentsById}
+            loginEvents={loginEvents}
+            loginEventsLoading={loginEventsLoading}
+            loginEventsError={loginEventsError}
+            loadLoginEvents={loadLoginEvents}
+            formatDateTime={formatDateTime}
+            getLoginEmailType={getLoginEmailType}
+          />
+          <TeamUsersSection
+            users={users}
+            departments={departments}
+            loading={loading}
+            canManageTeam={canManageTeam}
+            canCreateSubordinates={canCreateSubordinates}
+            currentUser={currentUser}
+            permissionDrafts={permissionDrafts}
+            nameDrafts={nameDrafts}
+            setNameDrafts={setNameDrafts}
+            tempPasswords={tempPasswords}
+            busyUserId={busyUserId}
+            nameBusyId={nameBusyId}
+            handleSaveName={handleSaveName}
+            handleSavePermissions={handleSavePermissions}
+            handleResetPassword={handleResetPassword}
+            handleDeactivate={handleDeactivate}
+            isNameChanged={isNameChanged}
+            isPermissionChanged={isPermissionChanged}
+            handlePermissionChange={handlePermissionChange}
+            usersById={usersById}
+            invite={invite}
+            setInvite={setInvite}
+            inviting={inviting}
+            inviteSuccess={inviteSuccess}
+            inviteError={inviteError}
+            handleInvite={handleInvite}
+          />
+          <TeamOrgSection
+            departments={departments}
+            users={users}
+            canManageTeam={canManageTeam}
+            departmentDrafts={departmentDrafts}
+            handleDepartmentDraftChange={handleDepartmentDraftChange}
+            handleSaveDepartment={handleSaveDepartment}
+            handleDeleteDepartment={handleDeleteDepartment}
+            subordinateTree={subordinateTree}
+            usersById={usersById}
+            newDepartmentName={newDepartmentName}
+            setNewDepartmentName={setNewDepartmentName}
+            newDepartmentParentId={newDepartmentParentId}
+            setNewDepartmentParentId={setNewDepartmentParentId}
+            newDepartmentHeadId={newDepartmentHeadId}
+            setNewDepartmentHeadId={setNewDepartmentHeadId}
+            creatingDepartment={creatingDepartment}
+            handleCreateDepartment={handleCreateDepartment}
+          />
+          <ExternalContractorsSection />
+          {canManageTeam && (
+            <TempAssigneesSection
+              tempAssignees={tempAssignees}
+              tempAssigneesLoading={tempAssigneesLoading}
+              tempAssigneesError={tempAssigneesError}
+              tempAssigneeBusyId={tempAssigneeBusyId}
+              tempAssigneeLinkDrafts={tempAssigneeLinkDrafts}
+              setTempAssigneeLinkDrafts={setTempAssigneeLinkDrafts}
+              loadTempAssignees={() => void loadTempAssignees()}
+              handleLinkTempAssignee={(item) => void handleLinkTempAssignee(item)}
+              handleIgnoreTempAssignee={(item) => void handleIgnoreTempAssignee(item)}
+              handlePromoteTempAssignee={(item) => void handlePromoteTempAssignee(item)}
+              users={users}
+            />
+          )}
+        </div>
       )}
 
-      {section === 'users' && (
-        <TeamUsersSection
-          users={users}
-          departments={departments}
-          loading={loading}
-          canManageTeam={canManageTeam}
-          canCreateSubordinates={canCreateSubordinates}
-          currentUser={currentUser}
-          permissionDrafts={permissionDrafts}
-          nameDrafts={nameDrafts}
-          setNameDrafts={setNameDrafts}
-          tempPasswords={tempPasswords}
-          busyUserId={busyUserId}
-          nameBusyId={nameBusyId}
-          handleSaveName={handleSaveName}
-          handleSavePermissions={handleSavePermissions}
-          handleResetPassword={handleResetPassword}
-          handleDeactivate={handleDeactivate}
-          isNameChanged={isNameChanged}
-          isPermissionChanged={isPermissionChanged}
-          handlePermissionChange={handlePermissionChange}
-          usersById={usersById}
-          invite={invite}
-          setInvite={setInvite}
-          inviting={inviting}
-          inviteSuccess={inviteSuccess}
-          inviteError={inviteError}
-          handleInvite={handleInvite}
-        />
-      )}
-
-      {section === 'settings' && (
+      {section === 'mailing' && (
         <TeamSettingsSection
-          changingOwnPassword={changingOwnPassword}
-          ownPasswordSuccess={ownPasswordSuccess}
-          ownPasswordError={ownPasswordError}
-          ownPasswordForm={ownPasswordForm}
-          setOwnPasswordForm={setOwnPasswordForm}
-          handleChangeOwnPassword={handleChangeOwnPassword}
-          currentUser={currentUser}
           canManageTeam={canManageTeam}
-          tempAssignees={tempAssignees}
-          tempAssigneesLoading={tempAssigneesLoading}
-          tempAssigneesError={tempAssigneesError}
-          tempAssigneeBusyId={tempAssigneeBusyId}
-          tempAssigneeLinkDrafts={tempAssigneeLinkDrafts}
-          setTempAssigneeLinkDrafts={setTempAssigneeLinkDrafts}
-          loadTempAssignees={loadTempAssignees}
-          handleLinkTempAssignee={handleLinkTempAssignee}
-          handleIgnoreTempAssignee={handleIgnoreTempAssignee}
-          handlePromoteTempAssignee={handlePromoteTempAssignee}
           reportSettings={reportSettings}
           setReportSettings={setReportSettings}
           weekdayOptions={weekdayOptions}
@@ -554,11 +546,61 @@ export function Team() {
           adminDirectiveTestBusy={adminDirectiveTestBusy}
           handleSaveReportSettings={handleSaveReportSettings}
           handleAdminDirectiveTest={handleAdminDirectiveTest}
-          users={users}
         />
       )}
 
-      {section === 'contractors' && <ExternalContractorsSection />}
+      {section === 'profile' && (
+        <div className="space-y-4 max-w-2xl">
+          <div className="rounded-xl border bg-card p-4 space-y-3">
+            <h2 className="font-semibold">Сменить пароль</h2>
+            <form onSubmit={handleChangeOwnPassword} className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="current-password">Текущий пароль</Label>
+                  <Input
+                    id="current-password"
+                    type="password"
+                    value={ownPasswordForm.current_password}
+                    onChange={(e) => setOwnPasswordForm((f) => ({ ...f, current_password: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="new-password">Новый пароль</Label>
+                  <Input
+                    id="new-password"
+                    type="password"
+                    minLength={6}
+                    value={ownPasswordForm.new_password}
+                    onChange={(e) => setOwnPasswordForm((f) => ({ ...f, new_password: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+              <Button type="submit" disabled={changingOwnPassword}>
+                {changingOwnPassword ? 'Сохранение...' : 'Сменить пароль'}
+              </Button>
+              {ownPasswordSuccess && <p className="text-sm text-green-600">{ownPasswordSuccess}</p>}
+              {ownPasswordError && <p className="text-sm text-destructive">{ownPasswordError}</p>}
+            </form>
+          </div>
+
+          <div className="rounded-xl border bg-card p-4 space-y-2">
+            <h2 className="font-semibold">Персональная email-рассылка</h2>
+            <p className="text-sm text-muted-foreground">
+              Настройка персональных уведомлений по email — в разработке.
+            </p>
+            <div className="flex items-center justify-between rounded border px-3 py-2 text-sm opacity-50">
+              <span>Уведомления о назначении задач</span>
+              <Switch checked disabled />
+            </div>
+            <div className="flex items-center justify-between rounded border px-3 py-2 text-sm opacity-50">
+              <span>Напоминания о дедлайнах</span>
+              <Switch checked disabled />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -585,7 +627,6 @@ function ExternalContractorsSection() {
         </p>
       </div>
 
-      {/* Add form */}
       <div className="flex gap-2">
         <input
           type="text"
@@ -600,7 +641,6 @@ function ExternalContractorsSection() {
         </Button>
       </div>
 
-      {/* List */}
       {contractors.length === 0 ? (
         <p className="text-xs text-muted-foreground">Список пуст.</p>
       ) : (
@@ -616,6 +656,104 @@ function ExternalContractorsSection() {
               >
                 ×
               </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface TempAssigneesSectionProps {
+  tempAssignees: TempAssignee[]
+  tempAssigneesLoading: boolean
+  tempAssigneesError: string
+  tempAssigneeBusyId: string | null
+  tempAssigneeLinkDrafts: Record<string, string>
+  setTempAssigneeLinkDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  loadTempAssignees: () => void
+  handleLinkTempAssignee: (item: TempAssignee) => void
+  handleIgnoreTempAssignee: (item: TempAssignee) => void
+  handlePromoteTempAssignee: (item: TempAssignee) => void
+  users: User[]
+}
+
+function TempAssigneesSection({
+  tempAssignees,
+  tempAssigneesLoading,
+  tempAssigneesError,
+  tempAssigneeBusyId,
+  tempAssigneeLinkDrafts,
+  setTempAssigneeLinkDrafts,
+  loadTempAssignees,
+  handleLinkTempAssignee,
+  handleIgnoreTempAssignee,
+  handlePromoteTempAssignee,
+  users,
+}: TempAssigneesSectionProps) {
+  return (
+    <div className="rounded-xl border bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="font-semibold">Нераспознанные исполнители из импорта</h2>
+        <Button variant="outline" size="sm" onClick={loadTempAssignees} disabled={tempAssigneesLoading}>
+          {tempAssigneesLoading ? 'Обновление...' : 'Обновить'}
+        </Button>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Исполнители, не сопоставленные с аккаунтом. Их можно связать с существующим сотрудником или завести нового.
+      </p>
+      {tempAssigneesError && <p className="text-sm text-destructive">{tempAssigneesError}</p>}
+      {!tempAssigneesLoading && tempAssignees.length === 0 && (
+        <p className="text-sm text-muted-foreground">Нераспознанных исполнителей нет.</p>
+      )}
+      {!tempAssigneesLoading && tempAssignees.length > 0 && (
+        <div className="space-y-2">
+          {tempAssignees.map((item) => (
+            <div key={item.id} className="rounded border p-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-medium">{item.raw_name}</span>
+                <span className="text-muted-foreground">· source: {item.source}</span>
+                <span className="text-muted-foreground">· seen: {item.seen_count}</span>
+                {item.email && <span className="text-muted-foreground">· {item.email}</span>}
+              </div>
+              <div className="flex flex-col md:flex-row gap-2 md:items-center">
+                <select
+                  value={tempAssigneeLinkDrafts[item.id] ?? ''}
+                  onChange={(e) => setTempAssigneeLinkDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                  className="w-full md:w-80 border rounded px-2 py-2 bg-background text-sm"
+                >
+                  <option value="">Связать с пользователем...</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {formatUserDisplayName(u)} ({u.email})
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleLinkTempAssignee(item)}
+                  disabled={!tempAssigneeLinkDrafts[item.id] || tempAssigneeBusyId === item.id}
+                >
+                  Связать
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handlePromoteTempAssignee(item)}
+                  disabled={tempAssigneeBusyId === item.id}
+                >
+                  Создать сотрудника
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleIgnoreTempAssignee(item)}
+                  disabled={tempAssigneeBusyId === item.id}
+                >
+                  Игнорировать
+                </Button>
+              </div>
             </div>
           ))}
         </div>
