@@ -50,7 +50,8 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
 ssh planner_bro
 cd /opt/planner-bro
 git pull
-docker compose -f docker-compose.prod.yml up -d --build backend celery_worker celery_beat nginx
+docker compose -f docker-compose.prod.yml up -d --build backend celery_worker celery_beat
+docker compose -f docker-compose.prod.yml restart nginx  # ВАЖНО: nginx кэширует IP бэкенда при старте.
 ```
 
 `/opt/planner-bro` is a git repo pointing to `git@github.com:kamaero/planner-bro.git`.
