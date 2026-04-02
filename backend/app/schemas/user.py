@@ -20,6 +20,7 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
+    email: Optional[EmailStr] = None  # optional: falls back to work_email if omitted
     password: str
     first_name: Optional[str] = None
     middle_name: Optional[str] = None

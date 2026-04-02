@@ -131,8 +131,12 @@ async def create_user_by_admin(
 ):
     if not _can_create_subordinate(current_user):
         raise HTTPException(status_code=403, detail="No permission to create team accounts")
-    normalized_email = _normalize_email(data.email)
     normalized_work_email = _normalize_optional_email(data.work_email)
+    # email falls back to work_email when not provided
+    raw_email = data.email or data.work_email
+    if not raw_email:
+        raise HTTPException(status_code=400, detail="Email or work_email is required")
+    normalized_email = _normalize_email(str(raw_email))
 
     existing = await db.execute(
         select(User).where(
@@ -144,7 +148,8 @@ async def create_user_by_admin(
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
-    if normalized_work_email:
+    # only check work_email separately when it differs from email
+    if normalized_work_email and normalized_work_email != normalized_email:
         existing_work_email = await db.execute(
             select(User).where(
                 or_(
