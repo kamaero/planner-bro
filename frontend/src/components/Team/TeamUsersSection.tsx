@@ -316,7 +316,6 @@ export function TeamUsersSection({
                 placeholder="ivan@example.com"
                 value={invite.email}
                 onChange={(e) => setInvite((f) => ({ ...f, email: e.target.value }))}
-                required
               />
             </div>
             <div className="space-y-1">
