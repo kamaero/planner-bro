@@ -139,24 +139,13 @@ async def create_user_by_admin(
     normalized_email = _normalize_email(str(raw_email))
 
     existing = await db.execute(
-        select(User).where(
-            or_(
-                func.lower(User.email) == normalized_email,
-                func.lower(User.work_email) == normalized_email,
-            )
-        )
+        select(User).where(func.lower(User.email) == normalized_email)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
-    # only check work_email separately when it differs from email
     if normalized_work_email and normalized_work_email != normalized_email:
         existing_work_email = await db.execute(
-            select(User).where(
-                or_(
-                    func.lower(User.email) == normalized_work_email,
-                    func.lower(User.work_email) == normalized_work_email,
-                )
-            )
+            select(User).where(func.lower(User.work_email) == normalized_work_email)
         )
         if existing_work_email.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Work email already registered")
@@ -414,10 +403,7 @@ async def update_user_permissions(
             conflict = await db.execute(
                 select(User.id).where(
                     User.id != user.id,
-                    or_(
-                        func.lower(User.email) == normalized_work_email,
-                        func.lower(User.work_email) == normalized_work_email,
-                    ),
+                    func.lower(User.work_email) == normalized_work_email,
                 )
             )
             if conflict.scalar_one_or_none():
