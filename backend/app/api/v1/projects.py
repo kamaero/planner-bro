@@ -29,6 +29,7 @@ from app.services.project_access_service import (
     list_project_files as list_project_files_query,
     list_project_members,
     require_project_access,
+    maybe_archive_processed_file,
 )
 from app.services.project_member_service import (
     add_project_member,
@@ -387,7 +388,7 @@ async def reject_ai_drafts_bulk(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, current_user, db)
+    await require_project_access(project_id, current_user, db)
     result = await db.execute(
         select(AITaskDraft)
         .where(
@@ -407,7 +408,7 @@ async def reject_ai_drafts_bulk(
         draft.approved_by_id = current_user.id
         rejected.append(draft)
     for file_id in {d.project_file_id for d in rejected}:
-        await _maybe_archive_processed_file(project_id, file_id, current_user.id, db)
+        await maybe_archive_processed_file(project_id, file_id, current_user.id, db)
     await db.commit()
     return rejected
 
