@@ -14,14 +14,14 @@ def normalize_optional_email(email: str | None) -> str | None:
     return cleaned or None
 
 
-def _normalize_name_part(value: str | None) -> str:
+def normalize_name_part(value: str | None) -> str:
     return " ".join((value or "").strip().split())
 
 
 def short_name(last_name: str, first_name: str, middle_name: str) -> str:
-    last = _normalize_name_part(last_name)
-    first = _normalize_name_part(first_name)
-    middle = _normalize_name_part(middle_name)
+    last = normalize_name_part(last_name)
+    first = normalize_name_part(first_name)
+    middle = normalize_name_part(middle_name)
     if not last and not first and not middle:
         return ""
     initials = ""

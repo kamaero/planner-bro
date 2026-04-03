@@ -16,6 +16,7 @@ from app.services.system_activity_service import log_system_activity
 from app.api.v1._user_helpers import (
     normalize_email as _normalize_email,
     normalize_optional_email as _normalize_optional_email,
+    normalize_name_part as _normalize_name_part,
     short_name as _short_name,
     generate_temporary_password as _generate_temporary_password,
     default_permissions_for_role as _default_permissions_for_role,
