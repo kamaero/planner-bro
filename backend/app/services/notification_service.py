@@ -551,9 +551,10 @@ async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
     if tokens:
         send_push_to_multiple(tokens, title, body, data)
 
-    if days_until <= 0:
-        # Send email only to direct assignee(s) + project owner — not to all members.
-        # Deduplicate: skip if already sent for this task in the last 24 hours.
+    # Для days_until > 0 письмо отправляется per-task (дедлайн ещё не наступил — разовое предупреждение).
+    # Для days_until <= 0 письма НЕ отправляем здесь — вместо этого deadline_checker собирает
+    # все просроченные задачи пользователя и шлёт один дайджест через send_overdue_digest().
+    if days_until > 0:
         owner_id = (
             await db.execute(select(Project.owner_id).where(Project.id == task.project_id))
         ).scalar_one_or_none()
@@ -574,11 +575,141 @@ async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
                     recipients=[target_email],
                     subject=title,
                     body=body,
-                    source="deadline_missed",
+                    source="deadline_approaching",
                     payload=data,
                 )
 
     await ws_manager.broadcast_to_project(task.project_id, ev.DEADLINE_WARNING, data)
+
+
+async def send_overdue_digest(
+    db: AsyncSession,
+    user_overdue_tasks: dict[str, list[Task]],
+    project_owner_map: dict[str, str] | None = None,
+) -> None:
+    """Один дайджест на пользователя со всеми его просроченными задачами.
+
+    Вызывается из deadline_checker после обработки всего списка просроченных задач.
+    Дедуп: не более одного письма на пользователя за 23 часа.
+    """
+    if not user_overdue_tasks:
+        return
+
+    from datetime import date as date_type
+    today = date_type.today()
+    now = datetime.now(timezone.utc)
+
+    all_user_ids = list(user_overdue_tasks.keys())
+    all_project_ids = {t.project_id for tasks in user_overdue_tasks.values() for t in tasks}
+
+    users = {
+        u.id: u
+        for u in (
+            await db.execute(select(User).where(User.id.in_(all_user_ids)))
+        ).scalars().all()
+    }
+    projects = {
+        p.id: p
+        for p in (
+            await db.execute(select(Project).where(Project.id.in_(all_project_ids)))
+        ).scalars().all()
+    }
+
+    for user_id, tasks in user_overdue_tasks.items():
+        user = users.get(user_id)
+        if not user:
+            continue
+        target_email = _preferred_email(user, now)
+        if not target_email:
+            continue
+
+        # Дедуп: не слать дайджест если уже отправляли за последние 23 часа
+        cutoff = now - timedelta(hours=23)
+        already_sent = (
+            await db.execute(
+                select(EmailDispatchLog.id).where(
+                    EmailDispatchLog.source == "overdue_digest",
+                    EmailDispatchLog.status == "sent",
+                    EmailDispatchLog.recipient == target_email,
+                    EmailDispatchLog.created_at >= cutoff,
+                )
+            )
+        ).scalar_one_or_none()
+        if already_sent:
+            continue
+
+        def _days_overdue(t: Task) -> int:
+            return (today - t.end_date).days if t.end_date else 0
+
+        sorted_tasks = sorted(tasks, key=_days_overdue, reverse=True)
+        count = len(sorted_tasks)
+        user_name = html.escape(user.name or target_email)
+        subject = f"PlannerBro: {count} просроченных задач"
+
+        # ── Текстовая версия ──────────────────────────────────────────────────
+        lines = [f"{user.name or target_email}, у вас {count} задач с истёкшим дедлайном:\n"]
+        for task in sorted_tasks:
+            proj = projects.get(task.project_id)
+            proj_name = proj.name if proj else "—"
+            days = _days_overdue(task)
+            link = _build_task_link(task.project_id, task.id)
+            lines.append(f"• [{days} дн.] {task.title} | {proj_name} | {link}")
+        text_body = "\n".join(lines)
+
+        # ── HTML версия ───────────────────────────────────────────────────────
+        rows_html = ""
+        for task in sorted_tasks:
+            proj = projects.get(task.project_id)
+            proj_name = html.escape(proj.name if proj else "—")
+            days = _days_overdue(task)
+            title_safe = html.escape(task.title)
+            link = _build_task_link(task.project_id, task.id)
+            color = "#dc2626" if days > 14 else "#d97706" if days > 3 else "#ca8a04"
+            rows_html += (
+                f"<tr>"
+                f"<td style='padding:6px 8px;border-bottom:1px solid #f3f4f6;'>"
+                f"<a href='{link}' style='color:#1d4ed8;text-decoration:none;'>{title_safe}</a>"
+                f"</td>"
+                f"<td style='padding:6px 8px;border-bottom:1px solid #f3f4f6;color:#6b7280;font-size:12px;'>{proj_name}</td>"
+                f"<td style='padding:6px 8px;border-bottom:1px solid #f3f4f6;color:{color};font-weight:600;text-align:right;white-space:nowrap;'>+{days} дн.</td>"
+                f"</tr>"
+            )
+
+        html_body = (
+            "<!doctype html><html><head><meta charset='utf-8'></head>"
+            "<body style='margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;'>"
+            "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='padding:24px 12px;background:#f3f4f6;'>"
+            "<tr><td align='center'>"
+            "<table role='presentation' width='640' cellspacing='0' cellpadding='0' "
+            "style='max-width:640px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;'>"
+            "<tr><td style='padding:16px 20px;background:#111827;color:#fff;font-size:18px;font-weight:700;'>PlannerBro</td></tr>"
+            "<tr><td style='padding:18px 20px 6px;font-size:16px;font-weight:600;'>Просроченные задачи</td></tr>"
+            f"<tr><td style='padding:0 20px 18px;font-size:14px;color:#374151;'>"
+            f"{user_name}, у вас <b>{count}</b> задач с истёкшим дедлайном:</td></tr>"
+            "<tr><td style='padding:0 20px 18px;'>"
+            "<table width='100%' cellspacing='0' cellpadding='0' style='font-size:13px;'>"
+            "<tr style='background:#f9fafb;'>"
+            "<th style='padding:6px 8px;text-align:left;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;'>Задача</th>"
+            "<th style='padding:6px 8px;text-align:left;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;'>Проект</th>"
+            "<th style='padding:6px 8px;text-align:right;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;'>Просрочка</th>"
+            "</tr>"
+            f"{rows_html}"
+            "</table></td></tr>"
+            "<tr><td style='padding:12px 20px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;'>"
+            "Дайджест отправляется раз в сутки. Откройте PlannerBro для обновления статусов."
+            "</td></tr>"
+            "</table></td></tr></table></body></html>"
+        )
+
+        await _send_email_to_recipients(
+            db,
+            recipients=[target_email],
+            subject=subject,
+            body=text_body,
+            html_body=html_body,
+            source="overdue_digest",
+            payload={"user_id": user_id, "task_count": count},
+        )
 
 
 async def notify_escalation_sla_breached(db: AsyncSession, task: Task, breached_at):

@@ -4,10 +4,16 @@ from sqlalchemy import select
 from app.tasks.celery_app import celery_app
 from app.core.database import AsyncSessionLocal
 from app.models.task import Task, TaskDependency, TaskEvent
+from app.models.project import Project
 from app.models.deadline_change import DeadlineChange
 from app.models.user import User
-from app.services.notification_service import notify_deadline
+from app.services.notification_service import notify_deadline, send_overdue_digest
 from app.services.task_lock_service import acquire_task_run_lock
+
+# Статусы задач, которые не участвуют в проверке дедлайнов.
+# "planning" — начальный этап проектирования, дедлайн справочный.
+# "done"     — задача выполнена.
+_EXCLUDED_STATUSES = frozenset({"done", "planning"})
 
 
 @celery_app.task(name="app.tasks.deadline_checker.check_deadlines")
@@ -33,30 +39,55 @@ async def _async_check_deadlines():
                     if day > 0:
                         warning_days.add(day)
 
+        # ── Приближающиеся дедлайны ───────────────────────────────────────────
         for days in sorted(warning_days):
             target = today + timedelta(days=days)
             result = await db.execute(
                 select(Task).where(
                     Task.end_date == target,
-                    Task.status != "done",
+                    Task.status.notin_(_EXCLUDED_STATUSES),
                 )
             )
             tasks = result.scalars().all()
             for task in tasks:
                 await notify_deadline(db, task, days_until=days)
 
-        # Check missed deadlines
+        # ── Просроченные задачи ───────────────────────────────────────────────
         missed_result = await db.execute(
             select(Task).where(
                 Task.end_date < today,
-                Task.status != "done",
+                Task.status.notin_(_EXCLUDED_STATUSES),
             )
         )
         missed_tasks = missed_result.scalars().all()
+
+        # Батчем забираем владельцев проектов, чтобы не делать N+1 запросов.
+        project_ids = {t.project_id for t in missed_tasks}
+        owner_map: dict[str, str] = {}
+        if project_ids:
+            rows = (
+                await db.execute(
+                    select(Project.id, Project.owner_id).where(Project.id.in_(project_ids))
+                )
+            ).all()
+            owner_map = {pid: oid for pid, oid in rows if oid}
+
+        # Собираем просроченные задачи по пользователям для дайджеста.
+        # Каждый пользователь получит одно письмо вместо N отдельных.
+        user_overdue: dict[str, list[Task]] = {}
         for task in missed_tasks:
             await notify_deadline(db, task, days_until=0)
             await _propagate_overdue_to_successors(db, task, today)
+
+            # Назначенный исполнитель + владелец проекта
+            owner_id = owner_map.get(task.project_id)
+            for uid in dict.fromkeys(u for u in [task.assigned_to_id, owner_id] if u):
+                user_overdue.setdefault(uid, []).append(task)
+
         await db.commit()
+
+        # Один дайджест на пользователя вместо N отдельных писем.
+        await send_overdue_digest(db, user_overdue, owner_map)
 
 
 async def _propagate_overdue_to_successors(db, predecessor_task: Task, today: date):
