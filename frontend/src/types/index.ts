@@ -40,6 +40,7 @@ export interface User {
   is_active?: boolean
   avatar_url?: string
   reminder_days?: string
+  email_notifications_enabled?: boolean
   created_at: string
   updated_at: string
   last_sign_in_at?: string | null

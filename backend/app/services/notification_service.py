@@ -77,13 +77,13 @@ async def _create_notification(
     return notif
 
 
-def _is_weekend_utc(now: datetime) -> bool:
-    return now.weekday() >= 5
+def _preferred_email(user: User, now: datetime, *, force: bool = False) -> str | None:
+    """Return the user's preferred email, or None if they have opted out.
 
-
-def _preferred_email(user: User, now: datetime) -> str | None:
-    if _is_weekend_utc(now):
-        return user.email
+    force=True bypasses the opt-out flag (used for admin directive broadcasts).
+    """
+    if not force and not getattr(user, "email_notifications_enabled", True):
+        return None
     return user.work_email or user.email
 
 

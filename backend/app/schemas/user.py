@@ -33,6 +33,7 @@ class UserUpdate(BaseModel):
     last_name: Optional[str] = None
     avatar_url: Optional[str] = None
     position_title: Optional[str] = None
+    email_notifications_enabled: Optional[bool] = None
 
 
 class UserNameUpdate(BaseModel):
@@ -52,6 +53,7 @@ class UserOut(UserBase):
     can_import: bool = False
     can_bulk_edit: bool = False
     reminder_days: str = "1,3"
+    email_notifications_enabled: bool = True
     is_active: bool = True
     last_login_at: Optional[datetime] = None
     created_at: datetime

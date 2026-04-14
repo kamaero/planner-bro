@@ -333,18 +333,24 @@ export function Team() {
             </form>
           </div>
 
-          <div className="rounded-xl border bg-card p-4 space-y-2">
+          <div className="rounded-xl border bg-card p-4 space-y-3">
             <h2 className="font-semibold">Персональная email-рассылка</h2>
-            <p className="text-sm text-muted-foreground">
-              Настройка персональных уведомлений по email — в разработке.
-            </p>
-            <div className="flex items-center justify-between rounded border px-3 py-2 text-sm opacity-50">
-              <span>Уведомления о назначении задач</span>
-              <Switch checked disabled />
-            </div>
-            <div className="flex items-center justify-between rounded border px-3 py-2 text-sm opacity-50">
-              <span>Напоминания о дедлайнах</span>
-              <Switch checked disabled />
+            <div className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+              <div>
+                <div>Email-уведомления</div>
+                <div className="text-xs text-muted-foreground">Назначения задач, дедлайны, напоминания</div>
+              </div>
+              <Switch
+                checked={currentUser?.email_notifications_enabled ?? true}
+                onCheckedChange={async (checked) => {
+                  try {
+                    const updated = await api.updateMe({ email_notifications_enabled: checked })
+                    setUser(updated)
+                  } catch {
+                    // ignore
+                  }
+                }}
+              />
             </div>
           </div>
         </div>
