@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException
-from app.models.task import Task, TaskComment, TaskAssignee
+from app.models.task import Task, TaskComment, TaskAssignee, TaskEvent
 
 
 async def get_tasks_for_project(db: AsyncSession, project_id: str) -> list[Task]:
@@ -36,6 +36,21 @@ async def get_tasks_for_project(db: AsyncSession, project_id: str) -> list[Task]
 
     for task in tasks:
         setattr(task, "last_comment", last_comment_by_task.get(task.id))
+
+    rollover_ids = set(
+        (
+            await db.execute(
+                select(TaskEvent.task_id).where(
+                    TaskEvent.task_id.in_(task_ids),
+                    TaskEvent.event_type == "task_rollover_from_ai_draft",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for task in tasks:
+        setattr(task, "is_rollover", task.id in rollover_ids)
     return tasks
 
 

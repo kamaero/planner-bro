@@ -16,10 +16,33 @@ from app.services.project_rules_service import (
     extract_task_number,
     fio_short,
     fio_short_from_parts,
+    is_conservative_rollover_description_match,
     match_assignee_ids,
+    normalize_rollover_title,
     sync_task_assignees_for_project,
 )
 from app.services.temp_assignee_service import upsert_temp_assignees
+
+
+def _find_rollover_candidate(
+    *,
+    draft_task_no: str | None,
+    draft_title: str | None,
+    draft_description: str | None,
+    candidates: list[Task],
+) -> Task | None:
+    normalized_title = normalize_rollover_title(draft_title)
+    for candidate in candidates:
+        candidate_no = extract_task_number(candidate.title)
+        if draft_task_no and candidate_no == draft_task_no:
+            return candidate
+        if normalized_title and normalize_rollover_title(candidate.title) == normalized_title:
+            return candidate
+    if draft_description:
+        for candidate in candidates:
+            if is_conservative_rollover_description_match(draft_description, candidate.description):
+                return candidate
+    return None
 
 
 async def get_user_candidates(db: AsyncSession) -> list[User]:
@@ -283,7 +306,6 @@ async def approve_single_ai_draft(
         )
 
     draft_task_no = str(raw_payload.get("task_no") or "").strip() or extract_task_number(draft.title)
-    normalized_title = (draft.title or "").strip().lower()
     existing_candidates = (
         await db.execute(
             select(Task)
@@ -296,15 +318,12 @@ async def approve_single_ai_draft(
         )
     ).scalars().all()
 
-    matched_task: Task | None = None
-    for candidate in existing_candidates:
-        candidate_no = extract_task_number(candidate.title)
-        if draft_task_no and candidate_no == draft_task_no:
-            matched_task = candidate
-            break
-        if normalized_title and candidate.title.strip().lower() == normalized_title:
-            matched_task = candidate
-            break
+    matched_task = _find_rollover_candidate(
+        draft_task_no=draft_task_no or None,
+        draft_title=draft.title,
+        draft_description=draft.description,
+        candidates=existing_candidates,
+    )
 
     is_rollover = matched_task is not None
     if is_rollover:

@@ -8,6 +8,15 @@ from app.models.project import ProjectMember
 from app.models.task import Task, TaskAssignee
 from app.models.user import User
 
+_LEADING_TASK_NO_RE = re.compile(r"^(\d+(?:\.\d+)*)(?:[.)])?\s+")
+_NOISE_PUNCT_RE = re.compile(r"[\"'`«»“”„‟’.,;:!?()\\[\\]{}<>]+")
+_SPACE_RE = re.compile(r"\s+")
+_QUARTER_MARKER_RE = re.compile(
+    r"\b(?:q[1-4]|[1-4]\s*(?:кв|квартал)|квартал\s*[1-4]|[1-4]\s*quarter)\b",
+    flags=re.IGNORECASE,
+)
+_YEAR_RE = re.compile(r"\b20\d{2}\b")
+
 
 def extract_task_number(value: str | None) -> str | None:
     if not value:
@@ -16,6 +25,38 @@ def extract_task_number(value: str | None) -> str | None:
     if not match:
         return None
     return match.group(1)
+
+
+def normalize_rollover_text(value: str | None) -> str:
+    if not value:
+        return ""
+    normalized = value.strip().lower()
+    normalized = _LEADING_TASK_NO_RE.sub("", normalized)
+    normalized = _NOISE_PUNCT_RE.sub(" ", normalized)
+    return _SPACE_RE.sub(" ", normalized).strip()
+
+
+def normalize_rollover_title(value: str | None) -> str:
+    normalized = normalize_rollover_text(value)
+    normalized = _YEAR_RE.sub(" ", normalized)
+    normalized = _QUARTER_MARKER_RE.sub(" ", normalized)
+    return _SPACE_RE.sub(" ", normalized).strip()
+
+
+def is_conservative_rollover_description_match(lhs: str | None, rhs: str | None) -> bool:
+    left = normalize_rollover_text(lhs)
+    right = normalize_rollover_text(rhs)
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+    if len(shorter) < 32:
+        return False
+    if shorter in longer:
+        overlap = len(shorter) / max(1, len(longer))
+        return overlap >= 0.85
+    return False
 
 
 def fio_short(value: str | None) -> str:

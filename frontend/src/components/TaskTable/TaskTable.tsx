@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Task } from '@/types'
-import { Clock, AlertCircle, CornerDownRight, ChevronRight, ChevronDown, GripVertical } from 'lucide-react'
+import { Clock, AlertCircle, CornerDownRight, ChevronRight, ChevronDown, GripVertical, ArrowUp, ArrowDown } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -64,6 +64,8 @@ interface TaskTableProps {
   tasks: Task[]
   allTasks?: Task[]
   onTaskClick: (task: Task) => void
+  selectedTaskIds?: string[]
+  onToggleTaskSelection?: (taskId: string) => void
   onStatusChange?: (taskId: string, status: string) => void
   shiftsMap?: Record<string, number>
   rowSize?: 'compact' | 'normal' | 'comfortable'
@@ -78,11 +80,13 @@ interface TaskTableProps {
 function SortableRow({
   task,
   isDraggable,
+  isSelected,
   onClick,
   children,
 }: {
   task: Task
   isDraggable: boolean
+  isSelected: boolean
   onClick: () => void
   children: (dragHandleProps: React.HTMLAttributes<HTMLElement> | null, isDragging: boolean) => React.ReactNode
 }) {
@@ -93,13 +97,14 @@ function SortableRow({
     opacity: isDragging ? 0.5 : 1,
     position: 'relative' as const,
     zIndex: isDragging ? 1 : undefined,
+    boxShadow: task.is_rollover ? 'inset 0 0 0 1px #facc15' : undefined,
   }
   return (
     <tr
       ref={setNodeRef}
       style={style}
       onClick={onClick}
-      className="hover:bg-muted/30 cursor-pointer transition-colors group"
+      className={`hover:bg-muted/30 cursor-pointer transition-colors group ${task.is_rollover ? 'bg-amber-50/30' : ''} ${isSelected ? 'bg-primary/10' : ''}`}
     >
       {children(isDraggable ? { ...attributes, ...listeners } : null, isDragging)}
     </tr>
@@ -110,6 +115,8 @@ export function TaskTable({
   tasks,
   allTasks,
   onTaskClick,
+  selectedTaskIds = [],
+  onToggleTaskSelection,
   onStatusChange,
   shiftsMap = {},
   rowSize = 'normal',
@@ -164,7 +171,7 @@ export function TaskTable({
   const commentClamp = rowSize === 'compact' ? 'line-clamp-1' : 'line-clamp-2'
   const sourceTasks = allTasks && allTasks.length > 0 ? allTasks : tasks
   const taskById = new Map(sourceTasks.map((task) => [task.id, task]))
-  const numberingById = buildTaskNumbering(sourceTasks)
+  const numberingById = buildTaskNumbering(tasks)
   const depthById = new Map<string, number>()
   const computeDepth = (taskId: string): number => {
     if (depthById.has(taskId)) return depthById.get(taskId) ?? 0
@@ -211,7 +218,9 @@ export function TaskTable({
       <table className="w-full text-sm min-w-[1220px]">
         <thead>
           <tr className="border-b bg-muted/40 text-muted-foreground text-xs uppercase tracking-wide">
+            <th className="px-2 py-2.5 w-8" />
             {isDraggable && <th className="pl-2 pr-0 w-6 py-2.5" />}
+            {isDraggable && <th className="px-1 py-2.5 w-8" />}
             <th className="px-4 py-2.5 text-left font-medium min-w-[340px]">Задача</th>
             <th className="px-3 py-2.5 text-left font-medium min-w-[280px]">Комментарий</th>
             <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap">Статус</th>
@@ -225,9 +234,10 @@ export function TaskTable({
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
         <tbody className="divide-y divide-border">
-          {tasks.map((task) => {
+          {tasks.map((task, index) => {
             const isOverdue = task.end_date && task.end_date < today && task.status !== 'done'
             const shiftCount = shiftsMap[task.id] ?? 0
+            const isSelected = selectedTaskIds.includes(task.id)
             const depth = computeDepth(task.id)
             const hasParent = Boolean(task.parent_task_id)
             const predecessorIds = task.predecessor_ids ?? []
@@ -241,8 +251,17 @@ export function TaskTable({
             const isCollapsed = collapsedTaskIds?.has(task.id) ?? false
 
             return (
-              <SortableRow key={task.id} task={task} isDraggable={isDraggable} onClick={() => onTaskClick(task)}>
+              <SortableRow key={task.id} task={task} isDraggable={isDraggable} isSelected={isSelected} onClick={() => onTaskClick(task)}>
                 {(dragHandleProps) => (<>
+                <td className="px-2 w-8" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => onToggleTaskSelection?.(task.id)}
+                    className="h-4 w-4"
+                    aria-label={`Выбрать задачу ${stripTaskOrderPrefix(task.title)}`}
+                  />
+                </td>
                 {/* Drag handle */}
                 {isDraggable && (
                   <td className="pl-2 pr-0 w-6" onClick={(e) => e.stopPropagation()}>
@@ -253,6 +272,30 @@ export function TaskTable({
                     >
                       <GripVertical className="w-4 h-4" />
                     </span>
+                  </td>
+                )}
+                {isDraggable && (
+                  <td className="px-1 w-8" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex flex-col gap-0.5">
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                        disabled={index === 0}
+                        onClick={() => onReorder?.(index, index - 1)}
+                        title="Поднять выше"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                        disabled={index === tasks.length - 1}
+                        onClick={() => onReorder?.(index, index + 1)}
+                        title="Опустить ниже"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </td>
                 )}
                 {/* Title */}

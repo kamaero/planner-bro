@@ -16,11 +16,12 @@ def validate_deadline_reason(
     *,
     old_end_date: date | None,
     new_end_date: date | None,
+    end_date_was_provided: bool = True,
     projected_status: str,
     deadline_change_reason: str | None,
 ) -> None:
     requires_reason = projected_status != "planning"
-    end_date_changed = old_end_date is not None and new_end_date != old_end_date
+    end_date_changed = end_date_was_provided and old_end_date is not None and new_end_date != old_end_date
     if end_date_changed and requires_reason and not deadline_change_reason:
         raise HTTPException(status_code=422, detail="Укажите причину изменения дедлайна")
 

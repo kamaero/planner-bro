@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import zipfile
@@ -157,6 +158,76 @@ def _extract_xls_text(path: Path) -> str:
     return "\n".join(lines).strip()
 
 
+def _run_text_extractor_command(command: list[str], *, timeout_sec: int = 60) -> tuple[bool, str, str]:
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_sec,
+        )
+    except FileNotFoundError:
+        return False, "", "command_not_found"
+    except subprocess.TimeoutExpired:
+        return False, "", "timeout"
+    output = (proc.stdout or "").strip()
+    error = (proc.stderr or "").strip()
+    if proc.returncode == 0 and output:
+        return True, output, ""
+    err_preview = error or output or f"exit_code={proc.returncode}"
+    return False, "", err_preview[:300]
+
+
+def _extract_doc_text_with_fallbacks(path: Path) -> str:
+    errors: list[str] = []
+
+    # 1) antiword
+    ok, text, err = _run_text_extractor_command(["antiword", "-m", "UTF-8", str(path)])
+    if ok:
+        return text
+    errors.append(f"antiword: {err}")
+
+    # 2) catdoc
+    ok, text, err = _run_text_extractor_command(["catdoc", str(path)])
+    if ok:
+        return text
+    errors.append(f"catdoc: {err}")
+
+    # 3) soffice --headless convert to txt
+    if shutil.which("soffice"):
+        with tempfile.TemporaryDirectory(prefix="plannerbro-doc-") as tmp_dir:
+            ok, _, err = _run_text_extractor_command(
+                [
+                    "soffice",
+                    "--headless",
+                    "--convert-to",
+                    "txt:Text",
+                    "--outdir",
+                    tmp_dir,
+                    str(path),
+                ],
+                timeout_sec=120,
+            )
+            if ok:
+                candidate = Path(tmp_dir) / f"{path.stem}.txt"
+                if candidate.exists():
+                    extracted = candidate.read_text(encoding="utf-8", errors="ignore").strip()
+                    if extracted:
+                        return extracted
+                errors.append("soffice: converted file is empty or missing")
+            else:
+                errors.append(f"soffice: {err}")
+    else:
+        errors.append("soffice: command_not_found")
+
+    joined = " | ".join(errors)
+    raise ValueError(
+        "Could not parse legacy .doc file. Tried antiword -> catdoc -> soffice --headless. "
+        f"Details: {joined}"
+    )
+
+
 def extract_text_for_ai(storage_path: str, content_type: str | None = None) -> str:
     path = Path(storage_path)
     if not path.exists():
@@ -172,17 +243,8 @@ def extract_text_for_ai(storage_path: str, content_type: str | None = None) -> s
             parts.append(page.extract_text() or "")
         text = "\n".join(parts).strip()
     elif lowered == ".doc" or "msword" in type_hint:
-        # Legacy Word .doc parsing via antiword with UTF-8 map
-        proc = subprocess.run(
-            ["antiword", "-m", "UTF-8", str(path)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "").strip()
-            raise ValueError(f"Could not parse .doc via antiword: {err[:300]}")
-        text = proc.stdout.strip()
+        # Legacy Word .doc parsing with toolchain fallback for Linux/VPS runtime.
+        text = _extract_doc_text_with_fallbacks(path)
     elif lowered == ".docx":
         text = _extract_docx_text(path)
     elif lowered == ".pptx":
@@ -394,7 +456,7 @@ def _extract_tasks_from_fixed_plan_table(source_text: str) -> list[dict[str, Any
         task_no = str(row.get("task_no") or "").strip()
         title = f"{task_no} {desc}".strip()[:500] if task_no else desc[:500]
 
-        priority_map = {"1": "critical", "2": "high", "3": "medium"}
+        priority_map = {"0": "low", "1": "critical", "2": "high", "3": "medium"}
         p_raw = str(row.get("priority_raw") or "").strip()
         priority = priority_map.get(p_raw, "medium")
 
@@ -490,6 +552,280 @@ def _extract_tasks_from_numbered_lines(source_text: str) -> list[dict[str, Any]]
     return tasks[:_max_drafts_limit()]
 
 
+_PPO_SIGNATURE_RE = re.compile(
+    r"план\s+мероприятий\s+по\s+доработке\s+информационного\s+обеспечения\s+системы\s+планирования\s+на\s+(?:\d+\s*[-й]*)?\s*квартал\s+20\d{2}\s*г",
+    flags=re.IGNORECASE,
+)
+_PPO_TASK_NO_ONLY_RE = re.compile(r"^(\d{1,3})\.\s*$")
+_PPO_TASK_NO_PREFIX_RE = re.compile(r"^(\d{1,3})\.\s+(.+)$")
+_PPO_TASK_NO_CELL_RE = re.compile(r"^\s*(\d{1,3})\s*[.)]?\s*$")
+_PPO_PRIORITY_RE = re.compile(r"^[0-3]$")
+_PPO_FOOTER_MARKERS = (
+    "утверждаю",
+    "согласовано",
+    "начальник",
+    "заместитель",
+    "подпись",
+    "исп.",
+    "тел.",
+)
+
+
+def _is_ppo_quarter_plan(source_text: str) -> bool:
+    compact = _normalize_spaces(source_text)
+    return bool(_PPO_SIGNATURE_RE.search(compact))
+
+
+def _normalize_ppo_assignee_lines(lines: list[str]) -> str | None:
+    merged = " ".join(line.strip().rstrip(",") for line in lines if line and line.strip())
+    merged = re.sub(r"\s+", " ", merged).strip(" ,;")
+    if not merged:
+        return None
+    parts = [re.sub(r"\s+", " ", part).strip(" ,;") for part in merged.split(",")]
+    cleaned = [part for part in parts if part]
+    return ", ".join(cleaned) if cleaned else None
+
+
+def _extract_ppo_rows_from_table_lines(source_text: str) -> list[dict[str, Any]]:
+    table_lines = [line.strip() for line in source_text.splitlines() if line.strip().startswith("|") and line.strip().endswith("|")]
+    if len(table_lines) < 8:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    assignee_lines: list[str] = []
+
+    def _flush_current() -> None:
+        nonlocal current, assignee_lines
+        if not current:
+            return
+        description = " ".join(str(current.get("description", "")).split()).strip()
+        if not description:
+            current = None
+            assignee_lines = []
+            return
+        assignee_hint = _normalize_ppo_assignee_lines(assignee_lines)
+        priority_raw = str(current.get("priority_raw") or "").strip()
+        if priority_raw in {"0", "1", "2", "3"}:
+            rows.append(
+                {
+                    "task_no": current.get("task_no"),
+                    "description": description,
+                    "priority_raw": priority_raw,
+                    "assignee_hint": assignee_hint,
+                    "parser": "ppo_quarter_plan",
+                }
+            )
+        current = None
+        assignee_lines = []
+
+    for line in table_lines:
+        parts = [part.strip() for part in line.split("|")[1:-1]]
+        if len(parts) < 4:
+            continue
+
+        task_cell = parts[0]
+        description_cell = parts[1]
+        priority_cell = parts[-2]
+        assignee_cell = parts[-1]
+
+        lowered_desc = _normalize_spaces(description_cell)
+        if (
+            "мероприятие" in lowered_desc
+            or lowered_desc == "п/п"
+            or lowered_desc in {"", "-"}
+            and _normalize_spaces(task_cell) in {"№", ""}
+        ):
+            continue
+
+        no_match = _PPO_TASK_NO_CELL_RE.match(task_cell)
+        task_no = no_match.group(1) if no_match else None
+        priority_match = re.search(r"[0-3]", priority_cell or "")
+        priority_raw = priority_match.group(0) if priority_match else None
+
+        should_start_new_unnumbered = (
+            task_no is None
+            and current is not None
+            and not current.get("task_no")
+            and bool(current.get("priority_raw"))
+            and bool(description_cell)
+            and priority_raw in {"0", "1", "2", "3"}
+        )
+
+        if task_no or should_start_new_unnumbered:
+            _flush_current()
+            current = {
+                "task_no": task_no,
+                "description": "",
+                "priority_raw": None,
+            }
+
+        if current is None:
+            if not description_cell:
+                continue
+            current = {"task_no": None, "description": "", "priority_raw": None}
+
+        if description_cell:
+            current["description"] = f"{current['description']} {description_cell}".strip()
+        if priority_raw and not current.get("priority_raw"):
+            current["priority_raw"] = priority_raw
+        if assignee_cell and _normalize_spaces(assignee_cell) not in {"исполн", "итель"}:
+            assignee_lines.append(assignee_cell)
+
+    _flush_current()
+    return rows
+
+
+def _extract_tasks_from_ppo_quarter_plan(source_text: str) -> list[dict[str, Any]]:
+    if not _is_ppo_quarter_plan(source_text):
+        return []
+
+    # Preferred path for legacy .doc extraction where rows look like:
+    # |10.|Описание...|  2|ОАСУП |
+    rows = _extract_ppo_rows_from_table_lines(source_text)
+    if not rows:
+        rows = []
+
+    lines = [line.strip() for line in source_text.splitlines() if line.strip()]
+    if not rows:
+        # Fallback path for non-tabular extracted text:
+        # description -> priority -> assignee lines.
+        body_lines: list[str] = []
+        in_body = False
+        for raw_line in lines:
+            line = " ".join(raw_line.strip("|").split()).strip()
+            lowered = _normalize_spaces(line)
+            if not in_body and "на " in lowered and "квартал" in lowered and "20" in lowered:
+                in_body = True
+                continue
+            if in_body:
+                body_lines.append(line)
+        if not body_lines:
+            body_lines = [" ".join(line.strip("|").split()).strip() for line in lines]
+
+        description_lines: list[str] = []
+        assignee_lines: list[str] = []
+        current_task_no: str | None = None
+        current_priority_raw: str | None = None
+        state = "description"
+
+        def _looks_like_assignee_line(value: str) -> bool:
+            stripped = value.strip().rstrip(",")
+            if not stripped:
+                return False
+            if any(ch.isdigit() for ch in stripped):
+                return False
+            letters = [ch for ch in stripped if ch.isalpha()]
+            if not letters:
+                return False
+            lower_count = sum(1 for ch in letters if ch.islower())
+            upper_count = sum(1 for ch in letters if ch.isupper())
+            return upper_count >= 2 and lower_count <= 2
+
+        def _flush_line_parsed_current() -> None:
+            nonlocal description_lines, assignee_lines, current_priority_raw, current_task_no, state
+            description = " ".join(description_lines).strip()
+            assignee_hint = _normalize_ppo_assignee_lines(assignee_lines)
+            if description and current_priority_raw is not None:
+                rows.append(
+                    {
+                        "task_no": current_task_no,
+                        "description": description,
+                        "priority_raw": current_priority_raw,
+                        "assignee_hint": assignee_hint,
+                        "parser": "ppo_quarter_plan",
+                    }
+                )
+            description_lines = []
+            assignee_lines = []
+            current_task_no = None
+            current_priority_raw = None
+            state = "description"
+
+        for line in body_lines:
+            if not line:
+                continue
+            lowered = _normalize_spaces(line)
+            if any(marker in lowered for marker in _PPO_FOOTER_MARKERS):
+                _flush_line_parsed_current()
+                break
+            if any(
+                marker in lowered
+                for marker in (
+                    "план мероприятий",
+                    "по доработке информационного обеспечения",
+                    "мероприятие",
+                    "приоритет",
+                    "исполнитель",
+                    "ответственный",
+                )
+            ):
+                continue
+
+            no_only = _PPO_TASK_NO_ONLY_RE.match(line)
+            if no_only and state == "description":
+                current_task_no = no_only.group(1)
+                continue
+
+            if _PPO_PRIORITY_RE.match(line):
+                if not description_lines:
+                    continue
+                current_priority_raw = line
+                state = "assignee"
+                continue
+
+            if state == "assignee":
+                if _looks_like_assignee_line(line):
+                    assignee_lines.append(line)
+                    continue
+                _flush_line_parsed_current()
+
+            no_only = _PPO_TASK_NO_ONLY_RE.match(line)
+            if no_only and state == "description":
+                current_task_no = no_only.group(1)
+                continue
+
+            no_prefix = _PPO_TASK_NO_PREFIX_RE.match(line)
+            if no_prefix:
+                current_task_no = no_prefix.group(1)
+                line = no_prefix.group(2).strip()
+            description_lines.append(line)
+
+        _flush_line_parsed_current()
+
+    tasks: list[dict[str, Any]] = []
+    priority_map = {"0": "low", "1": "critical", "2": "high", "3": "medium"}
+    for row in rows:
+        desc = " ".join(str(row.get("description", "")).split()).strip()
+        if len(desc) < 12:
+            continue
+        task_no = str(row.get("task_no") or "").strip()
+        title = f"{task_no} {desc}".strip()[:500] if task_no else desc[:500]
+        priority_raw = str(row.get("priority_raw") or "").strip()
+        priority = priority_map.get(priority_raw, "medium")
+        tasks.append(
+            {
+                "title": title,
+                "description": desc[:5000],
+                "priority": priority,
+                "end_date": None,
+                "estimated_hours": None,
+                "assignee_hint": row.get("assignee_hint"),
+                "progress_percent": 0,
+                "next_step": None,
+                "source_quote": desc[:500],
+                "confidence": 88,
+                "raw_payload": {
+                    "task_no": task_no or None,
+                    "priority_raw": priority_raw or None,
+                    "assignee_hint": row.get("assignee_hint"),
+                    "parser": "ppo_quarter_plan",
+                },
+            }
+        )
+    return tasks[:_max_drafts_limit()]
+
+
 def _extract_llm_content(data: dict[str, Any], provider: str) -> str:
     err = data.get("error")
     if isinstance(err, dict):
@@ -526,6 +862,10 @@ async def generate_task_drafts_from_text(
     prompt_instruction: str | None = None,
 ) -> list[dict[str, Any]]:
     max_drafts = _max_drafts_limit()
+    ppo_tasks = _extract_tasks_from_ppo_quarter_plan(text)
+    if ppo_tasks:
+        return ppo_tasks[:max_drafts]
+
     fixed_tasks = _extract_tasks_from_fixed_plan_table(text)
     numbered_tasks = _extract_tasks_from_numbered_lines(text)
     preparsed_tasks = fixed_tasks if len(fixed_tasks) >= len(numbered_tasks) else numbered_tasks
@@ -541,9 +881,18 @@ async def generate_task_drafts_from_text(
         raise
 
     extra_instruction = (prompt_instruction or "").strip()
+    if _is_ppo_quarter_plan(text):
+        ppo_instruction = (
+            "Это типовой квартальный план ППО. Нужно извлечь полный перечень мероприятий из документа, "
+            "включая переходящие задачи. Не останавливайся на 1-2 задачах, верни все найденные пункты плана."
+        )
+        extra_instruction = f"{extra_instruction} | {ppo_instruction}" if extra_instruction else ppo_instruction
     prompt = (
         "Ты помощник PM в ИТ-отделе. Извлеки только реальные ИТ-задачи из документа.\n"
         "КРИТИЧНО: нельзя придумывать задачи. Бери только то, что явно написано в тексте.\n"
+        "Это может быть квартальный план (Q1/Q2/квартал). Для таких документов верни ВСЕ задачи из перечня, а не выборку.\n"
+        "Если задача помечена как переходящая из прошлого квартала, ее нужно включать как обычную задачу.\n"
+        "Если в строке есть срок/дата или новый дедлайн после переноса, заполни end_date этой датой.\n"
         "Нельзя возвращать заголовки документа, названия разделов, общие фразы без действия.\n"
         "Задача должна быть формулировкой действия (что сделать), а не темой документа.\n"
         "Если в задаче указан ответственный отдел/подразделение, запиши его в assignee_hint.\n"
@@ -644,8 +993,16 @@ async def generate_task_drafts_from_text(
         else:
             relaxed_tasks.append(_build_task(item, source_quote=None, confidence_cap=45))
 
-    # Strict mode first; if all tasks were filtered out, fallback to relaxed mode to avoid empty result.
-    llm_tasks = strict_tasks[:max_drafts] if strict_tasks else relaxed_tasks[:max_drafts]
+    # Prefer strict tasks, but avoid pathological low-yield cases:
+    # if strict validation kept only a handful while relaxed found many more,
+    # use relaxed to prevent returning 1-2 drafts from large quarterly plans.
+    if strict_tasks:
+        if len(strict_tasks) < 8 and len(relaxed_tasks) >= max(12, len(strict_tasks) * 2):
+            llm_tasks = relaxed_tasks[:max_drafts]
+        else:
+            llm_tasks = strict_tasks[:max_drafts]
+    else:
+        llm_tasks = relaxed_tasks[:max_drafts]
     if preparsed_tasks and len(preparsed_tasks) >= max(len(llm_tasks), 12):
         return preparsed_tasks[:max_drafts]
     return llm_tasks

@@ -13,7 +13,7 @@ from app.models.department import Department
 from app.models.project import Project, ProjectDepartment, ProjectFile, ProjectMember
 from app.models.user import User
 from app.models.vault import VaultFile
-from app.services.access_scope import can_access_project, get_task_assignment_scope_user_ids
+from app.services.access_scope import can_access_project
 
 
 def project_vault_key(secret_key: str, vault_encryption_key: str) -> str:
@@ -182,9 +182,16 @@ async def require_assignment_scope_user(
     actor: User,
     target_user_id: str,
 ) -> None:
-    allowed_user_ids = await get_task_assignment_scope_user_ids(db, actor)
-    if target_user_id not in allowed_user_ids:
-        raise HTTPException(status_code=403, detail="No permission to assign this user")
+    user_exists = (
+        await db.execute(
+            select(User.id).where(
+                User.id == target_user_id,
+                User.is_active == True,  # noqa: E712
+            )
+        )
+    ).scalar_one_or_none()
+    if not user_exists:
+        raise HTTPException(status_code=404, detail="Assignee not found")
 
 
 async def maybe_archive_processed_file(

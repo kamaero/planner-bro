@@ -1,6 +1,6 @@
 import type { Task } from '@/types'
 
-type TaskLike = Pick<Task, 'id' | 'title' | 'parent_task_id'>
+type TaskLike = Pick<Task, 'id' | 'title' | 'parent_task_id' | 'order'>
 
 export function parseTaskOrderFromTitle(title: string): number[] | null {
   const match = title.match(/^(\d+(?:\.\d+)*)(?:[.)])?\s+/)
@@ -14,7 +14,18 @@ export function stripTaskOrderPrefix(title: string): string {
   return title.replace(/^(\d+(?:\.\d+)*)(?:[.)])?\s+/, '').trim()
 }
 
-export function compareTasksByOrder(a: Pick<TaskLike, 'title' | 'id'>, b: Pick<TaskLike, 'title' | 'id'>): number {
+export function compareTasksByOrder(
+  a: Pick<TaskLike, 'title' | 'id' | 'order'>,
+  b: Pick<TaskLike, 'title' | 'id' | 'order'>,
+): number {
+  const aOrder = a.order
+  const bOrder = b.order
+  const aHasOrder = aOrder != null
+  const bHasOrder = bOrder != null
+  if (aHasOrder && bHasOrder) return (aOrder as number) - (bOrder as number)
+  if (aHasOrder && !bHasOrder) return -1
+  if (!aHasOrder && bHasOrder) return 1
+
   const ao = parseTaskOrderFromTitle(a.title)
   const bo = parseTaskOrderFromTitle(b.title)
   if (ao && bo) {
@@ -73,12 +84,13 @@ export function buildTaskHierarchy<T extends TaskLike>(tasks: T[]): { ordered: T
 }
 
 export function buildTaskNumbering<T extends TaskLike>(tasks: T[]): Map<string, string> {
-  const sorted = sortTasksByOrder(tasks)
-  const visibleIds = new Set(sorted.map((task) => task.id))
+  // Numbering follows current list order (after reorder), not legacy title prefixes.
+  const ordered = [...tasks]
+  const visibleIds = new Set(ordered.map((task) => task.id))
   const children = new Map<string, T[]>()
   const roots: T[] = []
 
-  for (const task of sorted) {
+  for (const task of ordered) {
     const parentId = task.parent_task_id
     if (parentId && visibleIds.has(parentId)) {
       const arr = children.get(parentId) ?? []
@@ -104,7 +116,7 @@ export function buildTaskNumbering<T extends TaskLike>(tasks: T[]): Map<string, 
   for (let idx = 0; idx < roots.length; idx += 1) {
     append(roots[idx], String(idx + 1))
   }
-  for (const task of sorted) {
+  for (const task of ordered) {
     if (!visited.has(task.id)) {
       append(task, String(result.size + 1))
     }

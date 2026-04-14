@@ -30,6 +30,8 @@ interface Props {
   selectedTaskIds: string[]
   selectedVisibleCount: number
   onToggleSelectAllVisible: () => void
+  onClearTaskSelection: () => void
+  onToggleTaskSelection: (taskId: string) => void
   // bulk edit
   canManage: boolean
   canBulkEdit: boolean
@@ -86,6 +88,8 @@ export function ProjectTaskListView({
   selectedTaskIds,
   selectedVisibleCount,
   onToggleSelectAllVisible,
+  onClearTaskSelection,
+  onToggleTaskSelection,
   canManage,
   canBulkEdit,
   canDelete,
@@ -163,6 +167,20 @@ export function ProjectTaskListView({
           <span className="text-xs text-muted-foreground">
             Выбрано: {selectedTaskIds.length} / Видимых: {filteredTasks.length}
           </span>
+          {selectedTaskIds.length > 0 && (
+            <>
+              <span className="text-xs px-2 py-1 rounded bg-primary/10 text-primary border border-primary/20">
+                Выделено задач: {selectedTaskIds.length}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onClearTaskSelection}
+              >
+                Снять всё выделение
+              </Button>
+            </>
+          )}
           <Button
             variant={hideDone ? 'default' : 'outline'}
             size="sm"
@@ -355,6 +373,8 @@ export function ProjectTaskListView({
         tasks={filteredTasks}
         allTasks={tasks}
         onTaskClick={onTaskClick}
+        selectedTaskIds={selectedTaskIds}
+        onToggleTaskSelection={onToggleTaskSelection}
         hasChildrenIds={hasChildrenIds}
         collapsedTaskIds={collapsedTaskIds}
         onToggleCollapse={onToggleCollapse}

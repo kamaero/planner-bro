@@ -9,7 +9,6 @@ from app.models.task import Task, TaskAssignee
 from app.models.user import User
 from app.services.access_scope import (
     can_access_project,
-    get_task_assignment_scope_user_ids,
     has_department_level_access,
 )
 
@@ -108,9 +107,6 @@ async def ensure_member_for_assignee(
     user = (await db.execute(select(User).where(User.id == assignee_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="Assignee not found")
-    assignable_ids = await get_task_assignment_scope_user_ids(db, actor)
-    if assignee_id not in assignable_ids:
-        raise HTTPException(status_code=403, detail="No permission to assign this user")
     member = (
         await db.execute(
             select(ProjectMember).where(
@@ -119,9 +115,10 @@ async def ensure_member_for_assignee(
             )
         )
     ).scalar_one_or_none()
-    if not member:
-        db.add(ProjectMember(project_id=project_id, user_id=assignee_id, role="member"))
-        await db.flush()
+    if member:
+        return
+    db.add(ProjectMember(project_id=project_id, user_id=assignee_id, role="member"))
+    await db.flush()
 
 
 async def sync_task_assignees(

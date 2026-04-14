@@ -21,6 +21,35 @@ from app.services.system_activity_service import log_system_activity
 from app.services.temp_assignee_service import upsert_temp_assignees
 from app.tasks.celery_app import celery_app
 
+_STRUCTURED_MIN_DRAFTS_XLSX = 10
+_STRUCTURED_MIN_DRAFTS_DOCX = 8
+_PPO_FORCE_LLM_FILENAME_RE = re.compile(
+    r"план\s*ппо.*(?:\b[1-4]\s*(?:кв|квартал)\b|\bq[1-4]\b)",
+    flags=re.IGNORECASE,
+)
+_PPO_FORCE_LLM_TEXT_RE = re.compile(
+    r"план\s+мероприятий\s+по\s+доработке\s+информационного\s+обеспечения\s+системы\s+планирования\s+на\s+(?:\d+\s*[-й]*)?\s*квартал\s+20\d{2}\s*г",
+    flags=re.IGNORECASE,
+)
+
+
+def _should_force_llm_for_ppo(filename: str | None, content_type: str | None) -> bool:
+    name = (filename or "").strip().lower()
+    ctype = (content_type or "").strip().lower()
+    if not name:
+        return False
+    is_word = name.endswith((".doc", ".docx")) or "msword" in ctype or "wordprocessingml" in ctype
+    if not is_word:
+        return False
+    return bool(_PPO_FORCE_LLM_FILENAME_RE.search(name))
+
+
+def _has_ppo_signature_text(text: str | None) -> bool:
+    if not text:
+        return False
+    compact = re.sub(r"\s+", " ", text).strip().lower()
+    return bool(_PPO_FORCE_LLM_TEXT_RE.search(compact))
+
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
@@ -218,14 +247,15 @@ async def _async_process_file_for_ai(job_id: str, prompt_instruction: str | None
                 .where(ProjectMember.project_id == project.id)
             )
         ).scalars().all()
-        user_candidates = (
-            await db.execute(select(User).where(User.is_active == True))
-        ).scalars().all()
+        # Fast-path for ingestion: match assignees against project members only.
+        # Final approve flow still re-resolves hints against all active users.
+        user_candidates = member_users
         member_hints = [f"{user.name} <{user.email}>" for user in member_users]
 
         try:
             lower_name = (file_record.filename or "").lower()
             lower_ct = (file_record.content_type or "").lower()
+            force_llm_ppo = _should_force_llm_for_ppo(file_record.filename, file_record.content_type)
             is_project_plan_source = (
                 lower_name.endswith((".xml", ".mpp", ".xlsx"))
                 or "xml" in lower_ct
@@ -237,7 +267,15 @@ async def _async_process_file_for_ai(job_id: str, prompt_instruction: str | None
             drafts = None
             source_skipped_rows = 0
             raw = read_project_file_bytes(file_record)
-            if is_project_plan_source:
+            extracted_text: str | None = None
+            if is_docx and not force_llm_ppo:
+                try:
+                    extracted_text = extract_text_for_ai_bytes(raw, file_record.filename, file_record.content_type)
+                    if _has_ppo_signature_text(extracted_text):
+                        force_llm_ppo = True
+                except Exception:
+                    extracted_text = None
+            if is_project_plan_source and not force_llm_ppo:
                 try:
                     drafts, source_skipped_rows = _drafts_from_ms_project_file(raw, filename=file_record.filename)
                 except ValueError as exc:
@@ -248,21 +286,47 @@ async def _async_process_file_for_ai(job_id: str, prompt_instruction: str | None
                 # If parser returned nothing, fallback to generic AI text extraction.
                 if lower_name.endswith(".xlsx") and drafts is not None and len(drafts) == 0:
                     drafts = None
+                # For semi-structured quarterly plans (like PPO), parser may extract
+                # just a couple of rows from wide tables. In that case fallback to LLM.
+                if lower_name.endswith(".xlsx") and drafts is not None:
+                    parsed_count = len(drafts)
+                    low_yield = (
+                        parsed_count < _STRUCTURED_MIN_DRAFTS_XLSX
+                        and source_skipped_rows >= max(6, parsed_count * 2)
+                    )
+                    if low_yield:
+                        drafts = None
 
             # DOCX: attempt structured WBS triplet parsing before falling back to LLM.
-            if drafts is None and is_docx:
+            if drafts is None and is_docx and not force_llm_ppo:
                 try:
                     drafts, source_skipped_rows = _drafts_from_ms_project_file(raw, filename=file_record.filename)
                 except ValueError:
                     drafts = None  # Not a WBS plan — will fall through to LLM below
+                if drafts is not None and len(drafts) < _STRUCTURED_MIN_DRAFTS_DOCX:
+                    # DOCX plans often contain full paragraph text and are better handled
+                    # by text+LLM when WBS triplets were only partially detected.
+                    drafts = None
 
             if drafts is None:
-                text = extract_text_for_ai_bytes(raw, file_record.filename, file_record.content_type)
+                text = extracted_text or extract_text_for_ai_bytes(raw, file_record.filename, file_record.content_type)
+                effective_instruction = prompt_instruction
+                if force_llm_ppo:
+                    ppo_instruction = (
+                        "Это типовой файл плана ППО по кварталам. "
+                        "Нужно извлечь полный перечень мероприятий из таблицы/списка, включая переходящие задачи. "
+                        "Приоритет и исполнитель нужно переносить из строки мероприятия."
+                    )
+                    effective_instruction = (
+                        f"{prompt_instruction.strip()} | {ppo_instruction}"
+                        if (prompt_instruction or "").strip()
+                        else ppo_instruction
+                    )
                 drafts = await generate_task_drafts_from_text(
                     text,
                     project.name,
                     member_hints,
-                    prompt_instruction=prompt_instruction,
+                    prompt_instruction=effective_instruction,
                 )
 
             existing_drafts = (

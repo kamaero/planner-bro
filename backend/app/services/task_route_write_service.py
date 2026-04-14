@@ -180,7 +180,8 @@ async def update_task_from_payload(
     projected_status = payload.get("status", task.status)
     _validate_deadline_reason(
         old_end_date=old_end_date,
-        new_end_date=payload.get("end_date"),
+        new_end_date=payload.get("end_date", old_end_date),
+        end_date_was_provided="end_date" in payload,
         projected_status=projected_status,
         deadline_change_reason=deadline_change_reason,
     )

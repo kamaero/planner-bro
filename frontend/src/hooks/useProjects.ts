@@ -431,6 +431,7 @@ export function useBulkUpdateTasks() {
 }
 
 export function useReorderTasks() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({
       projectId,
@@ -439,6 +440,11 @@ export function useReorderTasks() {
       projectId: string
       items: { task_id: string; order: number }[]
     }) => api.reorderTasks(projectId, items),
+    onSuccess: (_, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['tasks', projectId] })
+      qc.invalidateQueries({ queryKey: ['gantt', projectId] })
+      qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
+    },
   })
 }
 

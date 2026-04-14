@@ -136,6 +136,8 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([])
   const [estimatedHours, setEstimatedHours] = useState('')
   const [actualHours, setActualHours] = useState('')
+  const [editTitle, setEditTitle] = useState('')
+  const [editDescription, setEditDescription] = useState('')
 
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
@@ -155,10 +157,11 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     )
   }, [currentUser?.can_manage_team, currentUser?.position_title, currentUser?.role])
   const assigneeOptions = useMemo(() => {
+    const projectMemberUsers = members.map((member) => member.user)
     const baseUsers =
       canAssignAcrossOrg || members.length === 0
-        ? users
-        : members.map((member) => member.user)
+        ? [...projectMemberUsers, ...users]
+        : projectMemberUsers
     const uniqueUsers = new Map<string, (typeof baseUsers)[number]>()
     for (const user of baseUsers) uniqueUsers.set(user.id, user)
     for (const user of task?.assignees ?? []) uniqueUsers.set(user.id, user)
@@ -221,6 +224,8 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       : task.assigned_to_id
         ? [task.assigned_to_id]
         : [])
+    setEditTitle(task.title ?? '')
+    setEditDescription(task.description ?? '')
   }, [task])
 
   if (!task) return null
@@ -310,6 +315,25 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
       } catch (error: any) {
         window.alert(humanizeApiError(error, 'Не удалось удалить задачу'))
       }
+    }
+  }
+
+  const handleSaveBasics = async () => {
+    const normalizedTitle = editTitle.trim()
+    if (!normalizedTitle) {
+      window.alert('Название задачи не может быть пустым.')
+      return
+    }
+    try {
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          title: normalizedTitle,
+          description: editDescription.trim() || null,
+        },
+      })
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось сохранить название/описание задачи'))
     }
   }
 
@@ -469,6 +493,28 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
           </DialogHeader>
 
           <div className="grid gap-4 overflow-y-auto pr-1 h-full lg:grid-cols-2">
+            <div className="space-y-2 lg:col-span-2">
+              <label className="text-xs text-muted-foreground">Название задачи</label>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm bg-background"
+                placeholder="Название задачи"
+              />
+              <label className="text-xs text-muted-foreground">Описание</label>
+              <textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[86px]"
+                placeholder="Описание задачи"
+              />
+              <div className="flex justify-end">
+                <Button size="sm" variant="outline" onClick={() => void handleSaveBasics()} disabled={updateTask.isPending}>
+                  {updateTask.isPending ? 'Сохранение...' : 'Сохранить название и описание'}
+                </Button>
+              </div>
+            </div>
             {/* Priority & Status */}
             <div className="flex items-center gap-2 flex-wrap lg:col-span-2">
               <span

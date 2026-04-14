@@ -66,6 +66,8 @@ from app.services.task_dependency_service import (
 from app.services.dependency_graph_service import get_dependency_graph
 from app.services.time_tracking_service import get_project_time_summary
 from app.services.custom_fields_service import get_task_custom_values, save_task_custom_values
+from app.services.project_access_service import require_project_access
+from app.services.task_reorder_service import renumber_task_titles_after_reorder
 
 router = APIRouter(tags=["tasks"])
 
@@ -220,8 +222,8 @@ async def reorder_tasks(
     db: AsyncSession = Depends(get_db),
 ):
     from app.models.task import Task as TaskModel
-    from app.services.task_access_service import _require_project_access
-    await _require_project_access(db, project_id, current_user)
+
+    await require_project_access(project_id, current_user, db)
     task_ids = [item.task_id for item in data.items]
     tasks = (await db.execute(
         select(TaskModel).where(TaskModel.id.in_(task_ids), TaskModel.project_id == project_id)
@@ -229,6 +231,11 @@ async def reorder_tasks(
     order_map = {item.task_id: item.order for item in data.items}
     for task in tasks:
         task.order = order_map[task.id]
+
+    all_project_tasks = (
+        await db.execute(select(TaskModel).where(TaskModel.project_id == project_id))
+    ).scalars().all()
+    renumber_task_titles_after_reorder(all_project_tasks)
     await db.commit()
 
 

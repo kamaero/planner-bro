@@ -582,8 +582,8 @@ def _parse_ms_project_mpp(content: bytes) -> MSProjectParseResult:
             except Exception:
                 parent_uid = None
 
-                parsed_tasks.append(
-                    ParsedMSProjectTask(
+            parsed_tasks.append(
+                ParsedMSProjectTask(
                     uid=uid,
                     outline_number=outline_number,
                     title=title,
@@ -596,12 +596,12 @@ def _parse_ms_project_mpp(content: bytes) -> MSProjectParseResult:
                     parent_uid=parent_uid,
                     department=None,
                     bureau=None,
-                        task_kind=None,
-                        assignee_hint=None,
-                        assignee_hints=[],
-                        customer=None,
-                    )
+                    task_kind=None,
+                    assignee_hint=None,
+                    assignee_hints=[],
+                    customer=None,
                 )
+            )
         return MSProjectParseResult(tasks=parsed_tasks, skipped_count=skipped_count)
     finally:
         Path(temp_path).unlink(missing_ok=True)

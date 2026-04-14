@@ -418,6 +418,10 @@ export function ProjectDetail() {
     setSelectedTaskIds((prev) => Array.from(new Set([...prev, ...visibleIds])))
   }
 
+  const handleClearTaskSelection = () => {
+    setSelectedTaskIds([])
+  }
+
   const handleBulkStatusUpdate = async (status: string) => {
     if (!canManage || !canBulkEdit || selectedTaskIds.length === 0) return
     setBulkBusy(true)
@@ -805,6 +809,8 @@ export function ProjectDetail() {
           selectedTaskIds={selectedTaskIds}
           selectedVisibleCount={selectedVisibleCount}
           onToggleSelectAllVisible={handleToggleSelectAllVisible}
+          onClearTaskSelection={handleClearTaskSelection}
+          onToggleTaskSelection={handleToggleTaskSelection}
           canManage={canManage}
           canBulkEdit={canBulkEdit}
           canDelete={canDelete}

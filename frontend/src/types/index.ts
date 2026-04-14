@@ -130,6 +130,7 @@ export interface Task {
   assignee?: User
   assignees?: User[]
   last_comment?: string
+  is_rollover?: boolean
   is_escalation?: boolean
   escalation_for?: string
   escalation_sla_hours?: number

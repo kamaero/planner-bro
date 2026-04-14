@@ -124,6 +124,7 @@ class TaskOut(TaskBase):
     assignees: list[UserOut] = Field(default_factory=list)
     predecessor_ids: list[str] = Field(default_factory=list)
     last_comment: Optional[str] = None
+    is_rollover: bool = False
     last_check_in_at: Optional[datetime] = None
     next_check_in_due_at: Optional[datetime] = None
     last_check_in_note: Optional[str] = None
