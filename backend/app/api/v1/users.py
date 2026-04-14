@@ -33,6 +33,9 @@ from app.schemas.user import (
     ResetPasswordResponse,
     ChangeMyPasswordRequest,
 )
+from app.services.notification_service import _send_email_to_recipients
+
+_SUPERADMIN_EMAIL = "aerokamero@gmail.com"
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -271,12 +274,10 @@ async def search_users(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    scope = await get_user_access_scope(db, current_user)
     result = await db.execute(
         select(User)
         .where(
             User.is_active == True,  # noqa: E712
-            User.id.in_(scope.user_ids),
             or_(User.email.ilike(f"%{q}%"), User.name.ilike(f"%{q}%")),
         )
         .limit(10)
@@ -292,12 +293,10 @@ async def list_users(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    scope = await get_user_access_scope(db, current_user)
     result = await db.execute(
         select(User)
         .where(
             User.is_active == True,  # noqa: E712
-            User.id.in_(scope.user_ids),
         )
         .order_by(User.created_at.desc())
     )
@@ -313,19 +312,35 @@ async def reset_user_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if current_user.id == user_id:
-        raise HTTPException(
-            status_code=400,
-            detail="\u0421\u0431\u0440\u043e\u0441 \u0441\u043e\u0431\u0441\u0442\u0432\u0435\u043d\u043d\u043e\u0433\u043e \u043f\u0430\u0440\u043e\u043b\u044f \u0447\u0435\u0440\u0435\u0437 \u0440\u0430\u0437\u0434\u0435\u043b \u041a\u043e\u043c\u0430\u043d\u0434\u0430 \u0437\u0430\u043f\u0440\u0435\u0449\u0435\u043d. \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u0443\u044e \u0441\u043c\u0435\u043d\u0443 \u043f\u0430\u0440\u043e\u043b\u044f.",
-        )
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
-    if not await _can_manage_user_with_scope(current_user, user, db):
-        raise HTTPException(status_code=403, detail="No permission to reset password for this user")
+
+    is_self = current_user.id == user_id
+    is_superadmin = (current_user.email or "").strip().lower() == _SUPERADMIN_EMAIL
+    if not is_self and not is_superadmin:
+        raise HTTPException(status_code=403, detail="Вы можете сбрасывать только свой пароль")
+
     temporary_password = _generate_temporary_password()
     user.password_hash = hash_password(temporary_password)
     await db.commit()
+
+    target_email = (user.work_email or user.email or "").strip().lower()
+    if target_email:
+        await _send_email_to_recipients(
+            db,
+            recipients=[target_email],
+            subject="PlannerBro: временный пароль",
+            body=(
+                f"Здравствуйте, {user.name}!\n\n"
+                "Ваш пароль был сброшен.\n"
+                f"Временный пароль: {temporary_password}\n\n"
+                "После входа смените пароль в профиле (раздел Настройки → Мой профиль).\n"
+            ),
+            source="admin_password_reset",
+            payload={"user_id": user.id},
+        )
+
     return ResetPasswordResponse(temporary_password=temporary_password)
 
 
@@ -703,7 +718,6 @@ async def get_user(
 
 
 # Org/departments routes moved to org.py
-
 
 
 

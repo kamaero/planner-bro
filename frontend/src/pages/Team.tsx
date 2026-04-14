@@ -293,12 +293,13 @@ export function Team() {
   }
 
   const handleResetPassword = async (user: User) => {
-    if (!canCreateSubordinates) return
-    if (user.id === currentUser?.id) {
-      setError('Сброс собственного пароля через список команды отключен')
-      return
-    }
-    if (!window.confirm(`Сбросить пароль для ${formatUserDisplayName(user)} (${user.email})?`)) return
+    const isSelf = user.id === currentUser?.id
+    const isSuperadmin = currentUser?.email === 'aerokamero@gmail.com'
+    if (!isSelf && !isSuperadmin) return
+    const confirmMsg = isSelf
+      ? `Сбросить ваш пароль? Новый временный пароль будет отправлен на ${user.work_email || user.email}.`
+      : `Сбросить пароль для ${formatUserDisplayName(user)} (${user.work_email || user.email})?`
+    if (!window.confirm(confirmMsg)) return
     setBusyUserId(user.id)
     setError('')
     try {

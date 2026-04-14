@@ -260,7 +260,10 @@ export function TeamUsersSection({
                   size="sm"
                   variant="outline"
                   onClick={() => handleResetPassword(user)}
-                  disabled={busyUserId === user.id || user.id === currentUser?.id || !canCreateSubordinates}
+                  disabled={
+                    busyUserId === user.id ||
+                    (user.id !== currentUser?.id && currentUser?.email !== 'aerokamero@gmail.com')
+                  }
                 >
                   Сброс пароля
                 </Button>
