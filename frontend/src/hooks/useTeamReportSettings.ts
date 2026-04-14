@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { api } from '@/api/client'
 import type { ReportDispatchSettings } from '@/types'
 
 export const TEAM_WEEKDAY_OPTIONS = [
@@ -187,6 +188,71 @@ export function useTeamReportSettings() {
     })
   }
 
+  const [reportSettingsLoading, setReportSettingsLoading] = useState(false)
+  const [reportSettingsSaving, setReportSettingsSaving] = useState(false)
+  const [reportSettingsMessage, setReportSettingsMessage] = useState('')
+  const [adminDirectiveTestBusy, setAdminDirectiveTestBusy] = useState(false)
+
+  const loadReportSettings = async (canManageTeam: boolean | undefined) => {
+    if (!canManageTeam) return
+    setReportSettingsLoading(true)
+    setReportSettingsMessage('')
+    try {
+      const data = await api.getReportDispatchSettings()
+      setReportSettings(data)
+    } catch (err: any) {
+      setReportSettingsMessage(err?.response?.data?.detail ?? 'Не удалось загрузить настройки рассылки')
+    } finally {
+      setReportSettingsLoading(false)
+    }
+  }
+
+  const handleSaveReportSettings = async (e: React.FormEvent, canManageTeam: boolean | undefined) => {
+    e.preventDefault()
+    if (!canManageTeam) return
+    setReportSettingsSaving(true)
+    setReportSettingsMessage('')
+    try {
+      const digestSchedule = reportSettings.digest_schedule
+        ? { ...reportSettings.digest_schedule, timezone: TEAM_FIXED_DIGEST_TIMEZONE }
+        : undefined
+      const saved = await api.updateReportDispatchSettings({
+        smtp_enabled: reportSettings.smtp_enabled,
+        email_test_mode: reportSettings.email_test_mode,
+        email_test_recipient: reportSettings.email_test_recipient,
+        telegram_summaries_enabled: false,
+        email_analytics_enabled: reportSettings.email_analytics_enabled,
+        email_analytics_recipients: reportSettings.email_analytics_recipients,
+        admin_directive: reportSettings.admin_directive,
+        digest_filters: reportSettings.digest_filters,
+        digest_schedule: digestSchedule,
+      })
+      setReportSettings(saved)
+      setReportSettingsMessage('Настройки рассылки сохранены')
+    } catch (err: any) {
+      setReportSettingsMessage(err?.response?.data?.detail ?? 'Не удалось сохранить настройки рассылки')
+    } finally {
+      setReportSettingsSaving(false)
+    }
+  }
+
+  const handleAdminDirectiveTest = async (canManageTeam: boolean | undefined) => {
+    if (!canManageTeam) return
+    setAdminDirectiveTestBusy(true)
+    setReportSettingsMessage('')
+    try {
+      const recipient = reportSettings.admin_directive?.recipient?.trim() || 'aerokamero@gmail.com'
+      const result = await api.runAdminDirectiveTest({ recipient })
+      setReportSettingsMessage(
+        `Тест отправлен: ${result.recipient}. Просрочки: ${result.overdue_count}, без движения: ${result.stale_count}, без назначений: ${result.unassigned_count}.`
+      )
+    } catch (err: any) {
+      setReportSettingsMessage(err?.response?.data?.detail ?? 'Не удалось отправить тестовую рассылку')
+    } finally {
+      setAdminDirectiveTestBusy(false)
+    }
+  }
+
   return {
     reportSettings,
     setReportSettings,
@@ -198,5 +264,12 @@ export function useTeamReportSettings() {
     updateDigestChannelDays,
     updateDigestChannelWindow,
     updateAdminDirective,
+    reportSettingsLoading,
+    reportSettingsSaving,
+    reportSettingsMessage,
+    adminDirectiveTestBusy,
+    loadReportSettings,
+    handleSaveReportSettings,
+    handleAdminDirectiveTest,
   }
 }

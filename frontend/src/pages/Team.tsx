@@ -1,107 +1,79 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
-import { useExternalContractors, useCreateExternalContractor, useDeleteExternalContractor } from '@/hooks/useProjects'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import type { AuthLoginEvent, Department, TempAssignee, User } from '@/types'
+import type { AuthLoginEvent, Department, User } from '@/types'
 import { formatUserDisplayName } from '@/lib/userName'
 import { useTeamOwnPassword } from '@/hooks/useTeamOwnPassword'
 import { useTeamLoginEvents } from '@/hooks/useTeamLoginEvents'
 import { useTeamTempAssignees } from '@/hooks/useTeamTempAssignees'
 import { useTeamDepartmentCreate } from '@/hooks/useTeamDepartmentCreate'
+import { useTeamDepartmentDrafts } from '@/hooks/useTeamDepartmentDrafts'
 import { useTeamUsersAdminState } from '@/hooks/useTeamUsersAdminState'
+import { useTeamUserOperations } from '@/hooks/useTeamUserOperations'
 import { useTeamReportSettings } from '@/hooks/useTeamReportSettings'
 import { useTeamCoreData } from '@/hooks/useTeamCoreData'
 import { TeamOverviewSection } from '@/components/Team/TeamOverviewSection'
 import { TeamOrgSection } from '@/components/Team/TeamOrgSection'
 import { TeamUsersSection } from '@/components/Team/TeamUsersSection'
 import { TeamSettingsSection } from '@/components/Team/TeamSettingsSection'
+import { ExternalContractorsSection } from '@/components/Team/ExternalContractorsSection'
+import { TempAssigneesSection } from '@/components/Team/TempAssigneesSection'
 
 export function Team() {
-  const currentUser = useAuthStore((s) => s.user)
+  const { user: currentUser, setUser } = useAuthStore()
   const canManageTeam = currentUser?.role === 'admin' || currentUser?.can_manage_team
   const canCreateSubordinates = canManageTeam || currentUser?.role === 'manager'
 
   const [section, setSection] = useState<'org' | 'mailing' | 'profile'>('org')
   const { users, setUsers, departments, loading, error, setError, loadAll: loadCoreData } = useTeamCoreData()
   const { loginEvents, loginEventsLoading, loginEventsError, loadLoginEvents } = useTeamLoginEvents(!!canManageTeam)
-  const [busyUserId, setBusyUserId] = useState<string | null>(null)
-  const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({})
-  const [departmentDrafts, setDepartmentDrafts] = useState<Record<string, { parent_id: string; head_user_id: string }>>({})
-  const {
-    permissionDrafts,
-    setPermissionDrafts,
-    nameDrafts,
-    setNameDrafts,
-    initializeUserDrafts,
-    invite,
-    setInvite,
-    resetInvite,
-    inviting,
-    setInviting,
-    inviteSuccess,
-    setInviteSuccess,
-    inviteError,
-    setInviteError,
-    handlePermissionChange,
-    isPermissionChanged,
-    isNameChanged,
-  } = useTeamUsersAdminState()
+
+  const adminState = useTeamUsersAdminState()
+  const { permissionDrafts, setPermissionDrafts, nameDrafts, setNameDrafts,
+    initializeUserDrafts, invite, setInvite, resetInvite, inviting, setInviting,
+    inviteSuccess, setInviteSuccess, inviteError, setInviteError,
+    handlePermissionChange, isPermissionChanged, isNameChanged } = adminState
 
   const {
-    changingOwnPassword,
-    ownPasswordSuccess,
-    ownPasswordError,
-    ownPasswordForm,
-    setOwnPasswordForm,
-    handleChangeOwnPassword,
+    changingOwnPassword, ownPasswordSuccess, ownPasswordError,
+    ownPasswordForm, setOwnPasswordForm, handleChangeOwnPassword,
   } = useTeamOwnPassword()
+
   const {
-    reportSettings,
-    setReportSettings,
-    weekdayOptions,
-    timeWindowOptions,
-    fixedDigestTimezone,
-    getDigestPreset,
-    updateDigestSchedule,
-    updateDigestChannelDays,
-    updateDigestChannelWindow,
-    updateAdminDirective,
+    reportSettings, setReportSettings, weekdayOptions, timeWindowOptions,
+    fixedDigestTimezone, getDigestPreset, updateDigestSchedule,
+    updateDigestChannelDays, updateDigestChannelWindow, updateAdminDirective,
+    reportSettingsLoading, reportSettingsSaving, reportSettingsMessage,
+    adminDirectiveTestBusy, loadReportSettings, handleSaveReportSettings, handleAdminDirectiveTest,
   } = useTeamReportSettings()
-  const [reportSettingsLoading, setReportSettingsLoading] = useState(false)
-  const [reportSettingsSaving, setReportSettingsSaving] = useState(false)
-  const [reportSettingsMessage, setReportSettingsMessage] = useState('')
-  const [adminDirectiveTestBusy, setAdminDirectiveTestBusy] = useState(false)
+
   const loadAllRef = useRef<() => Promise<unknown>>(() => Promise.resolve())
-  const {
-    tempAssignees,
-    tempAssigneesLoading,
-    tempAssigneesError,
-    tempAssigneeBusyId,
-    tempAssigneeLinkDrafts,
-    setTempAssigneeLinkDrafts,
-    loadTempAssignees,
-    handleLinkTempAssignee,
-    handleIgnoreTempAssignee,
-    handlePromoteTempAssignee,
+
+  const { tempAssignees, tempAssigneesLoading, tempAssigneesError, tempAssigneeBusyId,
+    tempAssigneeLinkDrafts, setTempAssigneeLinkDrafts, loadTempAssignees,
+    handleLinkTempAssignee, handleIgnoreTempAssignee, handlePromoteTempAssignee,
   } = useTeamTempAssignees(!!canManageTeam, () => loadAllRef.current())
-  const {
-    newDepartmentName,
-    setNewDepartmentName,
-    newDepartmentParentId,
-    setNewDepartmentParentId,
-    newDepartmentHeadId,
-    setNewDepartmentHeadId,
-    creatingDepartment,
-    handleCreateDepartment,
+
+  const { newDepartmentName, setNewDepartmentName, newDepartmentParentId,
+    setNewDepartmentParentId, newDepartmentHeadId, setNewDepartmentHeadId,
+    creatingDepartment, handleCreateDepartment,
   } = useTeamDepartmentCreate(!!canManageTeam, () => loadAllRef.current())
 
-  const [nameBusyId, setNameBusyId] = useState<string | null>(null)
+  const { departmentDrafts, initializeDepartmentDrafts, handleDepartmentDraftChange,
+    handleSaveDepartment, handleDeleteDepartment,
+  } = useTeamDepartmentDrafts(canManageTeam, setError, () => loadAllRef.current())
 
-  const { setUser } = useAuthStore()
+  const { busyUserId, nameBusyId, tempPasswords,
+    handleSaveName, handleResetPassword, handleDeactivate, handleSavePermissions,
+  } = useTeamUserOperations({
+    currentUser, setUser, setUsers, setError,
+    permissionDrafts, setPermissionDrafts, nameDrafts,
+    canCreateSubordinates,
+  })
 
   const usersById = useMemo(() => {
     const map: Record<string, User> = {}
@@ -133,17 +105,13 @@ export function Team() {
     const dt = new Date(iso)
     if (Number.isNaN(dt.getTime())) return '—'
     return new Intl.DateTimeFormat('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
     }).format(dt)
   }
 
   const getLoginEmailType = (event: AuthLoginEvent) => {
-    if (!event.user_id) return 'неизвестно'
-    const user = usersById[event.user_id]
+    const user = usersById[event.user_id ?? '']
     if (!user) return 'неизвестно'
     const work = (user.work_email || '').trim().toLowerCase()
     const normalized = (event.normalized_email || '').trim().toLowerCase()
@@ -155,43 +123,10 @@ export function Team() {
     const result = await loadCoreData()
     if (!result) return
     initializeUserDrafts(result.users)
-    const depDrafts: Record<string, { parent_id: string; head_user_id: string }> = {}
-    result.departments.forEach((d: Department) => {
-      depDrafts[d.id] = { parent_id: d.parent_id ?? '', head_user_id: d.head_user_id ?? '' }
-    })
-    setDepartmentDrafts(depDrafts)
+    initializeDepartmentDrafts(result.departments)
   }
 
   loadAllRef.current = loadAll
-
-  useEffect(() => {
-    void loadAll()
-  }, [])
-
-  useEffect(() => {
-    if (section !== 'org' || !canManageTeam) return
-    void loadLoginEvents()
-    void loadTempAssignees()
-  }, [section, canManageTeam])
-
-  const loadReportSettings = async () => {
-    if (!canManageTeam) return
-    setReportSettingsLoading(true)
-    setReportSettingsMessage('')
-    try {
-      const data = await api.getReportDispatchSettings()
-      setReportSettings(data)
-    } catch (err: any) {
-      setReportSettingsMessage(err?.response?.data?.detail ?? 'Не удалось загрузить настройки рассылки')
-    } finally {
-      setReportSettingsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    if (section !== 'mailing' || !canManageTeam) return
-    void loadReportSettings()
-  }, [section, canManageTeam])
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -225,212 +160,24 @@ export function Team() {
     }
   }
 
-  const handleDeleteDepartment = async (department: Department) => {
-    if (!canManageTeam) return
-    if (!window.confirm(`Удалить отдел ${department.name}?`)) return
-    try {
-      await api.deleteDepartment(department.id)
-      await loadAll()
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Не удалось удалить отдел')
-    }
-  }
+  useEffect(() => { void loadAll() }, [])
 
-  const handleDepartmentDraftChange = (
-    departmentId: string,
-    field: 'parent_id' | 'head_user_id',
-    value: string
-  ) => {
-    setDepartmentDrafts((prev) => ({
-      ...prev,
-      [departmentId]: { ...(prev[departmentId] ?? { parent_id: '', head_user_id: '' }), [field]: value },
-    }))
-  }
+  useEffect(() => {
+    if (section !== 'org' || !canManageTeam) return
+    void loadLoginEvents()
+    void loadTempAssignees()
+  }, [section, canManageTeam])
 
-  const handleSaveDepartment = async (department: Department) => {
-    if (!canManageTeam) return
-    const draft = departmentDrafts[department.id]
-    if (!draft) return
-    try {
-      await api.updateDepartment(department.id, {
-        parent_id: draft.parent_id || null,
-        head_user_id: draft.head_user_id || null,
-      })
-      await loadAll()
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Не удалось обновить отдел')
-    }
-  }
-
-  const handleSaveName = async (user: User) => {
-    const draft = nameDrafts[user.id]
-    if (!draft) return
-    setNameBusyId(user.id)
-    setError('')
-    try {
-      let updated: User
-      if (user.id === currentUser?.id) {
-        updated = await api.updateMe({
-          first_name: draft.first_name.trim(),
-          middle_name: draft.middle_name.trim(),
-          last_name: draft.last_name.trim(),
-        })
-        setUser(updated)
-      } else {
-        if (!canManageTeam) return
-        updated = await api.updateUserName(user.id, {
-          first_name: draft.first_name.trim(),
-          middle_name: draft.middle_name.trim(),
-          last_name: draft.last_name.trim(),
-        })
-      }
-      setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)))
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Не удалось обновить имя')
-    } finally {
-      setNameBusyId(null)
-    }
-  }
-
-  const handleResetPassword = async (user: User) => {
-    const isSelf = user.id === currentUser?.id
-    const isSuperadmin = currentUser?.email === 'aerokamero@gmail.com'
-    if (!isSelf && !isSuperadmin) return
-    const confirmMsg = isSelf
-      ? `Сбросить ваш пароль? Новый временный пароль будет отправлен на ${user.work_email || user.email}.`
-      : `Сбросить пароль для ${formatUserDisplayName(user)} (${user.work_email || user.email})?`
-    if (!window.confirm(confirmMsg)) return
-    setBusyUserId(user.id)
-    setError('')
-    try {
-      const data = await api.resetUserPassword(user.id)
-      setTempPasswords((prev) => ({ ...prev, [user.id]: data.temporary_password }))
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Не удалось сбросить пароль')
-    } finally {
-      setBusyUserId(null)
-    }
-  }
-
-  const handleDeactivate = async (user: User) => {
-    if (!canCreateSubordinates) return
-    if (!window.confirm(`Отключить сотрудника ${formatUserDisplayName(user)}?`)) return
-    setBusyUserId(user.id)
-    setError('')
-    try {
-      await api.deactivateUser(user.id)
-      setUsers((prev) => prev.filter((u) => u.id !== user.id))
-      setTempPasswords((prev) => {
-        const next = { ...prev }
-        delete next[user.id]
-        return next
-      })
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Не удалось отключить сотрудника')
-    } finally {
-      setBusyUserId(null)
-    }
-  }
-
-  const handleSavePermissions = async (user: User) => {
-    const draft = permissionDrafts[user.id]
-    if (!draft) return
-    setBusyUserId(user.id)
-    setError('')
-    try {
-      const canChangeOwnOnlyToggle =
-        currentUser?.role === 'admin' || user.manager_id === currentUser?.id
-      const updated = await api.updateUserPermissions(user.id, {
-        ...draft,
-        visibility_scope: draft.visibility_scope ?? 'department_scope',
-        own_tasks_visibility_enabled: canChangeOwnOnlyToggle
-          ? (draft.own_tasks_visibility_enabled ?? true)
-          : undefined,
-        work_email: draft.work_email?.trim() ? draft.work_email.trim() : null,
-        position_title: draft.position_title?.trim() ? draft.position_title.trim() : null,
-        manager_id: draft.manager_id || null,
-        department_id: draft.department_id || null,
-      })
-      setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)))
-      setPermissionDrafts((prev) => ({
-        ...prev,
-        [user.id]: {
-          role: updated.role,
-          visibility_scope: updated.visibility_scope ?? 'department_scope',
-          own_tasks_visibility_enabled: updated.own_tasks_visibility_enabled ?? true,
-          work_email: updated.work_email ?? null,
-          position_title: updated.position_title ?? null,
-          manager_id: updated.manager_id ?? null,
-          department_id: updated.department_id ?? null,
-          can_manage_team: updated.can_manage_team,
-          can_delete: updated.can_delete,
-          can_import: updated.can_import,
-          can_bulk_edit: updated.can_bulk_edit,
-        },
-      }))
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Не удалось обновить карточку сотрудника')
-    } finally {
-      setBusyUserId(null)
-    }
-  }
-
-  const handleSaveReportSettings = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!canManageTeam) return
-    setReportSettingsSaving(true)
-    setReportSettingsMessage('')
-    try {
-      const digestSchedule = reportSettings.digest_schedule
-        ? {
-            ...reportSettings.digest_schedule,
-            timezone: fixedDigestTimezone,
-          }
-        : undefined
-      const saved = await api.updateReportDispatchSettings({
-        smtp_enabled: reportSettings.smtp_enabled,
-        email_test_mode: reportSettings.email_test_mode,
-        email_test_recipient: reportSettings.email_test_recipient,
-        telegram_summaries_enabled: false,
-        email_analytics_enabled: reportSettings.email_analytics_enabled,
-        email_analytics_recipients: reportSettings.email_analytics_recipients,
-        admin_directive: reportSettings.admin_directive,
-        digest_filters: reportSettings.digest_filters,
-        digest_schedule: digestSchedule,
-      })
-      setReportSettings(saved)
-      setReportSettingsMessage('Настройки рассылки сохранены')
-    } catch (err: any) {
-      setReportSettingsMessage(err?.response?.data?.detail ?? 'Не удалось сохранить настройки рассылки')
-    } finally {
-      setReportSettingsSaving(false)
-    }
-  }
-
-  const handleAdminDirectiveTest = async () => {
-    if (!canManageTeam) return
-    setAdminDirectiveTestBusy(true)
-    setReportSettingsMessage('')
-    try {
-      const recipient = reportSettings.admin_directive?.recipient?.trim() || 'aerokamero@gmail.com'
-      const result = await api.runAdminDirectiveTest({ recipient })
-      setReportSettingsMessage(
-        `Тест отправлен: ${result.recipient}. Просрочки: ${result.overdue_count}, без движения: ${result.stale_count}, без назначений: ${result.unassigned_count}.`
-      )
-    } catch (err: any) {
-      setReportSettingsMessage(err?.response?.data?.detail ?? 'Не удалось отправить тестовую рассылку')
-    } finally {
-      setAdminDirectiveTestBusy(false)
-    }
-  }
+  useEffect(() => {
+    if (section !== 'mailing' || !canManageTeam) return
+    void loadReportSettings(canManageTeam)
+  }, [section, canManageTeam])
 
   return (
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Настройки</h1>
-        <p className="text-sm text-muted-foreground">
-          Оргструктура, рассылки и профиль.
-        </p>
+        <p className="text-sm text-muted-foreground">Оргструктура, рассылки и профиль.</p>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -545,8 +292,8 @@ export function Team() {
           reportSettingsSaving={reportSettingsSaving}
           reportSettingsMessage={reportSettingsMessage}
           adminDirectiveTestBusy={adminDirectiveTestBusy}
-          handleSaveReportSettings={handleSaveReportSettings}
-          handleAdminDirectiveTest={handleAdminDirectiveTest}
+          handleSaveReportSettings={(e) => void handleSaveReportSettings(e, canManageTeam)}
+          handleAdminDirectiveTest={() => void handleAdminDirectiveTest(canManageTeam)}
         />
       )}
 
@@ -600,163 +347,6 @@ export function Team() {
               <Switch checked disabled />
             </div>
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ExternalContractorsSection() {
-  const { data: contractors = [] } = useExternalContractors()
-  const create = useCreateExternalContractor()
-  const remove = useDeleteExternalContractor()
-  const [name, setName] = useState('')
-
-  const handleAdd = async () => {
-    const trimmed = name.trim()
-    if (!trimmed) return
-    await create.mutateAsync(trimmed)
-    setName('')
-  }
-
-  return (
-    <div className="space-y-4 max-w-lg">
-      <div>
-        <p className="text-sm font-semibold">Внешние исполнители</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Подрядчики и внешние организации, которых можно назначить блокером задачи.
-        </p>
-      </div>
-
-      <div className="flex gap-2">
-        <input
-          type="text"
-          className="flex-1 h-8 text-sm border rounded px-3 bg-background"
-          placeholder="Название / ФИО подрядчика"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-        />
-        <Button size="sm" className="h-8" onClick={handleAdd} disabled={!name.trim() || create.isPending}>
-          Добавить
-        </Button>
-      </div>
-
-      {contractors.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Список пуст.</p>
-      ) : (
-        <div className="space-y-1">
-          {contractors.map((c) => (
-            <div key={c.id} className="flex items-center justify-between rounded-lg border bg-card px-3 py-2">
-              <span className="text-sm">{c.name}</span>
-              <Button
-                variant="ghost" size="sm"
-                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                onClick={() => remove.mutate(c.id)}
-                disabled={remove.isPending}
-              >
-                ×
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-interface TempAssigneesSectionProps {
-  tempAssignees: TempAssignee[]
-  tempAssigneesLoading: boolean
-  tempAssigneesError: string
-  tempAssigneeBusyId: string | null
-  tempAssigneeLinkDrafts: Record<string, string>
-  setTempAssigneeLinkDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>
-  loadTempAssignees: () => void
-  handleLinkTempAssignee: (item: TempAssignee) => void
-  handleIgnoreTempAssignee: (item: TempAssignee) => void
-  handlePromoteTempAssignee: (item: TempAssignee) => void
-  users: User[]
-}
-
-function TempAssigneesSection({
-  tempAssignees,
-  tempAssigneesLoading,
-  tempAssigneesError,
-  tempAssigneeBusyId,
-  tempAssigneeLinkDrafts,
-  setTempAssigneeLinkDrafts,
-  loadTempAssignees,
-  handleLinkTempAssignee,
-  handleIgnoreTempAssignee,
-  handlePromoteTempAssignee,
-  users,
-}: TempAssigneesSectionProps) {
-  return (
-    <div className="rounded-xl border bg-card p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="font-semibold">Нераспознанные исполнители из импорта</h2>
-        <Button variant="outline" size="sm" onClick={loadTempAssignees} disabled={tempAssigneesLoading}>
-          {tempAssigneesLoading ? 'Обновление...' : 'Обновить'}
-        </Button>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        Исполнители, не сопоставленные с аккаунтом. Их можно связать с существующим сотрудником или завести нового.
-      </p>
-      {tempAssigneesError && <p className="text-sm text-destructive">{tempAssigneesError}</p>}
-      {!tempAssigneesLoading && tempAssignees.length === 0 && (
-        <p className="text-sm text-muted-foreground">Нераспознанных исполнителей нет.</p>
-      )}
-      {!tempAssigneesLoading && tempAssignees.length > 0 && (
-        <div className="space-y-2">
-          {tempAssignees.map((item) => (
-            <div key={item.id} className="rounded border p-3 space-y-2">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-medium">{item.raw_name}</span>
-                <span className="text-muted-foreground">· source: {item.source}</span>
-                <span className="text-muted-foreground">· seen: {item.seen_count}</span>
-                {item.email && <span className="text-muted-foreground">· {item.email}</span>}
-              </div>
-              <div className="flex flex-col md:flex-row gap-2 md:items-center">
-                <select
-                  value={tempAssigneeLinkDrafts[item.id] ?? ''}
-                  onChange={(e) => setTempAssigneeLinkDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                  className="w-full md:w-80 border rounded px-2 py-2 bg-background text-sm"
-                >
-                  <option value="">Связать с пользователем...</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {formatUserDisplayName(u)} ({u.email})
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleLinkTempAssignee(item)}
-                  disabled={!tempAssigneeLinkDrafts[item.id] || tempAssigneeBusyId === item.id}
-                >
-                  Связать
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handlePromoteTempAssignee(item)}
-                  disabled={tempAssigneeBusyId === item.id}
-                >
-                  Создать сотрудника
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => handleIgnoreTempAssignee(item)}
-                  disabled={tempAssigneeBusyId === item.id}
-                >
-                  Игнорировать
-                </Button>
-              </div>
-            </div>
-          ))}
         </div>
       )}
     </div>
