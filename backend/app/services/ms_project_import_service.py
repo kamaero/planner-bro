@@ -204,9 +204,10 @@ def _normalize_assignee_hints(value: str | None) -> list[str]:
             match = re.search(r"([А-ЯЁA-Z][а-яёa-z-]+)\s+([А-ЯЁA-Z])?\.?\s*([А-ЯЁA-Z])?\.?", token)
             if match:
                 surname = match.group(1)
-                i1 = match.group(2).upper()
-                i2 = match.group(3).upper()
-                value = f"{surname} {i1}.{i2}."
+                i1 = (match.group(2) or "").upper()
+                i2 = (match.group(3) or "").upper()
+                initials = (f"{i1}." if i1 else "") + (f"{i2}." if i2 else "")
+                value = f"{surname} {initials}".strip() if initials else surname
             else:
                 value = token[:255]
         key = value.strip().lower()
