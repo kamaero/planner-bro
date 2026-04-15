@@ -138,6 +138,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const [actualHours, setActualHours] = useState('')
   const [editTitle, setEditTitle] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [taskNumber, setTaskNumber] = useState('')
 
   const { data: comments = [] } = useTaskComments(task?.id)
   const { data: events = [] } = useTaskEvents(task?.id)
@@ -194,6 +195,22 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
   const taskHierarchyOptions = useMemo(() => buildTaskHierarchy(projectTasks), [projectTasks])
   const taskNumbering = useMemo(() => buildTaskNumbering(projectTasks), [projectTasks])
 
+  // Reset free-text fields only when a different task is opened — prevents
+  // background refetches from clobbering unsaved edits the user is typing.
+  useEffect(() => {
+    if (!task) return
+    setEditTitle(task.title ?? '')
+    setEditDescription(task.description ?? '')
+    setTaskNumber(task.task_number ?? '')
+    setCheckInSummary('')
+    setCheckInBlockers('')
+    setNeedManagerHelp(false)
+    setNewDependencyTaskId('')
+    setNewDependencyType('finish_to_start')
+    setNewDependencyLagDays('0')
+  }, [task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync server-driven fields on every task update (status, priority, dates, etc.)
   useEffect(() => {
     if (!task) return
     setStartDate(task.start_date ?? '')
@@ -209,23 +226,15 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
     setIsEscalation(!!task.is_escalation)
     setEscalationFor(task.escalation_for ?? '')
     setEscalationSlaHours(String(task.escalation_sla_hours ?? 24))
-    setCheckInSummary('')
-    setCheckInBlockers('')
     setCheckInNextDueDate(
       task.next_check_in_due_at ? new Date(task.next_check_in_due_at).toISOString().slice(0, 16) : ''
     )
-    setNeedManagerHelp(false)
-    setNewDependencyTaskId('')
-    setNewDependencyType('finish_to_start')
-    setNewDependencyLagDays('0')
     setSelectedParentTaskId(task.parent_task_id ?? '')
     setSelectedAssigneeIds(task.assignee_ids && task.assignee_ids.length > 0
       ? task.assignee_ids
       : task.assigned_to_id
         ? [task.assigned_to_id]
         : [])
-    setEditTitle(task.title ?? '')
-    setEditDescription(task.description ?? '')
   }, [task])
 
   if (!task) return null
@@ -329,6 +338,7 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
         taskId: task.id,
         data: {
           title: normalizedTitle,
+          task_number: taskNumber.trim() || null,
           description: editDescription.trim() || null,
         },
       })
@@ -495,13 +505,23 @@ export function TaskDrawer({ task, open, onOpenChange, projectId }: TaskDrawerPr
           <div className="grid gap-4 overflow-y-auto pr-1 h-full lg:grid-cols-2">
             <div className="space-y-2 lg:col-span-2">
               <label className="text-xs text-muted-foreground">Название задачи</label>
-              <input
-                type="text"
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm bg-background"
-                placeholder="Название задачи"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={taskNumber}
+                  onChange={(e) => setTaskNumber(e.target.value)}
+                  className="w-20 border rounded px-2 py-2 text-sm bg-background shrink-0"
+                  placeholder="№"
+                  title="Порядковый номер"
+                />
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="flex-1 border rounded px-3 py-2 text-sm bg-background"
+                  placeholder="Название задачи"
+                />
+              </div>
               <label className="text-xs text-muted-foreground">Описание</label>
               <textarea
                 value={editDescription}

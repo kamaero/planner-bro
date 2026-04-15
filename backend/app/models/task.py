@@ -18,6 +18,7 @@ class Task(Base):
         ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
     )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
+    task_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     description: Mapped[str | None] = mapped_column(String(5000), nullable=True)
     status: Mapped[str] = mapped_column(
         SAEnum("planning", "tz", "todo", "in_progress", "testing", "review", "done", name="task_status"),

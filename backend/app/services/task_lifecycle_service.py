@@ -48,8 +48,6 @@ async def rollup_parent_schedule(db: AsyncSession, parent_task_id: str | None) -
 def normalize_priority_for_control_ski(priority: str, control_ski: bool) -> str:
     if control_ski:
         return "critical"
-    if priority == "critical":
-        return "medium"
     return priority
 
 

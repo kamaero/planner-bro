@@ -117,6 +117,7 @@ export interface Task {
   parent_task_id?: string
   predecessor_ids?: string[]
   title: string
+  task_number?: string | null
   description?: string
   status: 'planning' | 'tz' | 'todo' | 'in_progress' | 'testing' | 'review' | 'done'
   priority: 'low' | 'medium' | 'high' | 'critical'

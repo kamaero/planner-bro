@@ -17,6 +17,7 @@ def _ensure_iso_date_string(value: object, field_name: str) -> object:
 
 class TaskBase(BaseModel):
     title: str
+    task_number: Optional[str] = None
     description: Optional[str] = None
     status: str = "planning"
     priority: str = "medium"
@@ -50,6 +51,7 @@ class TaskCreate(TaskBase):
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
+    task_number: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
