@@ -188,33 +188,87 @@ def _normalize_assignee_hint(value: str | None) -> str | None:
     return hints[0] if hints else None
 
 
+# Precompiled patterns for assignee name normalization
+_RE_INITIALS_THEN_SURNAME = re.compile(
+    r"^([А-ЯЁA-Z])\.?\s*([А-ЯЁA-Z])?\.?\s+([А-ЯЁA-Z][а-яёa-z][а-яёa-z-]*)$"
+)
+_RE_INITIAL_GLUED_SURNAME = re.compile(
+    r"^([А-ЯЁA-Z])\.([А-ЯЁA-Z][а-яёa-z][а-яёa-z-]*)$"
+)
+_RE_SURNAME_THEN_INITIALS = re.compile(
+    r"^([А-ЯЁA-Z][а-яёa-z][а-яёa-z-]*)(?:\s+([А-ЯЁA-Z])\.?\s*([А-ЯЁA-Z])?\.?)?$"
+)
+_RE_FULL_NAME = re.compile(
+    r"^([А-ЯЁA-Z][а-яёa-z][а-яёa-z-]*)\s+([А-ЯЁA-Z][а-яёa-z]+)\s+([А-ЯЁA-Z][а-яёa-z]+)$"
+)
+
+
+def _normalize_single_assignee(token: str) -> str:
+    """Normalize one assignee token to a canonical form. Never raises."""
+    try:
+        token = re.sub(r"\s+", " ", token).strip(" .,;")
+        if not token:
+            return ""
+        if "@" in token:
+            return token.lower()[:255]
+
+        # Full name: "Фамилия Имя Отчество"
+        m = _RE_FULL_NAME.match(token)
+        if m:
+            surname = m.group(1)
+            i1 = m.group(2)[0].upper()
+            i2 = m.group(3)[0].upper()
+            return f"{surname} {i1}.{i2}."
+
+        # Initials first: "А.Ф. Фамилия" / "А. Фамилия" / "АФ Фамилия"
+        m = _RE_INITIALS_THEN_SURNAME.match(token)
+        if m:
+            surname = m.group(3)
+            i1 = m.group(1).upper()
+            i2 = (m.group(2) or "").upper()
+            initials = f"{i1}." + (f"{i2}." if i2 else "")
+            return f"{surname} {initials}"
+
+        # Initial glued to surname: "А.Фамилия"
+        m = _RE_INITIAL_GLUED_SURNAME.match(token)
+        if m:
+            return f"{m.group(2)} {m.group(1).upper()}."
+
+        # Surname first: "Фамилия И.О." / "Фамилия И." / "Фамилия"
+        m = _RE_SURNAME_THEN_INITIALS.match(token)
+        if m:
+            surname = m.group(1)
+            i1 = (m.group(2) or "").upper()
+            i2 = (m.group(3) or "").upper()
+            initials = (f"{i1}." if i1 else "") + (f"{i2}." if i2 else "")
+            return f"{surname} {initials}".strip() if initials else surname
+
+        # Fallback: keep as-is
+        return token[:255]
+    except Exception:
+        return token[:255] if token else ""
+
+
 def _normalize_assignee_hints(value: str | None) -> list[str]:
     if not value:
         return []
-    raw = re.sub(r"\s+", " ", value).strip(" ;,")
+    raw = re.sub(r"[ \t]+", " ", value).strip(" ;,/")
     if not raw:
         return []
-    tokens = [part.strip() for part in re.split(r"[;,/\n]|(?:\s+и\s+)", raw) if part and part.strip()]
+    # Split on common multi-assignee separators
+    parts = re.split(r"[;,/\n\r]|\s+и\s+|\s+and\s+", raw, flags=re.IGNORECASE)
+    tokens = [p.strip() for p in parts if p and p.strip()]
     normalized: list[str] = []
     seen: set[str] = set()
     for token in tokens:
-        if "@" in token:
-            value = token.lower()
-        else:
-            match = re.search(r"([А-ЯЁA-Z][а-яёa-z-]+)\s+([А-ЯЁA-Z])?\.?\s*([А-ЯЁA-Z])?\.?", token)
-            if match:
-                surname = match.group(1)
-                i1 = (match.group(2) or "").upper()
-                i2 = (match.group(3) or "").upper()
-                initials = (f"{i1}." if i1 else "") + (f"{i2}." if i2 else "")
-                value = f"{surname} {initials}".strip() if initials else surname
-            else:
-                value = token[:255]
-        key = value.strip().lower()
-        if not key or key in seen:
+        norm = _normalize_single_assignee(token)
+        if not norm:
+            continue
+        key = norm.lower()
+        if key in seen:
             continue
         seen.add(key)
-        normalized.append(value)
+        normalized.append(norm)
     return normalized
 
 
