@@ -1,6 +1,13 @@
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init
 from app.core.config import settings
+
+
+@worker_process_init.connect
+def reset_db_pool(**kwargs):
+    from app.core.database import engine
+    engine.sync_engine.dispose()
 
 celery_app = Celery(
     "planner-bro",
