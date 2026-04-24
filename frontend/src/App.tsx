@@ -20,6 +20,8 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { formatUserDisplayName } from '@/lib/userName'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { useChangelogModal } from '@/hooks/useChangelogModal'
+import { ChangelogModal } from '@/components/ChangelogModal/ChangelogModal'
 import { useQuery } from '@tanstack/react-query'
 import type { ChatUnreadSummary, User } from '@/types'
 import { Link, useNavigate } from 'react-router-dom'
@@ -71,6 +73,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     users: Array<{ id: string; name: string; email: string }>
   } | null>(null)
   useWebSocket()
+  const changelog = useChangelogModal()
 
   const { data: onlineUsers = [] } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['online-users'],
@@ -375,6 +378,11 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </aside>
+      <ChangelogModal
+        open={changelog.isOpen}
+        sections={changelog.sections}
+        onDismiss={changelog.dismiss}
+      />
       <div className="flex-1 min-w-0 flex flex-col">
         <main className="flex-1 bg-muted/30">{children}</main>
       </div>
