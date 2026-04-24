@@ -57,6 +57,7 @@ services:
       EMAILS_FROM: notifications@plannerbro.local
     volumes:
       - ./backend:/app
+      - ./CHANGELOG.md:/app/CHANGELOG.md:ro
     ports:
       - "8000:8000"
     depends_on:

@@ -41,6 +41,7 @@ services:
       - ./backend/firebase-credentials.json:/app/firebase-credentials.json:ro
       - ./uploads/projects:/app/uploads/projects
       - ./uploads/vault:/app/uploads/vault
+      - ./CHANGELOG.md:/app/CHANGELOG.md:ro
     depends_on:
       postgres:
         condition: service_healthy
