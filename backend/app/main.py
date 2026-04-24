@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.database import engine, AsyncSessionLocal
 from app.core.firebase import init_firebase
 from app.core.security import decode_token
-from app.api.v1 import auth, projects, tasks, users, org, temp_assignees, login_events, notifications, vault, chat, analytics, email_actions, ai_analysis
+from app.api.v1 import auth, projects, tasks, users, org, temp_assignees, login_events, notifications, vault, chat, analytics, email_actions, ai_analysis, changelog
 from app.services.websocket_manager import ws_manager
 from app.services.system_activity_service import log_system_activity_standalone
 
@@ -93,6 +93,7 @@ app.include_router(chat.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(email_actions.router, prefix="/api/v1")
 app.include_router(ai_analysis.router, prefix="/api/v1")
+app.include_router(changelog.router, prefix="/api/v1")
 
 
 @app.get("/health")
