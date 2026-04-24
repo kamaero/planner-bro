@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, Enum as SAEnum, Boolean, ForeignKey
+from datetime import datetime, date, timezone
+from sqlalchemy import String, DateTime, Date, Enum as SAEnum, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -42,6 +42,8 @@ class User(Base):
     can_bulk_edit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     reminder_days: Mapped[str] = mapped_column(String(64), default="1,3", nullable=False)
     email_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
+    last_seen_changelog_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_seen_changelog_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     fcm_token: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
