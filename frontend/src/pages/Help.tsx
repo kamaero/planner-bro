@@ -1,6 +1,9 @@
-import { useEffect } from 'react'
-import { BookOpen, Download, FolderKanban, ShieldCheck, Smartphone, Upload, Users, Workflow, BrainCircuit, Mail, ListChecks, Lock, Zap } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { BookOpen, Download, FolderKanban, ShieldCheck, Smartphone, Upload, Users, Workflow, BrainCircuit, Mail, ListChecks, Lock, Zap, History } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
+import { api } from '@/api/client'
+import { ChangelogModal } from '@/components/ChangelogModal/ChangelogModal'
+import type { ChangelogSection } from '@/types'
 
 type HelpSection = {
   id: string
@@ -177,6 +180,16 @@ const QUICK_LINKS = [
 
 export function Help() {
   const location = useLocation()
+  const [changelogOpen, setChangelogOpen] = useState(false)
+  const [changelogSections, setChangelogSections] = useState<ChangelogSection[]>([])
+
+  const openChangelog = async () => {
+    if (changelogSections.length === 0) {
+      const data = await api.getChangelog()
+      setChangelogSections(data.sections ?? [])
+    }
+    setChangelogOpen(true)
+  }
 
   useEffect(() => {
     if (!location.hash) {
@@ -209,6 +222,16 @@ export function Help() {
                   {item.label}
                 </a>
               ))}
+              <div className="mt-1 border-t pt-2">
+                <button
+                  type="button"
+                  onClick={openChangelog}
+                  className="flex w-full items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <History className="h-3.5 w-3.5 shrink-0" />
+                  История изменений
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -259,6 +282,13 @@ export function Help() {
           </div>
         </div>
       </section>
+
+      <ChangelogModal
+        open={changelogOpen}
+        sections={changelogSections}
+        allSections={changelogSections}
+        onDismiss={() => setChangelogOpen(false)}
+      />
     </div>
   )
 }
