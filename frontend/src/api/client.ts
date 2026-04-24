@@ -488,4 +488,10 @@ export const api = {
     apiClient.put(`/tasks/${taskId}/external-deps/${depId}`, data).then((r) => r.data),
   deleteExternalDep: (taskId: string, depId: string) =>
     apiClient.delete(`/tasks/${taskId}/external-deps/${depId}`),
+
+  // Changelog
+  getChangelog: () =>
+    apiClient.get('/changelog').then((r) => r.data),
+  dismissChangelog: () =>
+    apiClient.post('/changelog/dismiss').then((r) => r.data),
 }

@@ -45,6 +45,20 @@ export interface User {
   updated_at: string
   last_sign_in_at?: string | null
   last_login_at?: string | null
+  last_seen_changelog_hash?: string | null
+  last_seen_changelog_date?: string | null
+}
+
+export interface ChangelogSection {
+  version: string
+  date: string   // "YYYY-MM-DD"
+  title: string
+  content: string
+}
+
+export interface ChangelogResponse {
+  hash: string
+  sections: ChangelogSection[]
 }
 
 export interface AuthLoginEvent {
