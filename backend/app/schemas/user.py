@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional
 
 
@@ -56,6 +56,8 @@ class UserOut(UserBase):
     email_notifications_enabled: bool = True
     is_active: bool = True
     last_login_at: Optional[datetime] = None
+    last_seen_changelog_hash: Optional[str] = None
+    last_seen_changelog_date: Optional[date] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
