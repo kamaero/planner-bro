@@ -8,6 +8,7 @@ export function useChangelogModal() {
   const setUser = useAuthStore((s) => s.setUser)
   const [isOpen, setIsOpen] = useState(false)
   const [sections, setSections] = useState<ChangelogSection[]>([])
+  const [allSections, setAllSections] = useState<ChangelogSection[]>([])
   const [currentHash, setCurrentHash] = useState('')
 
   useEffect(() => {
@@ -25,6 +26,7 @@ export function useChangelogModal() {
 
       setCurrentHash(data.hash)
       setSections(newSections)
+      setAllSections(data.sections)
       setIsOpen(true)
     }).catch(() => {
       // changelog unavailable — silently skip
@@ -48,5 +50,5 @@ export function useChangelogModal() {
     }
   }
 
-  return { isOpen, sections, dismiss }
+  return { isOpen, sections, allSections, dismiss }
 }

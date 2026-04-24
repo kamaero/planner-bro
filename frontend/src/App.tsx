@@ -381,6 +381,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <ChangelogModal
         open={changelog.isOpen}
         sections={changelog.sections}
+        allSections={changelog.allSections}
         onDismiss={changelog.dismiss}
       />
       <div className="flex-1 min-w-0 flex flex-col">

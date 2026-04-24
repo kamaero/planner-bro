@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,7 @@ import type { ChangelogSection } from '@/types'
 interface Props {
   open: boolean
   sections: ChangelogSection[]
+  allSections: ChangelogSection[]
   onDismiss: () => void
 }
 
@@ -55,7 +57,11 @@ function renderContent(content: string) {
   })
 }
 
-export function ChangelogModal({ open, sections, onDismiss }: Props) {
+export function ChangelogModal({ open, sections, allSections, onDismiss }: Props) {
+  const [showAll, setShowAll] = useState(false)
+  const displayed = showAll ? allSections : sections
+  const hasMore = allSections.length > sections.length
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onDismiss() }}>
       <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col gap-0">
@@ -63,7 +69,7 @@ export function ChangelogModal({ open, sections, onDismiss }: Props) {
           <DialogTitle>Что нового в Planner Bro</DialogTitle>
         </DialogHeader>
         <div className="overflow-y-auto flex-1 pr-1 space-y-6">
-          {sections.map((section) => (
+          {displayed.map((section) => (
             <div key={section.version}>
               <div className="flex items-baseline gap-2 mb-2">
                 <span className="font-bold text-base">[{section.version}]</span>
@@ -79,6 +85,15 @@ export function ChangelogModal({ open, sections, onDismiss }: Props) {
               <ul className="space-y-0.5">{renderContent(section.content)}</ul>
             </div>
           ))}
+          {hasMore && !showAll && (
+            <button
+              type="button"
+              onClick={() => setShowAll(true)}
+              className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+            >
+              Показать всю историю изменений →
+            </button>
+          )}
         </div>
         <div className="pt-4 border-t mt-4">
           <Button onClick={onDismiss} className="w-full">
