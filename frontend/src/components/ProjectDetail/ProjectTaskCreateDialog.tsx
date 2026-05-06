@@ -1,10 +1,9 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { formatUserDisplayName } from '@/lib/userName'
-import { Plus } from 'lucide-react'
 import type { User, Task } from '@/types'
 
 export type TaskCreateFormState = {
@@ -50,12 +49,6 @@ export function ProjectTaskCreateDialog({
 }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <Button size="sm">
-          <Plus className="w-4 h-4 mr-1" />
-          Добавить задачу
-        </Button>
-      </DialogTrigger>
       <DialogContent className="w-[95vw] max-w-5xl max-h-[88vh]">
         <DialogHeader>
           <DialogTitle>Создать задачу</DialogTitle>
