@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, BarChart2, List, Users, Pencil, Paperclip, Trash2, BrainCircuit, GitBranch, Clock } from 'lucide-react'
+import { ArrowLeft, BarChart2, List, Users, Pencil, Paperclip, Trash2, BrainCircuit, GitBranch, Clock, Printer } from 'lucide-react'
 
 type ViewType = 'gantt' | 'list' | 'members' | 'files' | 'graph' | 'time'
 
@@ -29,6 +29,7 @@ interface Props {
   onDeleteClick: () => void
   deletePending: boolean
   onAddTaskClick: () => void
+  onPrintClick: () => void
 }
 
 export function ProjectDetailHeader({
@@ -45,6 +46,7 @@ export function ProjectDetailHeader({
   onDeleteClick,
   deletePending,
   onAddTaskClick,
+  onPrintClick,
 }: Props) {
   return (
     <div className="flex items-center gap-4 mb-6">
@@ -107,6 +109,11 @@ export function ProjectDetailHeader({
       <Button variant="outline" size="sm" disabled={!canManage} onClick={onEditClick}>
         <Pencil className="w-4 h-4 mr-1" />
         Редактировать
+      </Button>
+
+      <Button variant="outline" size="sm" onClick={onPrintClick}>
+        <Printer className="w-4 h-4 mr-1" />
+        Принт
       </Button>
 
       {canDelete && (

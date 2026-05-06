@@ -687,6 +687,16 @@ export function ProjectDetail() {
     }
   }
 
+  const accessToken = useAuthStore((s) => s.accessToken)
+
+  function handlePrintClick() {
+    const url = new URL(`/api/v1/projects/${id}/tasks/print`, window.location.origin)
+    if (accessToken) {
+      url.searchParams.set('token', accessToken)
+    }
+    window.open(url.toString(), '_blank', 'noopener,noreferrer')
+  }
+
   const handleQuickStatusChange = async (task: Task, status: string) => {
     const progress = status === 'done' ? 100 : task.progress_percent ?? 0
     try {
@@ -736,6 +746,7 @@ export function ProjectDetail() {
         onDeleteClick={handleDeleteProject}
         deletePending={deleteProject.isPending}
         onAddTaskClick={() => setTaskDialogOpen(true)}
+        onPrintClick={handlePrintClick}
       />
       <ProjectEditDialog
         open={editOpen}

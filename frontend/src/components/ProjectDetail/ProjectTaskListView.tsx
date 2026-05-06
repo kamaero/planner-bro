@@ -4,8 +4,6 @@ import { formatUserDisplayName } from '@/lib/userName'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TaskTable } from '@/components/TaskTable/TaskTable'
-import { useAuthStore } from '@/store/authStore'
-import { Printer } from 'lucide-react'
 
 interface Props {
   tasks: Task[]
@@ -122,16 +120,6 @@ export function ProjectTaskListView({
   externalDepsMap,
   isFetching,
 }: Props) {
-  const accessToken = useAuthStore((s) => s.accessToken)
-
-  function handlePrintClick() {
-    const url = new URL(`/api/v1/projects/${projectId}/tasks/print`, window.location.origin)
-    if (accessToken) {
-      url.searchParams.set('token', accessToken)
-    }
-    window.open(url.toString(), '_blank', 'noopener,noreferrer')
-  }
-
   return (
     <div className="space-y-3">
       <div className="rounded-lg border bg-card p-3 space-y-3">
@@ -201,10 +189,6 @@ export function ProjectTaskListView({
             {hideDone
               ? `Показать выполненные (${tasks.filter((t) => t.status === 'done').length})`
               : 'Скрыть выполненные'}
-          </Button>
-          <Button variant="outline" size="sm" onClick={handlePrintClick} disabled={!accessToken}>
-            <Printer className="mr-2 h-4 w-4" />
-            Принт
           </Button>
           <select
             value={taskSortBy}
