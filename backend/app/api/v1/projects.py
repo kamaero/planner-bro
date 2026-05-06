@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_from_bearer_or_token
 from app.models.user import User
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
@@ -48,6 +49,7 @@ from app.services.project_rules_service import (
     require_delete_permission,
     require_import_permission,
 )
+from app.services.project_print_service import build_project_tasks_print_html
 from app.services.project_ai_draft_service import (
     list_ai_drafts_for_project,
     list_ai_jobs_for_project,
@@ -65,6 +67,7 @@ from app.services.custom_fields_service import (
     update_custom_field,
     delete_custom_field,
 )
+from app.services.task_service import get_tasks_for_project
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
@@ -239,6 +242,17 @@ async def suggest_import_columns(
         model=settings.DEEPSEEK_MODEL,
     )
     return {"suggestions": suggestions}
+
+
+@router.get("/{project_id}/tasks/print", response_class=HTMLResponse)
+async def print_project_tasks(
+    project_id: str,
+    current_user: User = Depends(get_current_user_from_bearer_or_token),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await require_project_access(project_id, current_user, db)
+    tasks = await get_tasks_for_project(db, project_id)
+    return HTMLResponse(content=build_project_tasks_print_html(project, tasks))
 
 
 @router.get("/{project_id}/files/{file_id}/download")
