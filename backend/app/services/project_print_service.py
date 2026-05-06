@@ -62,10 +62,10 @@ def _project_anchor_date(project: Project) -> date:
     return project.start_date or project.end_date or date.today()
 
 
-def _quarter_label(project: Project) -> str:
-    anchor = _project_anchor_date(project)
-    quarter = ((anchor.month - 1) // 3) + 1
-    return f"на {quarter}-й квартал {anchor.year}г."
+def _quarter_label() -> str:
+    today = date.today()
+    quarter = ((today.month - 1) // 3) + 1
+    return f"на {quarter}-й квартал {today.year}г."
 
 
 def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
@@ -92,7 +92,7 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
         """.strip()
 
     project_name = escape(project.name)
-    quarter_label = escape(_quarter_label(project))
+    quarter_label = escape(_quarter_label())
 
     return f"""<!DOCTYPE html>
 <html lang="ru">
@@ -125,6 +125,7 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
     .company {{
       font-size: 14px;
       margin-bottom: 18px;
+      text-align: center;
     }}
     .approval {{
       width: 78mm;
