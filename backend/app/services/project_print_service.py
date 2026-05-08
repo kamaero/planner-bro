@@ -204,8 +204,29 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
     .footer {{
       margin-top: 28px;
     }}
-    .footer p {{
+    .sig-line {{
+      display: flex;
+      align-items: center;
       margin: 0 0 12px;
+      font-size: 14px;
+    }}
+    .sig-role {{
+      width: 210px;
+      flex-shrink: 0;
+    }}
+    .sig-space {{
+      flex: 1;
+      text-align: center;
+      letter-spacing: 3px;
+      border-bottom: 1px solid #000;
+      margin: 0 8px;
+      min-width: 60px;
+      height: 1.2em;
+    }}
+    .sig-name {{
+      width: 125px;
+      text-align: right;
+      flex-shrink: 0;
     }}
     @page {{
       size: A4 portrait;
@@ -273,10 +294,26 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
     </div>
 
     <div class="footer">
-      <p>Руководитель ЦК ИНФОРМ ________ Рахимов А.Ф.</p>
-      <p>Начальник ППО                  ________ Подоприхин В.Н.</p>
-      <p>Начальник ОРИТ                ________ Ульянова Л.М.</p>
-      <p>Начальник ОАСУП             ________ Целоусова Н.С.</p>
+      <div class="sig-line">
+        <span class="sig-role">Руководитель ЦК ИНФОР</span>
+        <span class="sig-space"></span>
+        <span class="sig-name">Рахимов А.Ф.</span>
+      </div>
+      <div class="sig-line">
+        <span class="sig-role">Начальник ППО</span>
+        <span class="sig-space"></span>
+        <span class="sig-name">Подоприхин В.Н.</span>
+      </div>
+      <div class="sig-line">
+        <span class="sig-role">Начальник ОРИТ</span>
+        <span class="sig-space"></span>
+        <span class="sig-name">Ульянова Л.М.</span>
+      </div>
+      <div class="sig-line">
+        <span class="sig-role">Начальник ОАСУП</span>
+        <span class="sig-space"></span>
+        <span class="sig-name">Целоусова Н.С.</span>
+      </div>
     </div>
   </div>
   <script>
