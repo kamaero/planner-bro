@@ -167,6 +167,9 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
     thead {{
       display: table-header-group;
     }}
+    th.task {{
+      text-align: center;
+    }}
     tfoot {{
       display: table-footer-group;
     }}
@@ -270,10 +273,10 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
     </div>
 
     <div class="footer">
-      <p>Руководитель ЦК _________________________</p>
-      <p>Начальник ППО _________________________</p>
-      <p>Начальник ОРИТ _________________________</p>
-      <p>Начальник ОАСУП _________________________</p>
+      <p>Руководитель ЦК ИНФОРМ ________ Рахимов А.Ф.</p>
+      <p>Начальник ППО                  ________ Подоприхин В.Н.</p>
+      <p>Начальник ОРИТ                ________ Ульянова Л.М.</p>
+      <p>Начальник ОАСУП             ________ Целоусова Н.С.</p>
     </div>
   </div>
   <script>
