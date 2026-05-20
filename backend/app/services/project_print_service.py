@@ -37,16 +37,10 @@ def _priority_for_print(priority: str) -> str:
     return _PRIORITY_PRINT_MAP.get(priority, "2")
 
 
-def _format_assignee(task: Task) -> str:
-    assignee = task.assignee
-    if assignee is None and task.assignees:
-        assignee = task.assignees[0]
-    if assignee is None:
-        return "-"
-
-    last_name = (getattr(assignee, "last_name", "") or "").strip()
-    first_name = (getattr(assignee, "first_name", "") or "").strip()
-    middle_name = (getattr(assignee, "middle_name", "") or "").strip()
+def _format_one_assignee(user: object) -> str:
+    last_name = (getattr(user, "last_name", "") or "").strip()
+    first_name = (getattr(user, "first_name", "") or "").strip()
+    middle_name = (getattr(user, "middle_name", "") or "").strip()
     if last_name or first_name or middle_name:
         initials = ""
         if first_name:
@@ -54,8 +48,16 @@ def _format_assignee(task: Task) -> str:
         if middle_name:
             initials += f"{middle_name[0].upper()}."
         return " ".join(part for part in [last_name, initials] if part).strip()
+    return (getattr(user, "name", "") or "").strip() or "-"
 
-    return (getattr(assignee, "name", "") or "").strip() or "-"
+
+def _format_assignee(task: Task) -> str:
+    users = task.assignees
+    if not users and task.assignee:
+        users = [task.assignee]
+    if not users:
+        return "-"
+    return "<br>".join(_format_one_assignee(u) for u in users)
 
 
 def _project_anchor_date(project: Project) -> date:

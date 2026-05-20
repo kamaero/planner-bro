@@ -470,6 +470,7 @@ export function useAddTaskComment() {
     onSuccess: (_, { taskId }) => {
       qc.invalidateQueries({ queryKey: ['task-comments', taskId] })
       qc.invalidateQueries({ queryKey: ['task-events', taskId] })
+      qc.invalidateQueries({ queryKey: ['tasks'] })
     },
   })
 }
