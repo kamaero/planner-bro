@@ -45,20 +45,10 @@ async def compute_project_summary(db: AsyncSession, project_id: str) -> dict:
             if user:
                 uid = user.id
                 if uid not in assignee_map:
-                    name = (
-                        (user.display_name or "").strip()
-                        or (
-                            " ".join(
-                                p for p in [
-                                    (getattr(user, "last_name", "") or "").strip(),
-                                    (getattr(user, "first_name", "") or "").strip(),
-                                ]
-                                if p
-                            )
-                        )
-                        or user.name
-                        or user.email
-                    )
+                    last = (user.last_name or "").strip()
+                    first = (user.first_name or "").strip()
+                    initials = f"{first[0].upper()}." if first else ""
+                    name = " ".join(p for p in [last, initials] if p) or user.name or user.email
                     assignee_map[uid] = {"name": name, "count": 0}
                 assignee_map[uid]["count"] += 1
 
