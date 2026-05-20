@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, BarChart2, List, Users, Pencil, Paperclip, Trash2, BrainCircuit, GitBranch, Clock, Printer } from 'lucide-react'
+import { ArrowLeft, BarChart2, List, Users, Pencil, Paperclip, Trash2, BrainCircuit, GitBranch, Clock, Printer, FileText } from 'lucide-react'
 
 type ViewType = 'gantt' | 'list' | 'members' | 'files' | 'graph' | 'time'
 
@@ -30,6 +30,8 @@ interface Props {
   deletePending: boolean
   onAddTaskClick: () => void
   onPrintClick: () => void
+  onSummaryClick: () => void
+  summaryPending: boolean
 }
 
 const VIEW_BUTTONS: { key: ViewType; icon: typeof BarChart2; label: string; title: string }[] = [
@@ -56,6 +58,8 @@ export function ProjectDetailHeader({
   deletePending,
   onAddTaskClick,
   onPrintClick,
+  onSummaryClick,
+  summaryPending,
 }: Props) {
   return (
     <div className="mb-6 space-y-3">
@@ -78,6 +82,10 @@ export function ProjectDetailHeader({
           <Button variant="outline" size="sm" disabled={!canManage} onClick={onEditClick} title="Редактировать проект">
             <Pencil className="w-4 h-4" />
             <span className="hidden md:inline md:ml-1">Редактировать</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={onSummaryClick} disabled={summaryPending} title="Сводка по проекту">
+            <FileText className="w-4 h-4" />
+            <span className="hidden md:inline md:ml-1">{summaryPending ? 'Загрузка...' : 'Сводка'}</span>
           </Button>
           <Button variant="outline" size="sm" onClick={onPrintClick} title="Печатная форма">
             <Printer className="w-4 h-4" />

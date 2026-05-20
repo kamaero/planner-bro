@@ -431,6 +431,10 @@ export const api = {
   analyzeProject: (projectId: string) =>
     apiClient.post(`/projects/${projectId}/ai-analysis`).then((r) => r.data),
 
+  // Project summary (rule-based stats)
+  getProjectSummary: (projectId: string) =>
+    apiClient.get(`/projects/${projectId}/summary`).then((r) => r.data),
+
   // Dependency graph
   getDependencyGraph: (projectId: string) =>
     apiClient.get(`/projects/${projectId}/dependency-graph`).then((r) => r.data),

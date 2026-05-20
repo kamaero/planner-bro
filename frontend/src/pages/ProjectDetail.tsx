@@ -31,6 +31,7 @@ import { ProjectDetailHeader } from '@/components/ProjectDetail/ProjectDetailHea
 import { ProjectSummaryCard } from '@/components/ProjectDetail/ProjectSummaryCard'
 import { ProjectTaskListView } from '@/components/ProjectDetail/ProjectTaskListView'
 import { ProjectAiAnalysisModal } from '@/components/ProjectDetail/ProjectAiAnalysisModal'
+import { ProjectSummaryModal, type ProjectSummaryData } from '@/components/ProjectDetail/ProjectSummaryModal'
 import { DependencyGraphView } from '@/components/DependencyGraphView'
 import { TimeTrackingPanel } from '@/components/TimeTrackingPanel'
 import { TaskDrawer } from '@/components/TaskDrawer/TaskDrawer'
@@ -163,6 +164,9 @@ export function ProjectDetail() {
   const [bulkMoveProjectId, setBulkMoveProjectId] = useState('')
   const [aiAnalysisResult, setAiAnalysisResult] = useState<{ analysis: string; stats: Record<string, number>; generated_at: string } | null>(null)
   const [showAiAnalysis, setShowAiAnalysis] = useState(false)
+  const [summaryData, setSummaryData] = useState<ProjectSummaryData | null>(null)
+  const [showSummary, setShowSummary] = useState(false)
+  const [summaryPending, setSummaryPending] = useState(false)
   const [showProjectDeadlineModal, setShowProjectDeadlineModal] = useState(false)
   const [pendingProjectFormData, setPendingProjectFormData] = useState<Record<string, unknown> | null>(null)
   const [showProjectDeadlineHistory, setShowProjectDeadlineHistory] = useState(false)
@@ -537,6 +541,19 @@ export function ProjectDetail() {
     }
   }
 
+  const handleSummaryClick = async () => {
+    setSummaryPending(true)
+    try {
+      const data = await api.getProjectSummary(id!)
+      setSummaryData(data)
+      setShowSummary(true)
+    } catch (error: any) {
+      window.alert(humanizeApiError(error, 'Не удалось загрузить сводку проекта.'))
+    } finally {
+      setSummaryPending(false)
+    }
+  }
+
   const handleAiAnalysis = async () => {
     try {
       const result = await analyzeProject.mutateAsync(id!)
@@ -747,6 +764,8 @@ export function ProjectDetail() {
         deletePending={deleteProject.isPending}
         onAddTaskClick={() => setTaskDialogOpen(true)}
         onPrintClick={handlePrintClick}
+        onSummaryClick={handleSummaryClick}
+        summaryPending={summaryPending}
       />
       <ProjectEditDialog
         open={editOpen}
@@ -899,6 +918,14 @@ export function ProjectDetail() {
         <ProjectAiAnalysisModal
           result={aiAnalysisResult}
           onClose={() => setShowAiAnalysis(false)}
+        />
+      )}
+
+      {showSummary && summaryData && (
+        <ProjectSummaryModal
+          projectName={project.name}
+          data={summaryData}
+          onClose={() => setShowSummary(false)}
         />
       )}
     </div>

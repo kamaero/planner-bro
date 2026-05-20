@@ -22,6 +22,7 @@ from app.services.project_catalog_service import create_project_with_owner_membe
 from app.services.project_service import get_gantt_data
 from app.services.project_dashboard_service import build_department_dashboard_payload
 from app.services.project_analytics_service import compute_deadline_stats_summary
+from app.services.project_summary_service import compute_project_summary
 from app.services.project_import_service import import_tasks_from_ms_project_content, read_import_upload_or_400
 from app.services.ms_project_import_service import suggest_xlsx_column_mapping
 from app.services.project_access_service import (
@@ -253,6 +254,16 @@ async def print_project_tasks(
     project = await require_project_access(project_id, current_user, db)
     tasks = await get_tasks_for_project(db, project_id)
     return HTMLResponse(content=build_project_tasks_print_html(project, tasks))
+
+
+@router.get("/{project_id}/summary")
+async def get_project_summary(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_project_access(project_id, current_user, db)
+    return await compute_project_summary(db, project_id)
 
 
 @router.get("/{project_id}/files/{file_id}/download")
