@@ -9,7 +9,6 @@ const Dashboard = lazy(() => import('@/pages/Dashboard').then((m) => ({ default:
 const MyTasks = lazy(() => import('@/pages/MyTasks').then((m) => ({ default: m.MyTasks })))
 const ProjectDetail = lazy(() => import('@/pages/ProjectDetail').then((m) => ({ default: m.ProjectDetail })))
 const Team = lazy(() => import('@/pages/Team').then((m) => ({ default: m.Team })))
-const TeamBoard = lazy(() => import('@/pages/TeamBoard').then((m) => ({ default: m.TeamBoard })))
 const Analytics = lazy(() => import('@/pages/Analytics').then((m) => ({ default: m.Analytics })))
 const TeamStorage = lazy(() => import('@/pages/TeamStorage').then((m) => ({ default: m.TeamStorage })))
 const Chat = lazy(() => import('@/pages/Chat').then((m) => ({ default: m.Chat })))
@@ -31,7 +30,6 @@ import {
   LayoutDashboard,
   Users,
   BarChart2,
-  PencilRuler,
   Lock,
   Moon,
   Sun,
@@ -117,7 +115,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { to: '/reports', label: 'Отчёты', icon: FileText },
     { to: '/workload', label: 'Загрузка', icon: CalendarDays },
     { to: '/team', label: 'Настройки', icon: Users },
-    { to: '/team-board', label: 'Доска команды', icon: PencilRuler },
     { to: '/storage', label: 'Хранилище', icon: Lock },
     { to: '/help', label: 'Помощь', icon: HelpCircle },
   ]
@@ -541,16 +538,6 @@ export function App() {
           <AuthGuard>
             <AppLayout>
               <Team />
-            </AppLayout>
-          </AuthGuard>
-        }
-      />
-      <Route
-        path="/team-board"
-        element={
-          <AuthGuard>
-            <AppLayout>
-              <TeamBoard />
             </AppLayout>
           </AuthGuard>
         }
