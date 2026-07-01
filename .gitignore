@@ -85,3 +85,6 @@ backend/alembic/versions/*.pyc
 
 # Agent worktrees (never commit — local, machine-specific)
 .claude/worktrees/
+
+# Bind-mounted user data (vault + project files) — NEVER commit; git clean/stash -u must not touch it
+uploads/
