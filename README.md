@@ -85,5 +85,3 @@ SKIP_FRONTEND=1 ./scripts/deploy-prod.sh
 ## Дополнительная документация
 
 - Гайд для разработки и эксплуатации: [CLAUDE.md](./CLAUDE.md)
-- Product backlog/TODO: [PlannerBro_TODO.md](./PlannerBro_TODO.md)
-- Краткое описание системы для анонсов: [SYSTEM_OVERVIEW_RU.md](./SYSTEM_OVERVIEW_RU.md)
