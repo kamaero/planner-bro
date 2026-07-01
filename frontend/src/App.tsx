@@ -226,7 +226,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background flex">
-      <aside className="w-64 border-r bg-card/60 flex flex-col h-screen sticky top-0">
+      <aside className="w-64 border-r bg-card/60 flex flex-col h-screen sticky top-0 overflow-y-auto">
         <div className="px-4 py-4 flex items-start justify-between gap-2">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold">
@@ -331,7 +331,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             )}
           </Link>
         </nav>
-        <div className="mt-4 border-t flex-1 min-h-0 flex flex-col">
+        <div className="mt-4 border-t flex flex-col">
           <div className="px-4 py-4 flex items-center gap-3 border-b">
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{formatUserDisplayName(user)}</p>
@@ -346,7 +346,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
             <NotificationBell />
           </div>
-          <div className="px-4 py-3 space-y-4 flex-1 overflow-y-auto">
+          <div className="px-4 py-3 space-y-4">
             <section>
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
