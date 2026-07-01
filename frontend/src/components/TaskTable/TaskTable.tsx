@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import type { Task } from '@/types'
 import { Clock, AlertCircle, CornerDownRight, ChevronRight, ChevronDown, GripVertical, ArrowUp, ArrowDown } from 'lucide-react'
 import {
@@ -111,7 +111,7 @@ function SortableRow({
   )
 }
 
-export function TaskTable({
+function TaskTableImpl({
   tasks,
   allTasks,
   onTaskClick,
@@ -482,3 +482,7 @@ export function TaskTable({
     </div>
   )
 }
+
+// memo: пропсы из ProjectDetail стабилизированы через useCallback/useMemo,
+// поэтому TaskTable пропускает рендеры, когда список и колбэки не изменились.
+export const TaskTable = memo(TaskTableImpl)

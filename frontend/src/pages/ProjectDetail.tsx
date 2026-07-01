@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   useProject,
@@ -174,14 +174,14 @@ export function ProjectDetail() {
   const [taskRowSize, setTaskRowSize] = useState<'compact' | 'normal' | 'comfortable'>('normal')
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<Set<string>>(new Set())
 
-  const toggleCollapse = (taskId: string) => {
+  const toggleCollapse = useCallback((taskId: string) => {
     setCollapsedTaskIds(prev => {
       const next = new Set(prev)
       if (next.has(taskId)) next.delete(taskId)
       else next.add(taskId)
       return next
     })
-  }
+  }, [])
 
   const { data: projectDeadlineHistory = [] } = useProjectDeadlineHistory(id)
   // shiftsMap is empty here — per-task shift counts are shown inside TaskDrawer
@@ -222,14 +222,6 @@ export function ProjectDetail() {
     }
     return ids
   }, [tasks])
-
-  const handleReorder = (fromIndex: number, toIndex: number) => {
-    const newList = [...filteredTasks]
-    const [moved] = newList.splice(fromIndex, 1)
-    newList.splice(toIndex, 0, moved)
-    const items = newList.map((task, idx) => ({ task_id: task.id, order: idx * 1000 }))
-    reorderTasks.mutate({ projectId: id!, items })
-  }
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
@@ -331,6 +323,14 @@ export function ProjectDetail() {
 
   const selectedVisibleCount = filteredTasks.filter((t) => selectedTaskIds.includes(t.id)).length
 
+  const handleReorder = useCallback((fromIndex: number, toIndex: number) => {
+    const newList = [...filteredTasks]
+    const [moved] = newList.splice(fromIndex, 1)
+    newList.splice(toIndex, 0, moved)
+    const items = newList.map((task, idx) => ({ task_id: task.id, order: idx * 1000 }))
+    reorderTasks.mutate({ projectId: id!, items })
+  }, [filteredTasks, reorderTasks, id])
+
   useEffect(() => {
     if (project && editOpen) {
       setEditForm({
@@ -409,16 +409,16 @@ export function ProjectDetail() {
     }
   }
 
-  const handleTaskClick = (task: Task) => {
+  const handleTaskClick = useCallback((task: Task) => {
     setSelectedTask(task)
     setDrawerOpen(true)
-  }
+  }, [])
 
-  const handleToggleTaskSelection = (taskId: string) => {
+  const handleToggleTaskSelection = useCallback((taskId: string) => {
     setSelectedTaskIds((prev) =>
       prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]
     )
-  }
+  }, [])
 
   const handleToggleSelectAllVisible = () => {
     const visibleIds = filteredTasks.map((t) => t.id)
@@ -723,7 +723,7 @@ export function ProjectDetail() {
     window.open(url.toString(), '_blank', 'noopener,noreferrer')
   }
 
-  const handleQuickStatusChange = async (task: Task, status: string) => {
+  const handleQuickStatusChange = useCallback(async (task: Task, status: string) => {
     const progress = status === 'done' ? 100 : task.progress_percent ?? 0
     try {
       await updateTaskStatus.mutateAsync({
@@ -735,7 +735,13 @@ export function ProjectDetail() {
     } catch (error: any) {
       window.alert(humanizeApiError(error, 'Не удалось обновить статус задачи'))
     }
-  }
+  }, [updateTaskStatus])
+
+  // Стабильный колбэк для TaskTable вместо инлайн-стрелки (иначе пробивал бы React.memo).
+  const handleTaskStatusChange = useCallback((taskId: string, status: string) => {
+    const task = tasks.find((t) => t.id === taskId)
+    if (task) handleQuickStatusChange(task, status)
+  }, [tasks, handleQuickStatusChange])
 
   const handleDownload = async (file: ProjectFile) => {
     const res = await api.downloadProjectFile(id!, file.id)
@@ -875,10 +881,7 @@ export function ProjectDetail() {
           onToggleCollapse={toggleCollapse}
           onTaskClick={handleTaskClick}
           onReorder={taskSortBy === 'order' ? handleReorder : undefined}
-          onStatusChange={(taskId, status) => {
-            const task = tasks.find((t) => t.id === taskId)
-            if (task) handleQuickStatusChange(task, status)
-          }}
+          onStatusChange={handleTaskStatusChange}
           shiftsMap={shiftsMap}
           externalDepsMap={projectExternalDeps}
           isFetching={tasksFetching}
