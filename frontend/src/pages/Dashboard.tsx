@@ -20,7 +20,6 @@ import {
   TASK_STATUS_LABEL,
   PROJECT_KIND_LABEL,
   REPORT_VISIBILITY_LABEL,
-  IT_QUOTES,
   formatDate,
   humanizeTaskUpdateTime,
   parseDateOnly,
@@ -30,19 +29,8 @@ import {
   hexToRgba,
   isDigestQueueLog,
 } from './dashboardUtils'
-import { MyTasksCard, SkiControlList } from './dashboardWidgets'
-
-function SectionCard({ title, action, children, className }: { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn('h-full rounded-xl border bg-card p-4', className)}>
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {action}
-      </div>
-      {children}
-    </div>
-  )
-}
+import { MyTasksCard, SkiControlList, WisdomCard } from './dashboardWidgets'
+import { SectionCard } from './SectionCard'
 
 export function Dashboard() {
   const URGENT_INBOX_PROJECT_NAME = 'Срочные задачи (вне проектов)'
@@ -105,9 +93,6 @@ export function Dashboard() {
     refetchInterval: systemLogOpen ? 20_000 : false,
   })
 
-  const [quoteIndex, setQuoteIndex] = useState(() => Math.floor(Math.random() * IT_QUOTES.length))
-  const [wisdomUpdatedAt, setWisdomUpdatedAt] = useState(() => new Date())
-  const wisdomQuote = IT_QUOTES[quoteIndex] ?? IT_QUOTES[0]
 
   const totalTasks = useMemo(
     () => report?.status_counts.reduce((sum, item) => sum + item.count, 0) ?? 0,
@@ -134,21 +119,6 @@ export function Dashboard() {
     const exists = departmentTabs.some((dep) => dep.department_id === selectedDepartmentTab)
     if (!exists) setSelectedDepartmentTab('all')
   }, [departmentTabs, selectedDepartmentTab])
-
-  useEffect(() => {
-    const pickRandomQuote = () => {
-      setQuoteIndex((prev) => {
-        if (IT_QUOTES.length <= 1) return 0
-        let next = Math.floor(Math.random() * IT_QUOTES.length)
-        while (next === prev) next = Math.floor(Math.random() * IT_QUOTES.length)
-        return next
-      })
-      setWisdomUpdatedAt(new Date())
-    }
-
-    const intervalId = window.setInterval(pickRandomQuote, 15 * 60 * 1000)
-    return () => window.clearInterval(intervalId)
-  }, [])
 
   const myProjectIds = useMemo(() => {
     if (!currentUser?.id) return new Set<string>()
@@ -756,31 +726,7 @@ export function Dashboard() {
           <MyTasksCard tasks={myUrgentTasks} />
         </SectionCard>
 
-        <SectionCard
-          title="Мудрость дня"
-          className="xl:col-span-2"
-        >
-          <button
-            type="button"
-            onClick={() => {
-              setQuoteIndex((prev) => {
-                if (IT_QUOTES.length <= 1) return 0
-                let next = Math.floor(Math.random() * IT_QUOTES.length)
-                while (next === prev) next = Math.floor(Math.random() * IT_QUOTES.length)
-                return next
-              })
-              setWisdomUpdatedAt(new Date())
-            }}
-            className="flex h-64 w-full flex-col justify-start overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 text-left align-top font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]"
-            title="Кликните для новой цитаты"
-          >
-            <div className="space-y-1">
-              <p>[{wisdomUpdatedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}] [wisdom_bot] quote_loaded</p>
-              <p className="whitespace-pre-wrap text-base leading-7">“{wisdomQuote}”</p>
-              <p className="text-emerald-500/80">[info] Обновляется случайно каждые 15 минут + кликом по окну.</p>
-            </div>
-          </button>
-        </SectionCard>
+        <WisdomCard />
 
         <SectionCard
           title="System log"
