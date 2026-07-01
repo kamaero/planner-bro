@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { Task } from '@/types'
 import { Clock, AlertCircle, CornerDownRight, ChevronRight, ChevronDown, GripVertical, ArrowUp, ArrowDown } from 'lucide-react'
 import {
@@ -169,24 +169,29 @@ export function TaskTable({
 
   const pyClass = rowSize === 'compact' ? 'py-1.5' : rowSize === 'comfortable' ? 'py-3.5' : 'py-2.5'
   const commentClamp = rowSize === 'compact' ? 'line-clamp-1' : 'line-clamp-2'
-  const sourceTasks = allTasks && allTasks.length > 0 ? allTasks : tasks
-  const taskById = new Map(sourceTasks.map((task) => [task.id, task]))
-  const numberingById = buildTaskNumbering(tasks)
-  const depthById = new Map<string, number>()
-  const computeDepth = (taskId: string): number => {
-    if (depthById.has(taskId)) return depthById.get(taskId) ?? 0
-    let depth = 0
-    const visited = new Set<string>([taskId])
-    let cursor = taskById.get(taskId)?.parent_task_id
-    while (cursor && !visited.has(cursor)) {
-      visited.add(cursor)
-      depth += 1
-      cursor = taskById.get(cursor)?.parent_task_id
+  // Дорогие производные (Map'ы + обход дерева) пересобирались на КАЖДЫЙ рендер;
+  // теперь только когда меняется список задач.
+  const { taskById, numberingById, computeDepth } = useMemo(() => {
+    const sourceTasks = allTasks && allTasks.length > 0 ? allTasks : tasks
+    const taskById = new Map(sourceTasks.map((task) => [task.id, task]))
+    const numberingById = buildTaskNumbering(tasks)
+    const depthCache = new Map<string, number>()
+    const computeDepth = (taskId: string): number => {
+      if (depthCache.has(taskId)) return depthCache.get(taskId) ?? 0
+      let depth = 0
+      const visited = new Set<string>([taskId])
+      let cursor = taskById.get(taskId)?.parent_task_id
+      while (cursor && !visited.has(cursor)) {
+        visited.add(cursor)
+        depth += 1
+        cursor = taskById.get(cursor)?.parent_task_id
+      }
+      const capped = Math.max(0, Math.min(6, depth))
+      depthCache.set(taskId, capped)
+      return capped
     }
-    const capped = Math.max(0, Math.min(6, depth))
-    depthById.set(taskId, capped)
-    return capped
-  }
+    return { taskById, numberingById, computeDepth }
+  }, [tasks, allTasks])
 
   if (tasks.length === 0 && !isFetching) {
     return (
