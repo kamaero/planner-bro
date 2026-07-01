@@ -11,6 +11,40 @@ function pickDifferentQuoteIndex(prev: number): number {
   return next
 }
 
+/** Компактные бейджи сигналов контроля в хэдере дэшборда. */
+export function SignalBadges({
+  created,
+  updated,
+  completed,
+  stale,
+  escalations,
+  ski,
+}: {
+  created: number
+  updated: number
+  completed: number
+  stale: number
+  escalations: number
+  ski: number
+}) {
+  const badge = (label: string, value: number, tone: string) => (
+    <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium', tone)}>
+      {label}
+      <span className="font-semibold tabular-nums">{value}</span>
+    </span>
+  )
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {badge('Создано 7д', created, 'border-border text-muted-foreground')}
+      {badge('Обновлено 7д', updated, 'border-border text-muted-foreground')}
+      {badge('Завершено 7д', completed, 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300')}
+      {badge('Без апдейта 7д+', stale, 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300')}
+      {badge('Эскалации', escalations, escalations > 0 ? 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-300' : 'border-border text-muted-foreground')}
+      {badge('СКИ', ski, ski > 0 ? 'border-indigo-300 text-indigo-700 dark:border-indigo-800 dark:text-indigo-300' : 'border-border text-muted-foreground')}
+    </div>
+  )
+}
+
 /** Виджет «Мои задачи»: список личных задач с подсветкой по срочности. */
 export function MyTasksCard({ tasks }: { tasks: ReportTaskSummary[] }) {
   return (
