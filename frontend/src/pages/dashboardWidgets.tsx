@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { ReportTaskSummary } from '@/types'
-import { cn, daysUntil, myTaskUrgencyClass, deadlinePulseClass, TASK_STATUS_LABEL, formatDate, IT_QUOTES } from './dashboardUtils'
+import type { ReportTaskSummary, SystemActivityLog } from '@/types'
+import { cn, daysUntil, myTaskUrgencyClass, deadlinePulseClass, TASK_STATUS_LABEL, formatDate, IT_QUOTES, isDigestQueueLog } from './dashboardUtils'
 import { SectionCard } from './SectionCard'
 
 function pickDifferentQuoteIndex(prev: number): number {
@@ -57,6 +57,31 @@ export function SkiControlList({ tasks }: { tasks: ReportTaskSummary[] }) {
           </Link>
         )
       })}
+    </div>
+  )
+}
+
+/** Терминал-рендер системного лога (последние события). Модалка деталей — в Dashboard. */
+export function SystemLogTerminal({ items }: { items: SystemActivityLog[] }) {
+  return (
+    <div className="h-64 overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]">
+      {items.length === 0 ? (
+        <p className="text-emerald-500/80">[idle] Нет системных событий за 24 часа</p>
+      ) : (
+        <div className="space-y-1">
+          {items.slice(0, 40).map((item) => (
+            <p
+              key={item.id}
+              className={cn(
+                'truncate',
+                isDigestQueueLog(item) && 'rounded border border-cyan-400/60 bg-cyan-500/10 px-1 text-cyan-300'
+              )}
+            >
+              [{new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}] [{item.level}] {item.source}: {item.message}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -29,7 +29,7 @@ import {
   hexToRgba,
   isDigestQueueLog,
 } from './dashboardUtils'
-import { MyTasksCard, SkiControlList, WisdomCard } from './dashboardWidgets'
+import { MyTasksCard, SkiControlList, WisdomCard, SystemLogTerminal } from './dashboardWidgets'
 import { SectionCard } from './SectionCard'
 
 export function Dashboard() {
@@ -737,25 +737,7 @@ export function Dashboard() {
             </button>
           }
         >
-          <div className="h-64 overflow-auto rounded-lg border border-emerald-700/60 bg-black p-2 font-mono text-[11px] leading-relaxed text-emerald-400 shadow-[inset_0_0_24px_rgba(16,185,129,0.2)]">
-            {systemActivity.length === 0 ? (
-              <p className="text-emerald-500/80">[idle] Нет системных событий за 24 часа</p>
-            ) : (
-              <div className="space-y-1">
-                {systemActivity.slice(0, 40).map((item) => (
-                  <p
-                    key={item.id}
-                    className={cn(
-                      'truncate',
-                      isDigestQueueLog(item) && 'rounded border border-cyan-400/60 bg-cyan-500/10 px-1 text-cyan-300'
-                    )}
-                  >
-                    [{new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}] [{item.level}] {item.source}: {item.message}
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
+          <SystemLogTerminal items={systemActivity} />
         </SectionCard>
       </div>
 
