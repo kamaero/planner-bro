@@ -514,7 +514,7 @@ export function Dashboard() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <Link to={`/projects/${project.id}`} className="truncate text-sm font-semibold hover:text-primary">
+                    <Link to={`/projects/${project.id}`} className="block truncate text-sm font-semibold hover:text-primary">
                       {project.name}
                     </Link>
                     <p className="text-xs text-muted-foreground">
@@ -546,7 +546,7 @@ export function Dashboard() {
                 {competenceCenterProjects.length === 0 && <p className="text-xs text-muted-foreground">ЦК не настроены.</p>}
                 {competenceCenterProjects.map((project) => (
                   <Link key={project.id} to={`/projects/${project.id}`} className="flex items-center justify-between rounded border px-2 py-1.5 text-xs hover:bg-accent">
-                    <span className="truncate font-medium">{project.name}</span>
+                    <span className="min-w-0 truncate font-medium">{project.name}</span>
                     <span className="ml-2 shrink-0 text-muted-foreground">{projectProgressById[project.id] ?? 0}%</span>
                   </Link>
                 ))}
@@ -558,7 +558,7 @@ export function Dashboard() {
                 {initiativeProjects.length === 0 && <p className="text-xs text-muted-foreground">Портфелей инициатив нет.</p>}
                 {initiativeProjects.map((project) => (
                   <Link key={project.id} to={`/projects/${project.id}`} className="flex items-center justify-between rounded border px-2 py-1.5 text-xs hover:bg-accent">
-                    <span className="truncate font-medium">{project.name}</span>
+                    <span className="min-w-0 truncate font-medium">{project.name}</span>
                     <span className="ml-2 shrink-0 text-muted-foreground">{REPORT_VISIBILITY_LABEL[project.report_visibility ?? 'always'] ?? project.report_visibility}</span>
                   </Link>
                 ))}
@@ -570,7 +570,7 @@ export function Dashboard() {
                 {adminPlanProjects.length === 0 && <p className="text-xs text-muted-foreground">Планы отделов не вынесены.</p>}
                 {adminPlanProjects.map((project) => (
                   <Link key={project.id} to={`/projects/${project.id}`} className="flex items-center justify-between rounded border px-2 py-1.5 text-xs hover:bg-accent">
-                    <span className="truncate font-medium">{project.name}</span>
+                    <span className="min-w-0 truncate font-medium">{project.name}</span>
                     <span className="ml-2 shrink-0 text-muted-foreground">{REPORT_VISIBILITY_LABEL[project.report_visibility ?? 'hidden'] ?? project.report_visibility}</span>
                   </Link>
                 ))}
