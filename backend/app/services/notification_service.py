@@ -534,15 +534,20 @@ async def notify_deadline(db: AsyncSession, task: Task, days_until: int):
     deadline_key = f"{task.id}:{days_until}:{task.end_date.isoformat() if task.end_date else 'none'}"
     data = {"task_id": task.id, "project_id": task.project_id, "deadline_key": deadline_key}
 
-    for uid in member_ids:
-        existing = await db.execute(
-            select(Notification.id).where(
-                Notification.user_id == uid,
-                Notification.type == type_,
-                Notification.data.contains({"deadline_key": deadline_key}),
+    # Одним запросом узнаём, кому это дедлайн-уведомление уже приходило (было N+1: SELECT на участника).
+    already_notified = set(
+        (
+            await db.execute(
+                select(Notification.user_id).where(
+                    Notification.user_id.in_(member_ids),
+                    Notification.type == type_,
+                    Notification.data.contains({"deadline_key": deadline_key}),
+                )
             )
-        )
-        if existing.scalar_one_or_none():
+        ).scalars().all()
+    )
+    for uid in member_ids:
+        if uid in already_notified:
             continue
         await _create_notification(db, uid, type_, title, body, data)
     await db.commit()

@@ -46,8 +46,9 @@ function getAIStatusMeta(status?: string) {
 
 export function ProjectDetailFilesSection({ projectId, canImport, canManage, onDownload }: Props) {
   const { data: files = [] } = useProjectFiles(projectId)
-  const { data: aiDrafts = [] } = useAIDrafts(projectId, 'pending')
   const { data: aiJobs = [] } = useAIJobs(projectId)
+  const hasActiveAIJob = aiJobs.some((job) => job.status === 'queued' || job.status === 'processing')
+  const { data: aiDrafts = [] } = useAIDrafts(projectId, 'pending', hasActiveAIJob)
 
   const startAIProcessing = useStartAIProcessing()
   const uploadProjectFile = useUploadProjectFile()

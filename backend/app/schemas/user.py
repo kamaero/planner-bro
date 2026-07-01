@@ -108,11 +108,6 @@ class LogoutRequest(BaseModel):
     refresh_token: str
 
 
-class GoogleOAuthRequest(BaseModel):
-    code: str
-    redirect_uri: str
-
-
 class ReminderSettingsUpdate(BaseModel):
     reminder_days: str
 

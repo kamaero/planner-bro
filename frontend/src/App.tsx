@@ -1,21 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useThemeStore } from '@/store/themeStore'
 import { api } from '@/api/client'
 import { Login } from '@/pages/Login'
-import { Dashboard } from '@/pages/Dashboard'
-import { MyTasks } from '@/pages/MyTasks'
-import { ProjectDetail } from '@/pages/ProjectDetail'
-import { Team } from '@/pages/Team'
-import { TeamBoard } from '@/pages/TeamBoard'
-import { Analytics } from '@/pages/Analytics'
-import { TeamStorage } from '@/pages/TeamStorage'
-import { Chat } from '@/pages/Chat'
-import { Help } from '@/pages/Help'
-import { WorkloadCalendar } from '@/pages/WorkloadCalendar'
-import { Roadmap } from '@/pages/Roadmap'
-import { Reports } from '@/pages/Reports'
+// Роуты грузятся лениво: тяжёлые библиотеки (recharts/@xyflow/gantt) не тянутся на первый paint.
+const Dashboard = lazy(() => import('@/pages/Dashboard').then((m) => ({ default: m.Dashboard })))
+const MyTasks = lazy(() => import('@/pages/MyTasks').then((m) => ({ default: m.MyTasks })))
+const ProjectDetail = lazy(() => import('@/pages/ProjectDetail').then((m) => ({ default: m.ProjectDetail })))
+const Team = lazy(() => import('@/pages/Team').then((m) => ({ default: m.Team })))
+const TeamBoard = lazy(() => import('@/pages/TeamBoard').then((m) => ({ default: m.TeamBoard })))
+const Analytics = lazy(() => import('@/pages/Analytics').then((m) => ({ default: m.Analytics })))
+const TeamStorage = lazy(() => import('@/pages/TeamStorage').then((m) => ({ default: m.TeamStorage })))
+const Chat = lazy(() => import('@/pages/Chat').then((m) => ({ default: m.Chat })))
+const Help = lazy(() => import('@/pages/Help').then((m) => ({ default: m.Help })))
+const WorkloadCalendar = lazy(() => import('@/pages/WorkloadCalendar').then((m) => ({ default: m.WorkloadCalendar })))
+const Roadmap = lazy(() => import('@/pages/Roadmap').then((m) => ({ default: m.Roadmap })))
+const Reports = lazy(() => import('@/pages/Reports').then((m) => ({ default: m.Reports })))
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -388,7 +389,17 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         onDismiss={changelog.dismiss}
       />
       <div className="flex-1 min-w-0 flex flex-col">
-        <main className="flex-1 bg-muted/30">{children}</main>
+        <main className="flex-1 bg-muted/30">
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center py-20 text-sm text-muted-foreground">
+                Загрузка…
+              </div>
+            }
+          >
+            {children}
+          </Suspense>
+        </main>
       </div>
     </div>
   )

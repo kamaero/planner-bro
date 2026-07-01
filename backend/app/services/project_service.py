@@ -2,20 +2,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from datetime import date
-from app.models.project import Project, ProjectMember
+from app.models.project import Project
 from app.models.task import Task
 from app.schemas.project import GanttTask, GanttData
-
-
-async def get_projects_for_user(db: AsyncSession, user_id: str) -> list[Project]:
-    # Projects where user is a member
-    result = await db.execute(
-        select(Project)
-        .join(ProjectMember, ProjectMember.project_id == Project.id)
-        .where(ProjectMember.user_id == user_id)
-        .options(selectinload(Project.owner))
-    )
-    return result.scalars().all()
 
 
 async def get_gantt_data(db: AsyncSession, project_id: str) -> GanttData:

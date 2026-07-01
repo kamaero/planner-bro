@@ -293,7 +293,11 @@ export function useAIJobs(projectId: string) {
     queryKey: ['ai-jobs', projectId],
     queryFn: () => api.listAIJobs(projectId),
     enabled: !!projectId,
-    refetchInterval: 5000,
+    // Поллим каждые 5с только пока есть активная задача; иначе не долбим сеть впустую.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((job) => job.status === 'queued' || job.status === 'processing')
+        ? 5000
+        : false,
   })
 }
 
@@ -315,12 +319,13 @@ export function useStartAIProcessing() {
   })
 }
 
-export function useAIDrafts(projectId: string, statusFilter = 'pending') {
+export function useAIDrafts(projectId: string, statusFilter = 'pending', pollWhileActive = false) {
   return useQuery<AITaskDraft[]>({
     queryKey: ['ai-drafts', projectId, statusFilter],
     queryFn: () => api.listAIDrafts(projectId, { status_filter: statusFilter, limit: 5000, offset: 0 }),
     enabled: !!projectId,
-    refetchInterval: 5000,
+    // Тянем limit:5000 каждые 5с только когда идёт обработка (передаётся из компонента по статусу задач).
+    refetchInterval: pollWhileActive ? 5000 : false,
   })
 }
 

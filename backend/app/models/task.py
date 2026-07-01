@@ -15,7 +15,7 @@ class Task(Base):
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     parent_task_id: Mapped[str | None] = mapped_column(
-        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True
     )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     task_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -24,6 +24,7 @@ class Task(Base):
         SAEnum("planning", "tz", "todo", "in_progress", "testing", "review", "done", name="task_status"),
         default="planning",
         nullable=False,
+        index=True,
     )
     priority: Mapped[str] = mapped_column(
         SAEnum("low", "medium", "high", "critical", name="task_priority"),
@@ -35,9 +36,9 @@ class Task(Base):
     order: Mapped[float | None] = mapped_column(Float, nullable=True)
     next_step: Mapped[str | None] = mapped_column(String(500), nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     assigned_to_id: Mapped[str | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     is_escalation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     escalation_for: Mapped[str | None] = mapped_column(String(255), nullable=True)

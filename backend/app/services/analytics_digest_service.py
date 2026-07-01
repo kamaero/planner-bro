@@ -116,16 +116,6 @@ def normalize_digest_filters(raw: dict | None) -> DigestFilters:
     )
 
 
-def filters_to_dict(filters: DigestFilters) -> dict[str, object]:
-    return {
-        "deadline_window_days": filters.deadline_window_days,
-        "priorities": list(filters.priorities or DEFAULT_DIGEST_PRIORITIES),
-        "include_control_ski": filters.include_control_ski,
-        "include_escalations": filters.include_escalations,
-        "include_without_deadline": filters.include_without_deadline,
-    }
-
-
 def _project_url(project_id: str) -> str:
     base = settings.APP_WEB_URL.rstrip("/")
     return f"{base}/projects/{project_id}"

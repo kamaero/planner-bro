@@ -17,18 +17,6 @@ class AccessScope:
     department_ids: set[str]
 
 
-def _normalize_position_title(value: str | None) -> str:
-    return (value or "").strip().lower()
-
-
-def _is_global_assignment_position(position_title: str | None) -> bool:
-    normalized = _normalize_position_title(position_title)
-    if not normalized:
-        return False
-    tokens = ("гип", "главный инженер проектов", "зам", "заместитель")
-    return any(token in normalized for token in tokens)
-
-
 async def _is_department_head(db: AsyncSession, user_id: str) -> bool:
     hit = (
         await db.execute(
@@ -198,49 +186,3 @@ async def can_access_project(db: AsyncSession, actor: User, project_id: str) -> 
         await db.execute(select(Project.owner_id).where(Project.id == project_id))
     ).scalar_one_or_none()
     return bool(owner_id and owner_id in scope.user_ids)
-
-
-async def get_task_assignment_scope_user_ids(db: AsyncSession, actor: User) -> set[str]:
-    if actor.role == "admin" or actor.visibility_scope == "full_scope":
-        return set(
-            (await db.execute(select(User.id).where(User.is_active == True))).scalars().all()  # noqa: E712
-        )
-
-    if _is_global_assignment_position(getattr(actor, "position_title", None)):
-        return set(
-            (
-                await db.execute(
-                    select(User.id).where(
-                        User.is_active == True,  # noqa: E712
-                        User.role != "admin",
-                    )
-                )
-            ).scalars().all()
-        )
-
-    if await has_department_level_access(db, actor):
-        return set(
-            (
-                await db.execute(
-                    select(User.id).where(
-                        User.is_active == True,  # noqa: E712
-                        User.role != "admin",
-                    )
-                )
-            ).scalars().all()
-        )
-
-    scope = await get_user_access_scope(db, actor)
-    if not scope.user_ids:
-        return set()
-    active_scope_ids = set(
-        (
-            await db.execute(
-                select(User.id).where(
-                    User.is_active == True,  # noqa: E712
-                    User.id.in_(scope.user_ids),
-                )
-            )
-        ).scalars().all()
-    )
-    return active_scope_ids

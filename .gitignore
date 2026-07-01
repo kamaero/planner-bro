@@ -82,3 +82,6 @@ backend/alembic/versions/*.pyc
 
 # Logs
 *.log
+
+# Agent worktrees (never commit — local, machine-specific)
+.claude/worktrees/

@@ -319,12 +319,6 @@ export interface ReportDeliveryStatus {
   last_telegram_sent_at?: string | null
 }
 
-export interface TokenPair {
-  access_token: string
-  refresh_token: string
-  token_type: string
-}
-
 export interface ProjectMember {
   user: User
   role: 'owner' | 'manager' | 'member'
@@ -422,12 +416,6 @@ export interface ImportFilePrecheck {
   missing_columns: string[]
   warnings: string[]
   can_start_ai: boolean
-}
-
-export interface GlobalSearchResult {
-  projects: Array<{ id: string; name: string; status: string }>
-  tasks: Array<{ id: string; title: string; project_id: string; status: string }>
-  users: Array<{ id: string; name: string; email: string }>
 }
 
 export interface DepartmentProjectsSection {

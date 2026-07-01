@@ -104,26 +104,32 @@ async def _propagate_overdue_to_successors(db, predecessor_task: Task, today: da
     if not links:
         return
 
+    # Батч вместо N+1: одним запросом тянем всех успешников и уже проставленные dependency_shifted события.
+    successor_ids = [link.successor_task_id for link in links]
+    successors_by_id = {
+        t.id: t
+        for t in (await db.execute(select(Task).where(Task.id.in_(successor_ids)))).scalars().all()
+    }
+    already_shifted = set(
+        (
+            await db.execute(
+                select(TaskEvent.payload).where(
+                    TaskEvent.task_id.in_(successor_ids),
+                    TaskEvent.event_type == "dependency_shifted",
+                )
+            )
+        ).scalars().all()
+    )
+
     for link in links:
-        successor = (
-            await db.execute(select(Task).where(Task.id == link.successor_task_id))
-        ).scalar_one_or_none()
+        successor = successors_by_id.get(link.successor_task_id)
         if not successor or successor.status == "done":
             continue
 
         key = (
             f"dep-shift:{predecessor_task.id}:{successor.id}:{predecessor_task.end_date.isoformat()}:{overdue_days}"
         )
-        exists = (
-            await db.execute(
-                select(TaskEvent.id).where(
-                    TaskEvent.task_id == successor.id,
-                    TaskEvent.event_type == "dependency_shifted",
-                    TaskEvent.payload == key,
-                )
-            )
-        ).scalar_one_or_none()
-        if exists:
+        if key in already_shifted:
             continue
 
         old_end = successor.end_date
