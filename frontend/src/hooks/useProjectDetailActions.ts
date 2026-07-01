@@ -36,6 +36,7 @@ export interface ProjectEditFormState {
   start_date: string
   end_date: string
   owner_id: string
+  report_visibility: string
   completion_checklist: unknown[]
 }
 
@@ -144,6 +145,7 @@ export function useProjectDetailActions({
           start_date: editForm.start_date || null,
           end_date: editForm.end_date || null,
           owner_id: canTransferOwnership ? editForm.owner_id || null : currentProjectOwnerId ?? editForm.owner_id,
+          report_visibility: editForm.report_visibility,
           completion_checklist: editForm.completion_checklist,
         }
       : { name: editForm.name }

@@ -32,6 +32,9 @@ class Project(Base):
         default="medium",
         nullable=False,
     )
+    project_kind: Mapped[str] = mapped_column(String(64), default="major_project", nullable=False)
+    report_visibility: Mapped[str] = mapped_column(String(32), default="always", nullable=False)
+    report_track: Mapped[str] = mapped_column(String(64), default="main", nullable=False)
     control_ski: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     planning_mode: Mapped[str] = mapped_column(
         SAEnum("flexible", "strict", name="project_planning_mode"),

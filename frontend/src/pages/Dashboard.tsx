@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useCreateProject, useCreateTask, useDepartmentDashboard, useProjects, useAllTasks, useEscalations, useUpdateProject } from '@/hooks/useProjects'
+import { useCreateProject, useCreateTask, useProjects, useUpdateProject } from '@/hooks/useProjects'
+import { useStatusSnapshotReport } from '@/hooks/useReports'
 import { api } from '@/api/client'
 import { Plus, Building2, Users2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { useAuthStore } from '@/store/authStore'
-import type { Department, Project, Task, User, SystemActivityLog } from '@/types'
+import type { Department, Project, User, SystemActivityLog } from '@/types'
 import { formatUserDisplayName } from '@/lib/userName'
 
 function cn(...classes: Array<string | false | undefined>) {
@@ -50,6 +51,22 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   done: 'Выполнено',
 }
 
+const PROJECT_KIND_LABEL: Record<string, string> = {
+  major_project: 'Крупный проект',
+  department_plan: 'План отдела',
+  competence_center: 'ЦК / аутсорсинг',
+  initiative_portfolio: 'Портфель инициатив',
+  service_inbox: 'Служебный inbox',
+  local_project: 'Локальный проект',
+}
+
+const REPORT_VISIBILITY_LABEL: Record<string, string> = {
+  always: 'В доклад',
+  watch: 'Мониторинг',
+  risks_only: 'Только при рисках',
+  hidden: 'Не включать',
+}
+
 const IT_QUOTES = [
   'Любой баг становится фичей, если его не чинить достаточно долго.',
   'Работает в проде? Значит, трогать это нужно очень аккуратно.',
@@ -75,7 +92,7 @@ function SectionCard({ title, action, children, className }: { title: string; ac
   )
 }
 
-function formatDate(value?: string) {
+function formatDate(value?: string | null) {
   if (!value) return '—'
   return new Date(value).toLocaleDateString('ru')
 }
@@ -98,7 +115,7 @@ function humanizeTaskUpdateTime(value?: string): string {
   return updatedAt.toLocaleDateString('ru-RU')
 }
 
-function parseDateOnly(value?: string): Date | null {
+function parseDateOnly(value?: string | null): Date | null {
   if (!value) return null
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (!match) return null
@@ -108,7 +125,7 @@ function parseDateOnly(value?: string): Date | null {
   return new Date(year, month, day, 12, 0, 0, 0)
 }
 
-function daysUntil(dateValue?: string): number | null {
+function daysUntil(dateValue?: string | null): number | null {
   const target = parseDateOnly(dateValue)
   if (!target) return null
   const now = new Date()
@@ -150,9 +167,7 @@ function isDigestQueueLog(item: SystemActivityLog): boolean {
 export function Dashboard() {
   const URGENT_INBOX_PROJECT_NAME = 'Срочные задачи (вне проектов)'
   const { data: projects = [], isLoading: projectsLoading } = useProjects()
-  const { tasks, isLoading: tasksLoading } = useAllTasks()
-  const { data: escalations = [] } = useEscalations()
-  const { data: dashboardData, isLoading: departmentsLoading } = useDepartmentDashboard()
+  const { data: report, isLoading: reportLoading } = useStatusSnapshotReport()
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ['departments'],
     queryFn: api.listDepartments,
@@ -178,6 +193,7 @@ export function Dashboard() {
     color: '#6366f1',
     template: 'blank',
     priority: 'medium',
+    report_visibility: 'always',
     control_ski: false,
     launch_basis_text: '',
     start_date: '',
@@ -211,17 +227,27 @@ export function Dashboard() {
 
   const [quoteIndex, setQuoteIndex] = useState(() => Math.floor(Math.random() * IT_QUOTES.length))
   const [wisdomUpdatedAt, setWisdomUpdatedAt] = useState(() => new Date())
-  const sevenDaysAgo = useMemo(() => {
-    const d = new Date()
-    d.setDate(d.getDate() - 7)
-    return d.toISOString()
-  }, [])
   const wisdomQuote = IT_QUOTES[quoteIndex] ?? IT_QUOTES[0]
 
-  const departmentTabs = useMemo(
-    () => dashboardData?.departments ?? [],
-    [dashboardData]
+  const totalTasks = useMemo(
+    () => report?.status_counts.reduce((sum, item) => sum + item.count, 0) ?? 0,
+    [report]
   )
+
+  const departmentTabs = useMemo(() => {
+    const mainProjects = projects.filter((project) => (project.report_track ?? 'main') === 'main' && (project.report_visibility ?? 'always') !== 'hidden')
+    const countByDepartment = new Map<string, number>()
+    mainProjects.forEach((project) => {
+      project.department_ids?.forEach((departmentId) => {
+        countByDepartment.set(departmentId, (countByDepartment.get(departmentId) ?? 0) + 1)
+      })
+    })
+    return departments.map((department) => ({
+      department_id: department.id,
+      department_name: department.name,
+      projects_count: countByDepartment.get(department.id) ?? 0,
+    }))
+  }, [departments, projects])
 
   useEffect(() => {
     if (selectedDepartmentTab === 'all') return
@@ -250,50 +276,23 @@ export function Dashboard() {
     for (const p of projects) {
       if (p.owner_id === currentUser.id) ids.add(p.id)
     }
-    for (const t of tasks) {
-      const assignedIds = t.assignee_ids ?? []
-      if (t.project_id && (t.created_by_id === currentUser.id || t.assigned_to_id === currentUser.id || assignedIds.includes(currentUser.id))) {
-        ids.add(t.project_id)
-      }
+    for (const task of report?.my_tasks ?? []) {
+      ids.add(task.project_id)
     }
     return ids
-  }, [projects, tasks, currentUser?.id])
+  }, [projects, report?.my_tasks, currentUser?.id])
 
-  const myTasks = useMemo(() => {
-    if (!currentUser?.id) return [] as Task[]
-    return tasks
-      .filter((t) => {
-        const assignedIds = t.assignee_ids ?? []
-        return t.created_by_id === currentUser.id || t.assigned_to_id === currentUser.id || assignedIds.includes(currentUser.id)
-      })
-      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-      .slice(0, 8)
-  }, [tasks, currentUser?.id])
-
-  const myUrgentTasks = useMemo(() => {
-    if (!currentUser?.id) return [] as Task[]
-    return tasks
-      .filter((t) => {
-        if (t.status === 'done') return false
-        const assignedIds = t.assignee_ids ?? []
-        return t.created_by_id === currentUser.id || t.assigned_to_id === currentUser.id || assignedIds.includes(currentUser.id)
-      })
-      .sort((a, b) => {
-        const ad = daysUntil(a.end_date)
-        const bd = daysUntil(b.end_date)
-        const scoreA = ad === null ? 10_000 : ad
-        const scoreB = bd === null ? 10_000 : bd
-        if (scoreA !== scoreB) return scoreA - scoreB
-        return b.updated_at.localeCompare(a.updated_at)
-      })
-      .slice(0, 10)
-  }, [tasks, currentUser?.id])
+  const myUrgentTasks = report?.my_tasks ?? []
 
   const projectsForSelectedTab = useMemo(() => {
     const source =
       selectedDepartmentTab === 'all'
-        ? projects
-        : departmentTabs.find((dep) => dep.department_id === selectedDepartmentTab)?.projects ?? []
+        ? projects.filter((project) => (project.report_track ?? 'main') === 'main' && (project.report_visibility ?? 'always') !== 'hidden')
+        : projects.filter((project) =>
+            (project.report_track ?? 'main') === 'main' &&
+            (project.report_visibility ?? 'always') !== 'hidden' &&
+            project.department_ids?.includes(selectedDepartmentTab)
+          )
     const mineFiltered = onlyMine ? source.filter((project) => myProjectIds.has(project.id)) : source
     const q = projectSearch.trim().toLowerCase()
     if (!q) return mineFiltered
@@ -301,63 +300,46 @@ export function Dashboard() {
       const hay = `${project.name} ${project.description ?? ''}`.toLowerCase()
       return hay.includes(q)
     })
-  }, [projects, departmentTabs, selectedDepartmentTab, projectSearch, onlyMine, myProjectIds])
+  }, [projects, selectedDepartmentTab, projectSearch, onlyMine, myProjectIds])
+
+  const competenceCenterProjects = useMemo(
+    () => projects
+      .filter((project) => project.report_track === 'competence_centers' && project.report_visibility !== 'hidden')
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
+    [projects]
+  )
+
+  const initiativeProjects = useMemo(
+    () => projects
+      .filter((project) => project.report_track === 'initiatives' && project.report_visibility !== 'hidden')
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
+    [projects]
+  )
+
+  const adminPlanProjects = useMemo(
+    () => projects
+      .filter((project) => project.report_track === 'admin' || project.project_kind === 'department_plan')
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
+    [projects]
+  )
 
   const weekSignals = useMemo(() => {
-    const created = tasks.filter((t) => t.created_at >= sevenDaysAgo).length
-    const updated = tasks.filter((t) => t.updated_at >= sevenDaysAgo).length
-    const completed = tasks.filter((t) => t.status === 'done' && t.updated_at >= sevenDaysAgo).length
-    const stale = tasks.filter((t) => t.status !== 'done' && t.updated_at < sevenDaysAgo).length
+    const created = report?.activity.tasks_created ?? 0
+    const updated = report?.activity.tasks_updated ?? 0
+    const completed = report?.activity.tasks_completed ?? 0
+    const stale = report?.projects.reduce((sum, project) => sum + project.stale_tasks, 0) ?? 0
     return { created, updated, completed, stale }
-  }, [tasks, sevenDaysAgo])
+  }, [report])
 
   const statusStats = useMemo(() => {
     const counts: Record<string, number> = { planning: 0, tz: 0, todo: 0, in_progress: 0, testing: 0, review: 0, done: 0 }
-    tasks.forEach((task) => {
-      counts[task.status] = (counts[task.status] ?? 0) + 1
-    })
+    report?.status_counts.forEach((item) => { counts[item.key] = item.count })
     return counts
-  }, [tasks])
+  }, [report?.status_counts])
 
-  const projectMap = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects])
-
-  const recentTasks = useMemo(
-    () => [...tasks].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 8),
-    [tasks]
-  )
-
-  const skiControlTasks = useMemo(
-    () =>
-      tasks
-        .filter((t) => t.control_ski && t.status !== 'done')
-        .sort((a, b) => {
-          const ad = daysUntil(a.end_date)
-          const bd = daysUntil(b.end_date)
-          if (ad === null && bd === null) return 0
-          if (ad === null) return 1
-          if (bd === null) return -1
-          return ad - bd
-        })
-        .slice(0, 6),
-    [tasks]
-  )
-
-  const upcomingDeadlines = useMemo(
-    () =>
-      tasks
-        .filter((t) => {
-          if (!t.end_date || t.status === 'done') return false
-          const days = daysUntil(t.end_date)
-          return days !== null && days >= 0 && days <= 20
-        })
-        .sort((a, b) => {
-          const ad = daysUntil(a.end_date) ?? Number.MAX_SAFE_INTEGER
-          const bd = daysUntil(b.end_date) ?? Number.MAX_SAFE_INTEGER
-          return ad - bd
-        })
-        .slice(0, 8),
-    [tasks]
-  )
+  const recentTasks = report?.recent_tasks ?? []
+  const skiControlTasks = report?.control_ski_tasks ?? []
+  const upcomingDeadlines = report?.upcoming_deadlines ?? []
 
   const departmentNameById = useMemo(
     () => Object.fromEntries(departments.map((d) => [d.id, d.name])),
@@ -365,19 +347,10 @@ export function Dashboard() {
   )
 
   const projectProgressById = useMemo(() => {
-    const grouped = new Map<string, { sum: number; count: number }>()
-    tasks.forEach((task) => {
-      const current = grouped.get(task.project_id) ?? { sum: 0, count: 0 }
-      current.sum += task.progress_percent ?? 0
-      current.count += 1
-      grouped.set(task.project_id, current)
-    })
     const result: Record<string, number> = {}
-    grouped.forEach((value, key) => {
-      result[key] = value.count > 0 ? Math.round(value.sum / value.count) : 0
-    })
+    report?.projects.forEach((project) => { result[project.id] = project.progress_percent })
     return result
-  }, [tasks])
+  }, [report?.projects])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -387,6 +360,7 @@ export function Dashboard() {
         ...form,
         status: 'active',
         priority: form.control_ski ? 'critical' : form.priority,
+        report_visibility: form.report_visibility,
         start_date: form.start_date || undefined,
         end_date: form.end_date || undefined,
         launch_basis_text: form.launch_basis_text?.trim() || undefined,
@@ -401,6 +375,7 @@ export function Dashboard() {
         color: '#6366f1',
         template: 'blank',
         priority: 'medium',
+        report_visibility: 'always',
         control_ski: false,
         launch_basis_text: '',
         start_date: '',
@@ -479,7 +454,7 @@ export function Dashboard() {
     setAssignDialogOpen(false)
   }
 
-  if (projectsLoading || tasksLoading || departmentsLoading) {
+  if (projectsLoading || reportLoading) {
     return <div className="flex h-64 items-center justify-center text-muted-foreground">Загрузка...</div>
   }
 
@@ -488,7 +463,7 @@ export function Dashboard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Дэшборд IT</h1>
-          <p className="text-sm text-muted-foreground">{projects.length} проектов · {tasks.length} задач</p>
+          <p className="text-sm text-muted-foreground">{projects.length} проектов · {totalTasks} задач</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
@@ -560,6 +535,16 @@ export function Dashboard() {
                   </select>
                 </div>
               </div>
+              <label className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm">
+                <span>Включать в scope доклада</span>
+                <input
+                  type="checkbox"
+                  checked={form.report_visibility !== 'hidden'}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, report_visibility: e.target.checked ? 'always' : 'hidden' }))
+                  }
+                />
+              </label>
               <label className="flex items-center justify-between gap-3 text-sm">
                 <span>Контроль СКИ</span>
                 <Switch
@@ -615,7 +600,7 @@ export function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         <SectionCard
-          title="ИТ проекты по отделам"
+          title="Крупные проекты"
           className="xl:col-span-5"
           action={
             <Input value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} placeholder="Поиск проекта" className="h-8 w-48 text-xs" />
@@ -647,10 +632,10 @@ export function Dashboard() {
               <button
                 key={dep.department_id}
                 type="button"
-                onClick={() => setSelectedDepartmentTab(dep.department_id)}
-                className={cn('rounded-md border px-2 py-1 text-xs', selectedDepartmentTab === dep.department_id ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}
-              >
-                {dep.department_name} ({dep.projects.length})
+              onClick={() => setSelectedDepartmentTab(dep.department_id)}
+              className={cn('rounded-md border px-2 py-1 text-xs', selectedDepartmentTab === dep.department_id ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}
+            >
+              {dep.department_name} ({dep.projects_count})
               </button>
             ))}
           </div>
@@ -685,6 +670,9 @@ export function Dashboard() {
                     <p className="text-xs text-muted-foreground">
                       {PROJECT_STATUS_LABEL[project.status] ?? project.status} · исполнение: {projectProgressById[project.id] ?? 0}% · дедлайн: {formatDate(project.end_date)} · владелец: {formatUserDisplayName(project.owner)}
                     </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {PROJECT_KIND_LABEL[project.project_kind ?? 'major_project'] ?? project.project_kind} · {REPORT_VISIBILITY_LABEL[project.report_visibility ?? 'always'] ?? project.report_visibility}
+                    </p>
                     {!!project.department_ids?.length && (
                       <p className="mt-1 text-xs text-muted-foreground">
                         Отделы: {project.department_ids.map((id) => departmentNameById[id] ?? id).join(', ')}
@@ -701,6 +689,44 @@ export function Dashboard() {
               </div>
             ))}
           </div>
+          <div className="mt-4 grid gap-3 border-t pt-3">
+            <div>
+              <p className="mb-1 text-xs font-semibold text-muted-foreground">ЦК / аутсорсинг</p>
+              <div className="space-y-1">
+                {competenceCenterProjects.length === 0 && <p className="text-xs text-muted-foreground">ЦК не настроены.</p>}
+                {competenceCenterProjects.map((project) => (
+                  <Link key={project.id} to={`/projects/${project.id}`} className="flex items-center justify-between rounded border px-2 py-1.5 text-xs hover:bg-accent">
+                    <span className="truncate font-medium">{project.name}</span>
+                    <span className="ml-2 shrink-0 text-muted-foreground">{projectProgressById[project.id] ?? 0}%</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-semibold text-muted-foreground">Инициативы</p>
+              <div className="space-y-1">
+                {initiativeProjects.length === 0 && <p className="text-xs text-muted-foreground">Портфелей инициатив нет.</p>}
+                {initiativeProjects.map((project) => (
+                  <Link key={project.id} to={`/projects/${project.id}`} className="flex items-center justify-between rounded border px-2 py-1.5 text-xs hover:bg-accent">
+                    <span className="truncate font-medium">{project.name}</span>
+                    <span className="ml-2 shrink-0 text-muted-foreground">{REPORT_VISIBILITY_LABEL[project.report_visibility ?? 'always'] ?? project.report_visibility}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-semibold text-muted-foreground">Планы отделов</p>
+              <div className="space-y-1">
+                {adminPlanProjects.length === 0 && <p className="text-xs text-muted-foreground">Планы отделов не вынесены.</p>}
+                {adminPlanProjects.map((project) => (
+                  <Link key={project.id} to={`/projects/${project.id}`} className="flex items-center justify-between rounded border px-2 py-1.5 text-xs hover:bg-accent">
+                    <span className="truncate font-medium">{project.name}</span>
+                    <span className="ml-2 shrink-0 text-muted-foreground">{REPORT_VISIBILITY_LABEL[project.report_visibility ?? 'hidden'] ?? project.report_visibility}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
         </SectionCard>
 
         <SectionCard title="Статусы и дедлайны" className="xl:col-span-3">
@@ -712,7 +738,7 @@ export function Dashboard() {
                   <span className="font-semibold tabular-nums">{value}</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-muted">
-                  <div className="h-1.5 rounded-full bg-primary" style={{ width: `${tasks.length ? (value / tasks.length) * 100 : 0}%` }} />
+                  <div className="h-1.5 rounded-full bg-primary" style={{ width: `${totalTasks ? (value / totalTasks) * 100 : 0}%` }} />
                 </div>
               </div>
             ))}
@@ -732,7 +758,7 @@ export function Dashboard() {
                 >
                   <p className="truncate font-medium">{task.title}</p>
                   <p className="text-muted-foreground">
-                    {projectMap[task.project_id]?.name ?? 'Проект'} · {formatDate(task.end_date)}
+                    {task.project_name} · {formatDate(task.end_date)}
                     {(() => {
                       const d = daysUntil(task.end_date)
                       if (d === null) return ''
@@ -768,7 +794,7 @@ export function Dashboard() {
           <div className="mt-3 flex flex-1 min-h-0 flex-col rounded border p-2 text-xs">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Эскалации на мне</span>
-              <span className="font-semibold">{escalations.length}</span>
+              <span className="font-semibold">{report?.escalations_count ?? 0}</span>
             </div>
             <div className="mt-2 flex flex-1 min-h-0 flex-col border-t pt-2">
               <p className="mb-1 text-muted-foreground">СКИ контроль ({skiControlTasks.length})</p>
@@ -848,7 +874,7 @@ export function Dashboard() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         <SectionCard title="Последние обновленные задачи" className="xl:col-span-5" action={<Users2 className="h-4 w-4 text-muted-foreground" />}>
           <div className="max-h-64 space-y-1 overflow-auto">
-            {recentTasks.map((task: Task) => (
+            {recentTasks.map((task) => (
               <Link key={task.id} to={`/projects/${task.project_id}`} className="flex items-center justify-between rounded px-2 py-1.5 text-sm hover:bg-accent">
                 <div className="min-w-0">
                   <p className="truncate">{task.title}</p>

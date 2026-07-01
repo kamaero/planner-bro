@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useAllTasks, useDeadlineStats, useProjectRetrospective, useGenerateRetrospective } from '@/hooks/useProjects'
+import { useDeadlineStats, useGenerateRetrospective, useProjectRetrospective, useProjects } from '@/hooks/useProjects'
+import { useStatusSnapshotReport } from '@/hooks/useReports'
 import {
   BarChart,
   Bar,
@@ -12,8 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Download, AlertTriangle, Activity, ScrollText, RefreshCw } from 'lucide-react'
 import { ActivityHeatmap } from '@/components/ActivityHeatmap/ActivityHeatmap'
-import type { Task, Project } from '@/types'
-import { formatUserDisplayName } from '@/lib/userName'
+import type { ReportProjectSummary, StatusSnapshotReport } from '@/types'
 
 const STATUS_LABELS: Record<string, string> = {
   planning: 'Планирование',
@@ -59,19 +59,38 @@ function MetricCard({ label, value, sub }: { label: string; value: number; sub?:
   )
 }
 
-function exportCSV(tasks: Task[], projects: Project[]) {
-  const projectMap = Object.fromEntries(projects.map((p) => [p.id, p.name]))
+function defaultFromDate() {
+  const d = new Date()
+  d.setDate(d.getDate() - 30)
+  return d.toISOString().slice(0, 10)
+}
+
+function todayDate() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function kpiValue(report: StatusSnapshotReport | undefined, id: string) {
+  return Number(report?.kpis.find((item) => item.id === id)?.value ?? 0)
+}
+
+function exportCSV(projects: ReportProjectSummary[], report: StatusSnapshotReport) {
   const rows = [
-    ['Проект', 'Задача', 'Статус', 'Приоритет', 'Исполнитель', 'Дата начала', 'Дедлайн', 'Оценка (ч)'],
-    ...tasks.map((t) => [
-      projectMap[t.project_id] ?? t.project_id,
-      t.title,
-      STATUS_LABELS[t.status] ?? t.status,
-      PRIORITY_LABELS[t.priority] ?? t.priority,
-      formatUserDisplayName(t.assignee) ?? '',
-      t.start_date ?? '',
-      t.end_date ?? '',
-      String(t.estimated_hours ?? ''),
+    ['Проект', 'Слой', 'Видимость', 'Статус', 'Приоритет', 'Ответственный', 'Отделы', 'Задач', 'Выполнено', 'Прогресс', 'Просрочено', 'Критические/СКИ', 'Риск', 'Дедлайн'],
+    ...projects.map((p) => [
+      p.name,
+      p.report_track,
+      p.report_visibility,
+      p.status_label,
+      PRIORITY_LABELS[p.priority] ?? p.priority,
+      p.owner_name,
+      p.department_names.join('; '),
+      String(p.total_tasks),
+      String(p.done_tasks),
+      `${p.progress_percent}%`,
+      String(p.overdue_tasks),
+      String(p.critical_tasks),
+      p.risk_level,
+      p.end_date ?? '',
     ]),
   ]
   const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
@@ -79,84 +98,66 @@ function exportCSV(tasks: Task[], projects: Project[]) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'planner-bro-otchet-zadachi.csv'
+  a.download = `planner-bro-analytics-${report.period.from_date}-${report.period.to_date}.csv`
   a.click()
   URL.revokeObjectURL(url)
 }
 
 export function Analytics() {
-  const { tasks, projects, isLoading } = useAllTasks()
-  const { data: deadlineStats } = useDeadlineStats()
-  const [reportFrom, setReportFrom] = useState('')
-  const [reportTo, setReportTo] = useState('')
+  const [reportFrom, setReportFrom] = useState(defaultFromDate)
+  const [reportTo, setReportTo] = useState(todayDate)
   const [reportProject, setReportProject] = useState('all')
+  const { data: report, isLoading } = useStatusSnapshotReport({ from: reportFrom, to: reportTo })
+  const { data: projects = [] } = useProjects()
+  const { data: deadlineStats } = useDeadlineStats()
   const [retroProjectId, setRetroProjectId] = useState('')
   const { data: retroData } = useProjectRetrospective(retroProjectId || undefined)
   const generateRetro = useGenerateRetrospective()
 
-  const today = new Date().toISOString().slice(0, 10)
+  const reportProjects = useMemo(() => {
+    const source = report?.projects ?? []
+    if (reportProject === 'all') return source
+    return source.filter((project) => project.id === reportProject)
+  }, [report?.projects, reportProject])
 
-  const getTaskReportDate = (task: Task) => {
-    if (task.end_date) return task.end_date
-    if (task.created_at) return task.created_at.slice(0, 10)
-    return ''
-  }
-
-  const reportTasks = useMemo(() => {
-    return tasks.filter((t) => {
-      if (reportProject !== 'all' && t.project_id !== reportProject) return false
-      const taskDate = getTaskReportDate(t)
-      if (reportFrom && taskDate < reportFrom) return false
-      if (reportTo && taskDate > reportTo) return false
-      return true
-    })
-  }, [tasks, reportFrom, reportTo, reportProject])
-
-  if (isLoading) {
+  if (isLoading || !report) {
     return <div className="p-6 text-muted-foreground">Загрузка аналитики...</div>
   }
 
-  const totalProjects = projects.length
-  const totalTasks = tasks.length
-  const overdue = tasks.filter((t) => t.end_date && t.end_date < today && t.status !== 'done').length
-  const unassigned = tasks.filter((t) => !t.assigned_to_id).length
+  const totalProjects = kpiValue(report, 'projects_total')
+  const totalTasks = report.status_counts.reduce((sum, item) => sum + item.count, 0)
+  const overdue = kpiValue(report, 'overdue_tasks')
+  const unassigned = kpiValue(report, 'unassigned_tasks')
 
+  const statusCountMap = Object.fromEntries(report.status_counts.map((item) => [item.key, item.count]))
   const statusCounts = ['planning', 'tz', 'todo', 'in_progress', 'testing', 'review', 'done'].map((s) => ({
     name: STATUS_LABELS[s],
-    count: tasks.filter((t) => t.status === s).length,
+    count: statusCountMap[s] ?? 0,
     fill: STATUS_COLORS[s],
   }))
 
+  const priorityCountMap = Object.fromEntries(report.priority_counts.map((item) => [item.key, item.count]))
   const priorityCounts = ['low', 'medium', 'high', 'critical'].map((p) => ({
     name: PRIORITY_LABELS[p],
-    value: tasks.filter((t) => t.priority === p).length,
+    value: priorityCountMap[p] ?? 0,
     fill: PRIORITY_COLORS[p],
   }))
   const priorityChartData = priorityCounts.filter((item) => item.value > 0)
 
-  const projectProgress = projects.map((p) => {
-    const projectTasks = tasks.filter((t) => t.project_id === p.id)
-    const done = projectTasks.filter((t) => t.status === 'done').length
-    const pct = projectTasks.length > 0 ? Math.round((done / projectTasks.length) * 100) : 0
-    return { project: p, total: projectTasks.length, done, pct }
-  })
+  const projectProgress = reportProjects.map((project) => ({
+    project,
+    total: project.total_tasks,
+    done: project.done_tasks,
+    pct: project.progress_percent,
+  }))
 
-  const assigneeCounts: Record<string, { name: string; count: number }> = {}
-  tasks.forEach((t) => {
-    if (t.assignee) {
-      if (!assigneeCounts[t.assigned_to_id!]) {
-        assigneeCounts[t.assigned_to_id!] = { name: formatUserDisplayName(t.assignee), count: 0 }
-      }
-      assigneeCounts[t.assigned_to_id!].count++
-    }
-  })
-  const workloadData = Object.values(assigneeCounts).sort((a, b) => b.count - a.count)
+  const workloadData = report.workload.map((item) => ({ name: item.name, count: item.open_tasks }))
 
   return (
     <div className="p-6 space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Аналитика</h1>
-        <Button variant="outline" size="sm" onClick={() => exportCSV(reportTasks, projects)}>
+        <Button variant="outline" size="sm" onClick={() => exportCSV(reportProjects, report)}>
           <Download className="w-4 h-4 mr-2" />
           Экспорт CSV (по фильтру)
         </Button>
@@ -188,7 +189,7 @@ export function Analytics() {
           ))}
         </select>
         <div className="text-xs text-muted-foreground flex items-center justify-end">
-          Задач в отчёте: {reportTasks.length}
+          Проектов в отчёте: {reportProjects.length}
         </div>
       </div>
 

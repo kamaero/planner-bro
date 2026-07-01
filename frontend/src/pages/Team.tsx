@@ -160,18 +160,18 @@ export function Team() {
     }
   }
 
-  useEffect(() => { void loadAll() }, [])
+  useEffect(() => { void loadAll() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (section !== 'org' || !canManageTeam) return
     void loadLoginEvents()
     void loadTempAssignees()
-  }, [section, canManageTeam])
+  }, [section, canManageTeam]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (section !== 'mailing' || !canManageTeam) return
     void loadReportSettings(canManageTeam)
-  }, [section, canManageTeam])
+  }, [section, canManageTeam]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="p-6 space-y-6">

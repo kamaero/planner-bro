@@ -25,21 +25,25 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'radix-vendor': [
-            '@radix-ui/react-avatar',
-            '@radix-ui/react-dialog',
-            '@radix-ui/react-dropdown-menu',
-            '@radix-ui/react-label',
-            '@radix-ui/react-select',
-            '@radix-ui/react-separator',
-            '@radix-ui/react-slot',
-            '@radix-ui/react-toast',
-          ],
-          'chart-vendor': ['recharts'],
-          'gantt-vendor': ['gantt-task-react'],
-          'query-vendor': ['@tanstack/react-query', '@tanstack/react-virtual', 'zustand', 'axios'],
+        manualChunks(id) {
+          if (!id.includes('node_modules')) {
+            return
+          }
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router-dom)[\\/]/.test(id)) {
+            return 'react-vendor'
+          }
+          if (id.includes(`${path.sep}node_modules${path.sep}@radix-ui${path.sep}`)) {
+            return 'radix-vendor'
+          }
+          if (id.includes(`${path.sep}node_modules${path.sep}recharts${path.sep}`)) {
+            return 'chart-vendor'
+          }
+          if (id.includes(`${path.sep}node_modules${path.sep}gantt-task-react${path.sep}`)) {
+            return 'gantt-vendor'
+          }
+          if (/[\\/]node_modules[\\/](@tanstack|zustand|axios)[\\/]/.test(id)) {
+            return 'query-vendor'
+          }
         },
       },
     },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Paperclip, Send, Users, Hash } from 'lucide-react'
@@ -118,7 +118,7 @@ export function Chat() {
   }, [users])
 
   const displayUserName = (user?: User | null) => formatUserDisplayName(user) || user?.name || 'Пользователь'
-  const mentionLabel = (user: User) => displayUserName(user)
+  const mentionLabel = useCallback((user: User) => displayUserName(user), [])
   const displaySenderName = (msg: ChatMessage) =>
     displayUserName(userById.get(msg.sender_id)) || msg.sender_name || 'Пользователь'
 
@@ -127,7 +127,7 @@ export function Chat() {
     if (!mentionOpen) return [] as User[]
     if (!q) return teamList.slice(0, 8)
     return teamList.filter((u) => mentionLabel(u).toLowerCase().includes(q)).slice(0, 8)
-  }, [mentionOpen, mentionQuery, teamList])
+  }, [mentionLabel, mentionOpen, mentionQuery, teamList])
 
   const openGlobal = () => setSearchParams({ mode: 'global' })
   const openDirect = (user: User) => setSearchParams({ mode: 'direct', peer: user.id })

@@ -4,6 +4,7 @@ import { formatUserDisplayName } from '@/lib/userName'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TaskTable } from '@/components/TaskTable/TaskTable'
+import { TaskMultiSelectFilter } from '@/components/ProjectDetail/TaskMultiSelectFilter'
 
 interface Props {
   tasks: Task[]
@@ -14,10 +15,10 @@ interface Props {
   // filter state
   taskSearch: string
   setTaskSearch: (v: string) => void
-  taskStatusFilter: string
-  setTaskStatusFilter: (v: string) => void
-  taskAssigneeFilter: string
-  setTaskAssigneeFilter: (v: string) => void
+  taskStatusFilter: string[]
+  setTaskStatusFilter: (v: string[]) => void
+  taskAssigneeFilter: string[]
+  setTaskAssigneeFilter: (v: string[]) => void
   hideDone: boolean
   setHideDone: (v: (prev: boolean) => boolean) => void
   taskSortBy: 'order' | 'status' | 'priority'
@@ -129,33 +130,29 @@ export function ProjectTaskListView({
             value={taskSearch}
             onChange={(e) => setTaskSearch(e.target.value)}
           />
-          <select
-            value={taskStatusFilter}
-            onChange={(e) => setTaskStatusFilter(e.target.value)}
-            className="border rounded px-2 py-2 text-sm bg-background"
-          >
-            <option value="all">Все статусы</option>
-            <option value="planning">Планирование</option>
-            <option value="tz">ТЗ</option>
-            <option value="todo">К выполнению</option>
-            <option value="in_progress">В работе</option>
-            <option value="testing">Тестирование</option>
-            <option value="review">На проверке</option>
-            <option value="done">Выполнено</option>
-          </select>
-          <select
-            value={taskAssigneeFilter}
-            onChange={(e) => setTaskAssigneeFilter(e.target.value)}
-            className="border rounded px-2 py-2 text-sm bg-background"
-          >
-            <option value="all">Все исполнители</option>
-            <option value="unassigned">Без исполнителя</option>
-            {members.map((m) => (
-              <option key={m.user.id} value={m.user.id}>
-                {formatUserDisplayName(m.user)}
-              </option>
-            ))}
-          </select>
+          <TaskMultiSelectFilter
+            allLabel="Все статусы"
+            selected={taskStatusFilter}
+            onChange={setTaskStatusFilter}
+            options={[
+              { value: 'planning', label: 'Планирование' },
+              { value: 'tz', label: 'ТЗ' },
+              { value: 'todo', label: 'К выполнению' },
+              { value: 'in_progress', label: 'В работе' },
+              { value: 'testing', label: 'Тестирование' },
+              { value: 'review', label: 'На проверке' },
+              { value: 'done', label: 'Выполнено' },
+            ]}
+          />
+          <TaskMultiSelectFilter
+            allLabel="Все исполнители"
+            selected={taskAssigneeFilter}
+            onChange={setTaskAssigneeFilter}
+            options={[
+              { value: 'unassigned', label: 'Без исполнителя' },
+              ...members.map((m) => ({ value: m.user.id, label: formatUserDisplayName(m.user) })),
+            ]}
+          />
           <Button variant="outline" onClick={onToggleSelectAllVisible}>
             {selectedVisibleCount === filteredTasks.length && filteredTasks.length > 0
               ? 'Снять выделение'

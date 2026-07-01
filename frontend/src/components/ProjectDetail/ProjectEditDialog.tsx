@@ -31,6 +31,7 @@ export type ProjectEditFormState = {
   start_date: string
   end_date: string
   owner_id: string
+  report_visibility: string
   completion_checklist: { id: string; label: string; done: boolean }[]
 }
 
@@ -165,6 +166,19 @@ export function ProjectEditDialog({
               )}
             </div>
           </div>
+          <label className="flex items-center justify-between gap-3 rounded border bg-muted/20 px-3 py-2 text-sm lg:col-span-2">
+            <span>Включать проект в scope доклада</span>
+            <input
+              type="checkbox"
+              checked={editForm.report_visibility !== 'hidden'}
+              onChange={(e) =>
+                setEditForm((f) => ({
+                  ...f,
+                  report_visibility: e.target.checked ? (f.report_visibility === 'hidden' ? 'always' : f.report_visibility) : 'hidden',
+                }))
+              }
+            />
+          </label>
           {editForm.planning_mode === 'strict' && (
             <div className="rounded border bg-muted/20 p-3 space-y-2 lg:col-span-2">
               <p className="text-sm font-medium">Правила строгого режима</p>

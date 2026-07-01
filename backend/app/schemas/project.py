@@ -27,6 +27,9 @@ class ProjectBase(BaseModel):
     color: str = "#6366f1"
     status: str = "planning"
     priority: str = "medium"
+    project_kind: str = "major_project"
+    report_visibility: str = "always"
+    report_track: str = "main"
     control_ski: bool = False
     planning_mode: str = "flexible"
     strict_no_past_start_date: bool = False
@@ -55,6 +58,9 @@ class ProjectUpdate(BaseModel):
     color: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
+    project_kind: Optional[str] = None
+    report_visibility: Optional[str] = None
+    report_track: Optional[str] = None
     control_ski: Optional[bool] = None
     planning_mode: Optional[str] = None
     strict_no_past_start_date: Optional[bool] = None

@@ -15,6 +15,7 @@ import { Chat } from '@/pages/Chat'
 import { Help } from '@/pages/Help'
 import { WorkloadCalendar } from '@/pages/WorkloadCalendar'
 import { Roadmap } from '@/pages/Roadmap'
+import { Reports } from '@/pages/Reports'
 import { NotificationBell } from '@/components/NotificationBell/NotificationBell'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -38,6 +39,7 @@ import {
   HelpCircle,
   CalendarDays,
   Milestone,
+  FileText,
 } from 'lucide-react'
 
 function ThemeToggle() {
@@ -111,6 +113,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     { to: '/my-tasks', label: 'Мои задачи', icon: ClipboardList },
     { to: '/roadmap', label: 'Roadmap', icon: Milestone },
     { to: '/analytics', label: 'Аналитика', icon: BarChart2 },
+    { to: '/reports', label: 'Отчёты', icon: FileText },
     { to: '/workload', label: 'Загрузка', icon: CalendarDays },
     { to: '/team', label: 'Настройки', icon: Users },
     { to: '/team-board', label: 'Доска команды', icon: PencilRuler },
@@ -497,6 +500,16 @@ export function App() {
           <AuthGuard>
             <AppLayout>
               <Analytics />
+            </AppLayout>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <AuthGuard>
+            <AppLayout>
+              <Reports />
             </AppLayout>
           </AuthGuard>
         }

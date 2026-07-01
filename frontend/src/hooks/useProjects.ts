@@ -19,6 +19,13 @@ import type {
   CriticalPathResponse,
 } from '@/types'
 
+function invalidateProjectOverview(qc: ReturnType<typeof useQueryClient>, projectId?: string) {
+  qc.invalidateQueries({ queryKey: ['projects'] })
+  if (projectId) qc.invalidateQueries({ queryKey: ['projects', projectId] })
+  qc.invalidateQueries({ queryKey: ['department-dashboard'] })
+  qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
+}
+
 export function useProjects() {
   return useQuery<Project[]>({
     queryKey: ['projects'],
@@ -77,8 +84,7 @@ export function useCreateProject() {
   return useMutation({
     mutationFn: (data: object) => api.createProject(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['projects'] })
-      qc.invalidateQueries({ queryKey: ['department-dashboard'] })
+      invalidateProjectOverview(qc)
     },
   })
 }
@@ -89,9 +95,7 @@ export function useUpdateProject() {
     mutationFn: ({ projectId, data }: { projectId: string; data: object }) =>
       api.updateProject(projectId, data),
     onSuccess: (_, { projectId }) => {
-      qc.invalidateQueries({ queryKey: ['projects'] })
-      qc.invalidateQueries({ queryKey: ['projects', projectId] })
-      qc.invalidateQueries({ queryKey: ['department-dashboard'] })
+      invalidateProjectOverview(qc, projectId)
     },
   })
 }
@@ -101,8 +105,7 @@ export function useDeleteProject() {
   return useMutation({
     mutationFn: (id: string) => api.deleteProject(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['projects'] })
-      qc.invalidateQueries({ queryKey: ['department-dashboard'] })
+      invalidateProjectOverview(qc)
     },
   })
 }
@@ -117,6 +120,7 @@ export function useCreateTask() {
       qc.invalidateQueries({ queryKey: ['gantt', projectId] })
       qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
       qc.invalidateQueries({ queryKey: ['escalations'] })
+      qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
     },
   })
 }
@@ -131,6 +135,7 @@ export function useUpdateTask() {
       qc.invalidateQueries({ queryKey: ['gantt'] })
       qc.invalidateQueries({ queryKey: ['critical-path', updatedTask.project_id] })
       qc.invalidateQueries({ queryKey: ['escalations'] })
+      qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
     },
   })
 }
@@ -154,6 +159,7 @@ export function useUpdateTaskStatus() {
       qc.invalidateQueries({ queryKey: ['gantt'] })
       qc.invalidateQueries({ queryKey: ['critical-path', updatedTask.project_id] })
       qc.invalidateQueries({ queryKey: ['escalations'] })
+      qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
     },
   })
 }
@@ -187,6 +193,7 @@ export function useTaskCheckIn() {
       qc.invalidateQueries({ queryKey: ['task-comments', taskId] })
       qc.invalidateQueries({ queryKey: ['task-events', taskId] })
       qc.invalidateQueries({ queryKey: ['notifications'] })
+      qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
     },
   })
 }
@@ -276,6 +283,7 @@ export function useImportMSProjectTasks() {
       qc.invalidateQueries({ queryKey: ['tasks', projectId] })
       qc.invalidateQueries({ queryKey: ['gantt', projectId] })
       qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
+      qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
     },
   })
 }
@@ -327,6 +335,7 @@ export function useApproveAIDraft() {
       qc.invalidateQueries({ queryKey: ['gantt', projectId] })
       qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
       qc.invalidateQueries({ queryKey: ['notifications'] })
+      qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
     },
   })
 }
@@ -342,6 +351,7 @@ export function useApproveAIDraftsBulk() {
       qc.invalidateQueries({ queryKey: ['gantt', projectId] })
       qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
       qc.invalidateQueries({ queryKey: ['notifications'] })
+      qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
     },
   })
 }
@@ -396,6 +406,7 @@ export function useDeleteTask() {
       qc.invalidateQueries({ queryKey: ['gantt'] })
       qc.invalidateQueries({ queryKey: ['critical-path'] })
       qc.invalidateQueries({ queryKey: ['escalations'] })
+      qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
     },
   })
 }
@@ -426,6 +437,7 @@ export function useBulkUpdateTasks() {
       qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
       qc.invalidateQueries({ queryKey: ['escalations'] })
       qc.invalidateQueries({ queryKey: ['notifications'] })
+      qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
     },
   })
 }
@@ -444,6 +456,7 @@ export function useReorderTasks() {
       qc.invalidateQueries({ queryKey: ['tasks', projectId] })
       qc.invalidateQueries({ queryKey: ['gantt', projectId] })
       qc.invalidateQueries({ queryKey: ['critical-path', projectId] })
+      qc.invalidateQueries({ queryKey: ['status-snapshot-report'] })
     },
   })
 }

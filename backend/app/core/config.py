@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     CHECK_IN_HOURS_CONTROL_SKI_URGENT: int = 24
 
     PROJECT_FILES_DIR: str = "uploads/projects"
+    REPORT_PPTX_TEMPLATE_PATH: str = "app/templates/it_template.pptx"
 
     # Secure team vault (encrypted file storage)
     VAULT_FILES_DIR: str = "uploads/vault"

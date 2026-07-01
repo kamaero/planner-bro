@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from html import escape
 import re
 from typing import TYPE_CHECKING
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 _TASK_NUMBER_PART_RE = re.compile(r"\d+|[^\d]+")
 _PRIORITY_PRINT_MAP = {
-    "critical": "1",
+    "critical": "0",
     "high": "1",
     "medium": "2",
     "low": "3",
@@ -28,9 +28,9 @@ def _task_number_sort_key(task_number: str | None) -> tuple[object, ...]:
 
 
 def _task_sort_key(task: Task) -> tuple[object, ...]:
-    if task.order is not None:
-        return (0, task.order, _task_number_sort_key(task.task_number), task.title.lower())
-    return (1, _task_number_sort_key(task.task_number), task.title.lower())
+    # Печатная форма всегда сортируется по номеру задачи (№ п/п в плане),
+    # а не по drag-and-drop `order`, чтобы список шёл строго по возрастанию номеров.
+    return (_task_number_sort_key(task.task_number), task.title.lower())
 
 
 def _priority_for_print(priority: str) -> str:
@@ -51,23 +51,40 @@ def _format_one_assignee(user: object) -> str:
     return (getattr(user, "name", "") or "").strip() or "-"
 
 
-def _format_assignee(task: Task) -> str:
+def _format_assignee_html(task: Task) -> str:
+    """Готовый (уже экранированный) HTML для ячейки исполнителя.
+
+    Каждое имя экранируется отдельно, между ними — настоящий тег <br>.
+    Возвращать сюда сырую строку и потом ещё раз прогонять через escape()
+    нельзя — иначе <br> превращается в видимый текст «&lt;br&gt;».
+    """
     users = task.assignees
     if not users and task.assignee:
         users = [task.assignee]
     if not users:
         return "-"
-    return "<br>".join(_format_one_assignee(u) for u in users)
+    return "<br>".join(escape(_format_one_assignee(u)) for u in users)
 
 
 def _project_anchor_date(project: Project) -> date:
     return project.start_date or project.end_date or date.today()
 
 
-def _quarter_label() -> str:
-    today = date.today()
-    quarter = ((today.month - 1) // 3) + 1
-    return f"на {quarter}-й квартал {today.year}г."
+def _report_quarter(today: date) -> tuple[int, int]:
+    """Вернуть (номер квартала, год) для печатной формы.
+
+    План готовят заранее, поэтому дата «смотрит вперёд» на 15 дней: за 15 дней до
+    начала нового квартала форма уже печатает НОВЫЙ квартал. Переход через год
+    отрабатывает автоматически (16 декабря + 15 дней → январь → Q1 следующего года).
+    """
+    anchor = today + timedelta(days=15)
+    quarter = ((anchor.month - 1) // 3) + 1
+    return quarter, anchor.year
+
+
+def _quarter_label(today: date | None = None) -> str:
+    quarter, year = _report_quarter(today or date.today())
+    return f"на {quarter}-й квартал {year}г."
 
 
 def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
@@ -78,7 +95,7 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
           <td class="num">{index}</td>
           <td class="task">{escape(task.title)}</td>
           <td class="priority">{_priority_for_print(task.priority)}</td>
-          <td class="assignee">{escape(_format_assignee(task))}</td>
+          <td class="assignee">{_format_assignee_html(task)}</td>
         </tr>
         """.strip()
         for index, task in enumerate(open_tasks, start=1)
@@ -307,9 +324,9 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
         <span class="sig-name">Подоприхин В.Н.</span>
       </div>
       <div class="sig-line">
-        <span class="sig-role">Начальник ОРИТ</span>
+        <span class="sig-role">ВРИО начальника ОРИТ</span>
         <span class="sig-space"></span>
-        <span class="sig-name">Ульянова Л.М.</span>
+        <span class="sig-name">Баранова М.К.</span>
       </div>
       <div class="sig-line">
         <span class="sig-role">Начальник ОАСУП</span>

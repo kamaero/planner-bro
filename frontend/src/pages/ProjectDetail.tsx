@@ -147,11 +147,12 @@ export function ProjectDetail() {
     start_date: '',
     end_date: '',
     owner_id: '',
+    report_visibility: 'always',
     completion_checklist: DEFAULT_DOD_CHECKLIST,
   })
   const [taskSearch, setTaskSearch] = useState('')
-  const [taskStatusFilter, setTaskStatusFilter] = useState('all')
-  const [taskAssigneeFilter, setTaskAssigneeFilter] = useState('all')
+  const [taskStatusFilter, setTaskStatusFilter] = useState<string[]>([])
+  const [taskAssigneeFilter, setTaskAssigneeFilter] = useState<string[]>([])
   const [hideDone, setHideDone] = useState(false)
   const [taskSortBy, setTaskSortBy] = useState<'order' | 'status' | 'priority'>('order')
   const [taskSortDir, setTaskSortDir] = useState<'asc' | 'desc'>('asc')
@@ -237,14 +238,20 @@ export function ProjectDetail() {
         task.title.toLowerCase().includes(taskSearch.toLowerCase()) ||
         (task.description ?? '').toLowerCase().includes(taskSearch.toLowerCase())
 
-      const statusOk = taskStatusFilter === 'all' || task.status === taskStatusFilter
+      // Пустой фильтр = «все». Иначе задача проходит, если её статус входит в выбранные.
+      const statusOk = taskStatusFilter.length === 0 || taskStatusFilter.includes(task.status)
       const doneOk = !hideDone || task.status !== 'done'
 
+      // Мультивыбор исполнителей: задача проходит, если совпал хотя бы один выбранный
+      // исполнитель (или спец-значение «Без исполнителя»).
+      const isUnassigned = !(task.assignee_ids && task.assignee_ids.length > 0) && !task.assigned_to_id
       const assigneeOk =
-        taskAssigneeFilter === 'all' ||
-        (taskAssigneeFilter === 'unassigned'
-          ? !(task.assignee_ids && task.assignee_ids.length > 0) && !task.assigned_to_id
-          : task.assigned_to_id === taskAssigneeFilter || (task.assignee_ids ?? []).includes(taskAssigneeFilter))
+        taskAssigneeFilter.length === 0 ||
+        taskAssigneeFilter.some((f) =>
+          f === 'unassigned'
+            ? isUnassigned
+            : task.assigned_to_id === f || (task.assignee_ids ?? []).includes(f)
+        )
 
       return searchOk && statusOk && doneOk && assigneeOk
     })
@@ -341,6 +348,7 @@ export function ProjectDetail() {
         start_date: project.start_date ?? '',
         end_date: project.end_date ?? '',
         owner_id: project.owner_id,
+        report_visibility: project.report_visibility ?? 'always',
         completion_checklist:
           project.completion_checklist && project.completion_checklist.length > 0
             ? project.completion_checklist
@@ -653,6 +661,7 @@ export function ProjectDetail() {
       start_date: editForm.start_date || null,
       end_date: editForm.end_date || null,
       owner_id: canTransferOwnership ? editForm.owner_id || null : project?.owner_id ?? editForm.owner_id,
+      report_visibility: editForm.report_visibility,
       completion_checklist: editForm.completion_checklist,
     }
 

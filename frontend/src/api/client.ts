@@ -426,6 +426,16 @@ export const api = {
     apiClient
       .get('/analytics/activity-heatmap', { params: days ? { days } : {} })
       .then((r) => r.data),
+  getStatusSnapshotReport: (params?: { from?: string; to?: string; department_id?: string }) =>
+    apiClient.get('/reports/status-snapshot', { params }).then((r) => r.data),
+  downloadStatusSnapshotPresentation: (params?: { from?: string; to?: string; department_id?: string }) =>
+    apiClient
+      .get('/reports/status-snapshot/presentation', { params, responseType: 'blob' })
+      .then((r) => r.data as Blob),
+  downloadStatusSnapshotPresentationPdf: (params?: { from?: string; to?: string; department_id?: string }) =>
+    apiClient
+      .get('/reports/status-snapshot/presentation.pdf', { params, responseType: 'blob' })
+      .then((r) => r.data as Blob),
 
   // AI Project Manager
   analyzeProject: (projectId: string) =>

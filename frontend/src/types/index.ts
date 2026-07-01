@@ -100,6 +100,9 @@ export interface Project {
   color: string
   status: 'planning' | 'tz' | 'active' | 'testing' | 'on_hold' | 'completed'
   priority: 'low' | 'medium' | 'high' | 'critical'
+  project_kind?: 'major_project' | 'department_plan' | 'competence_center' | 'initiative_portfolio' | 'service_inbox' | 'local_project' | string
+  report_visibility?: 'always' | 'watch' | 'risks_only' | 'hidden' | string
+  report_track?: 'main' | 'competence_centers' | 'initiatives' | 'admin' | string
   control_ski: boolean
   planning_mode?: 'flexible' | 'strict'
   strict_no_past_start_date?: boolean
@@ -490,4 +493,137 @@ export interface DeadlineStats {
 export interface ActivityHeatmapData {
   days: Record<string, number>
   total_events: number
+}
+
+export interface ReportPeriod {
+  from_date: string
+  to_date: string
+}
+
+export interface ReportKpi {
+  id: string
+  label: string
+  value: number
+  unit?: string | null
+  detail?: string | null
+  severity: 'neutral' | 'good' | 'warning' | 'danger' | string
+}
+
+export interface ReportBucket {
+  key: string
+  label: string
+  count: number
+}
+
+export interface ReportDepartmentSummary {
+  id: string | null
+  name: string
+  projects_total: number
+  active_projects: number
+  completed_projects: number
+  overdue_projects: number
+  tasks_total: number
+  done_tasks: number
+  overdue_tasks: number
+  progress_percent: number
+}
+
+export interface ReportProjectSummary {
+  id: string
+  name: string
+  status: string
+  status_label: string
+  priority: string
+  project_kind: string
+  report_visibility: string
+  report_track: string
+  owner_name: string
+  department_names: string[]
+  total_tasks: number
+  done_tasks: number
+  overdue_tasks: number
+  critical_tasks: number
+  stale_tasks: number
+  progress_percent: number
+  start_date?: string | null
+  end_date?: string | null
+  risk_level: 'low' | 'medium' | 'high' | string
+  risk_reasons: string[]
+}
+
+export interface ReportRiskItem {
+  kind: 'project' | 'task' | string
+  id: string
+  title: string
+  project_id?: string | null
+  project_name?: string | null
+  assignee_name?: string | null
+  owner_name?: string | null
+  end_date?: string | null
+  risk_level: 'low' | 'medium' | 'high' | string
+  reason: string
+}
+
+export interface ReportTaskSummary {
+  id: string
+  title: string
+  project_id: string
+  project_name: string
+  status: string
+  status_label: string
+  priority: string
+  assignee_name: string
+  end_date?: string | null
+  created_at: string
+  updated_at: string
+  control_ski: boolean
+  is_escalation: boolean
+}
+
+export interface ReportWorkloadItem {
+  user_id: string
+  name: string
+  open_tasks: number
+}
+
+export interface ReportActivitySummary {
+  tasks_created: number
+  tasks_updated: number
+  tasks_completed: number
+  task_events: number
+  deadline_shifts: number
+  email_sent: number
+  email_failed: number
+}
+
+export interface ReportActivityDay {
+  date: string
+  count: number
+}
+
+export interface ReportSlide {
+  title: string
+  bullets: string[]
+  chart?: string | null
+}
+
+export interface StatusSnapshotReport {
+  generated_at: string
+  period: ReportPeriod
+  scope_label: string
+  kpis: ReportKpi[]
+  status_counts: ReportBucket[]
+  priority_counts: ReportBucket[]
+  departments: ReportDepartmentSummary[]
+  projects: ReportProjectSummary[]
+  risks: ReportRiskItem[]
+  recent_tasks: ReportTaskSummary[]
+  my_tasks: ReportTaskSummary[]
+  upcoming_deadlines: ReportTaskSummary[]
+  control_ski_tasks: ReportTaskSummary[]
+  workload: ReportWorkloadItem[]
+  escalations_count: number
+  activity: ReportActivitySummary
+  activity_days: ReportActivityDay[]
+  slides: ReportSlide[]
 }
