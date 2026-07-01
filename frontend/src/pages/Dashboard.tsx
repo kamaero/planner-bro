@@ -30,6 +30,7 @@ import {
   hexToRgba,
   isDigestQueueLog,
 } from './dashboardUtils'
+import { MyTasksCard, SkiControlList } from './dashboardWidgets'
 
 function SectionCard({ title, action, children, className }: { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
@@ -677,25 +678,7 @@ export function Dashboard() {
             </div>
             <div className="mt-2 flex flex-1 min-h-0 flex-col border-t pt-2">
               <p className="mb-1 text-muted-foreground">СКИ контроль ({skiControlTasks.length})</p>
-              <div className="flex-1 min-h-0 space-y-1 overflow-auto pr-1">
-                {skiControlTasks.length === 0 && <p className="text-[11px] text-muted-foreground">Нет активных задач СКИ</p>}
-                {skiControlTasks.map((task) => {
-                  const d = daysUntil(task.end_date)
-                  return (
-                    <Link
-                      key={task.id}
-                      to={`/projects/${task.project_id}?task=${task.id}`}
-                      className={cn('block rounded border px-2 py-1 text-[11px] transition-colors', deadlinePulseClass(d) || 'hover:bg-accent')}
-                    >
-                      <p className="truncate font-medium">{task.title}</p>
-                      <p className="text-muted-foreground">
-                        {formatDate(task.end_date)}
-                        {d === null ? ' · без дедлайна' : d >= 0 ? ` · ${d} дн.` : ' · просрочено'}
-                      </p>
-                    </Link>
-                  )
-                })}
-              </div>
+              <SkiControlList tasks={skiControlTasks} />
             </div>
           </div>
           </div>
@@ -770,25 +753,7 @@ export function Dashboard() {
           className="xl:col-span-3"
           action={<Link to="/my-tasks" className="text-xs text-muted-foreground hover:text-primary transition-colors">Все →</Link>}
         >
-          <div className="max-h-64 space-y-2 overflow-auto">
-            {myUrgentTasks.length === 0 && <p className="text-sm text-muted-foreground">Личных задач нет.</p>}
-            {myUrgentTasks.map((task) => {
-              const d = daysUntil(task.end_date)
-              return (
-                <Link
-                  key={task.id}
-                  to={`/projects/${task.project_id}?task=${task.id}`}
-                  className={cn('block rounded border px-2 py-1.5 text-xs transition-colors', myTaskUrgencyClass(d))}
-                >
-                  <p className="truncate font-medium">{task.title}</p>
-                  <p className="text-muted-foreground">
-                    {TASK_STATUS_LABEL[task.status] ?? task.status} · {formatDate(task.end_date)}
-                    {d === null ? ' · без дедлайна' : d < 0 ? ' · просрочено' : ` · ${d} дн.`}
-                  </p>
-                </Link>
-              )
-            })}
-          </div>
+          <MyTasksCard tasks={myUrgentTasks} />
         </SectionCard>
 
         <SectionCard
