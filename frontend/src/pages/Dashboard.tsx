@@ -90,7 +90,7 @@ export function Dashboard() {
   )
 
   const departmentTabs = useMemo(() => {
-    const mainProjects = projects.filter((project) => (project.report_track ?? 'main') === 'main' && (project.report_visibility ?? 'always') !== 'hidden')
+    const mainProjects = projects.filter((project) => (project.report_track ?? 'main') === 'main')
     const countByDepartment = new Map<string, number>()
     mainProjects.forEach((project) => {
       project.department_ids?.forEach((departmentId) => {
@@ -127,10 +127,9 @@ export function Dashboard() {
   const projectsForSelectedTab = useMemo(() => {
     const source =
       selectedDepartmentTab === 'all'
-        ? projects.filter((project) => (project.report_track ?? 'main') === 'main' && (project.report_visibility ?? 'always') !== 'hidden')
+        ? projects.filter((project) => (project.report_track ?? 'main') === 'main')
         : projects.filter((project) =>
             (project.report_track ?? 'main') === 'main' &&
-            (project.report_visibility ?? 'always') !== 'hidden' &&
             project.department_ids?.includes(selectedDepartmentTab)
           )
     const mineFiltered = onlyMine ? source.filter((project) => myProjectIds.has(project.id)) : source
@@ -144,14 +143,14 @@ export function Dashboard() {
 
   const competenceCenterProjects = useMemo(
     () => projects
-      .filter((project) => project.report_track === 'competence_centers' && project.report_visibility !== 'hidden')
+      .filter((project) => project.report_track === 'competence_centers')
       .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
     [projects]
   )
 
   const initiativeProjects = useMemo(
     () => projects
-      .filter((project) => project.report_track === 'initiatives' && project.report_visibility !== 'hidden')
+      .filter((project) => project.report_track === 'initiatives')
       .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
     [projects]
   )
