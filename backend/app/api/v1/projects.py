@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user, get_current_user_from_bearer_or_token
+from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut,
@@ -245,14 +246,26 @@ async def suggest_import_columns(
     return {"suggestions": suggestions}
 
 
-@router.get("/{project_id}/tasks/print", response_class=HTMLResponse)
+class PrintTasksRequest(BaseModel):
+    # Упорядоченный список ID видимых задач с экрана (после фильтров/сортировки).
+    # Если пусто — печатается стандартный набор (не-done, по номеру).
+    task_ids: list[str] | None = None
+
+
+@router.post("/{project_id}/tasks/print", response_class=HTMLResponse)
 async def print_project_tasks(
     project_id: str,
-    current_user: User = Depends(get_current_user_from_bearer_or_token),
+    body: PrintTasksRequest | None = None,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     project = await require_project_access(project_id, current_user, db)
     tasks = await get_tasks_for_project(db, project_id)
+    task_ids = body.task_ids if body else None
+    if task_ids:
+        by_id = {task.id: task for task in tasks}
+        ordered = [by_id[tid] for tid in task_ids if tid in by_id]
+        return HTMLResponse(content=build_project_tasks_print_html(project, ordered, pre_ordered=True))
     return HTMLResponse(content=build_project_tasks_print_html(project, tasks))
 
 

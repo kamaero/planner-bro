@@ -713,14 +713,22 @@ export function ProjectDetail() {
     }
   }
 
-  const accessToken = useAuthStore((s) => s.accessToken)
-
-  function handlePrintClick() {
-    const url = new URL(`/api/v1/projects/${id}/tasks/print`, window.location.origin)
-    if (accessToken) {
-      url.searchParams.set('token', accessToken)
+  async function handlePrintClick() {
+    // Окно открываем синхронно в обработчике клика (иначе попап-блокировщик срежет после await).
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(
+      '<!doctype html><meta charset="utf-8"><body style="font:14px sans-serif;padding:24px;color:#666">Формирую печать…</body>'
+    )
+    try {
+      // Передаём порядок задач ровно как на экране (с учётом активных фильтров и сортировки).
+      const html = await api.printProjectTasks(id!, filteredTasks.map((t) => t.id))
+      win.document.open()
+      win.document.write(html)
+      win.document.close()
+    } catch {
+      win.document.body.innerHTML = '<p style="font:14px sans-serif;padding:24px">Не удалось сформировать печать.</p>'
     }
-    window.open(url.toString(), '_blank', 'noopener,noreferrer')
   }
 
   const handleQuickStatusChange = useCallback(async (task: Task, status: string) => {

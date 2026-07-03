@@ -87,8 +87,15 @@ def _quarter_label(today: date | None = None) -> str:
     return f"на {quarter}-й квартал {year}г."
 
 
-def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
-    open_tasks = sorted((task for task in tasks if task.status != "done"), key=_task_sort_key)
+def build_project_tasks_print_html(
+    project: Project, tasks: list[Task], *, pre_ordered: bool = False
+) -> str:
+    # pre_ordered=True: задачи уже отфильтрованы и упорядочены на фронте (порядок экрана) —
+    # печатаем как есть. Иначе (fallback) — свой фильтр done + сортировка по номеру.
+    if pre_ordered:
+        open_tasks = list(tasks)
+    else:
+        open_tasks = sorted((task for task in tasks if task.status != "done"), key=_task_sort_key)
     rows_html = "\n".join(
         f"""
         <tr>
@@ -118,7 +125,7 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>План ППО - {project_name}</title>
+  <title>{project_name}</title>
   <style>
     :root {{
       color-scheme: light;
@@ -249,7 +256,9 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
     }}
     @page {{
       size: A4 portrait;
-      margin: 12mm;
+      /* margin: 0 убирает колонтитулы браузера (заголовок из <title> и URL-футер) —
+         им негде рисоваться; поля переносим на .page ниже. */
+      margin: 0;
     }}
     @media screen {{
       body {{
@@ -270,7 +279,7 @@ def build_project_tasks_print_html(project: Project, tasks: list[Task]) -> str:
         width: auto;
         min-height: auto;
         margin: 0;
-        padding: 0;
+        padding: 14mm 12mm;
         box-shadow: none;
       }}
       .table-wrap, table {{
